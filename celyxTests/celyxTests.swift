@@ -1,19 +1,447 @@
 //
 //  celyxTests.swift
-//  celyxTests
+//  celyx
 //
 //  Created by Ferdiansyah Annora on 02/11/26.
 //
 
 import Testing
+import Foundation
+import MetalKit
+import simd
 @testable import celyx
 
+@MainActor
 struct celyxTests {
+    @Test func panoramaDragWrapsFreelyAndClampsAtPoles() {
+        let model = HomeViewModel.preview()
+        model.drag(CGSize(width: -4000, height: 10000), width: 400)
+        #expect(model.scene.azimuth > 2 * .pi)
+        #expect(model.scene.altitude == 1.45)
+        model.endDrag()
+        model.drag(CGSize(width: 0, height: -10000), width: 400)
+        #expect(model.scene.altitude == -1.35)
+    }
+    @Test func zoomIsBoundedAndResetPreservesLayers() {
+        let model = HomeViewModel.preview()
+        model.scene.showsGrid = true
+        model.zoom(100)
+        #expect(model.scene.fieldOfView == 6)
+        model.endZoom()
+        model.zoom(0.01)
+        #expect(model.scene.fieldOfView == 100)
+        model.reset()
+        #expect(model.scene.fieldOfView == 72)
+        #expect(model.scene.azimuth == 0)
+        #expect(model.scene.showsGrid)
+    }
+    @Test func catalogueLoadsAndSearchFocusUsesSameProjectionAsRenderer() throws {
+        let model = HomeViewModel.preview()
+        #expect(model.stars.count == 3248)
+        model.query = "Sirius"
+        let star = try #require(model.results.first)
+        #expect(star.title == "Sirius")
+        model.activeSheet = .search
+        model.scene.reduceMotion = true
+        model.showDetail(star)
+        model.handleSheetDismissal()
+        let p = try #require(model.snapshot).direction(ra:star.ra_deg,dec:star.dec_deg)
+        #expect(abs(model.scene.altitude - asin(p.z)) < 0.00001)
+        #expect(abs(model.scene.azimuth - atan2(p.x, p.y)) < 0.00001)
+        #expect(model.activeSheet == .detail)
+    }
+    @Test func liveSkyBasisAndSolarDayNight() {
+        let location = ObserverLocation(latitude:-6.1754,longitude:106.8272)
+        let date = Date(timeIntervalSince1970:1793633400)
+        let sky = AstronomyService.snapshot(date:date,location:location)
+        let basis = sky.basis
+        #expect(abs(simd_dot(basis.columns.0,basis.columns.1)) < 1e-10)
+        #expect(abs(simd_length(basis.columns.2)-1) < 1e-10)
+        #expect(sky.sunAltitude < -18)
+        let noon = AstronomyService.snapshot(date:date.addingTimeInterval(-10*3600),location:location)
+        #expect(noon.sunAltitude > 60)
+        let later = AstronomyService.snapshot(date:date.addingTimeInterval(6*3600),location:location)
+        #expect(simd_length(later.basis.columns.0-basis.columns.0) > 0.5)
+        let otherLocation = AstronomyService.snapshot(date:date,location:ObserverLocation(latitude:51.5,longitude:0))
+        #expect(simd_length(otherLocation.basis.columns.0-basis.columns.0) > 0.5)
+    }
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-        // Swift Testing Documentation
-        // https://developer.apple.com/documentation/testing
+    @Test func visibilityAndCollectionAreBoundedAndPersisted() throws {
+        let defaults = UserDefaults(suiteName:"celyx.collection.tests")!
+        defaults.removePersistentDomain(forName:"celyx.collection.tests")
+        defer { defaults.removePersistentDomain(forName:"celyx.collection.tests") }
+        let location = ObserverLocation(latitude:-6.1754,longitude:106.8272,isManual:true)
+        let date = Date(timeIntervalSince1970:1793633400)
+        let model = HomeViewModel(location:location,date:date,defaults:defaults)
+        model.quality = .dark
+        #expect(model.nearby.allSatisfy { $0.altitude > 0 })
+        let candidate = try #require(model.nearby.first { $0.canCollect })
+        model.scene.reduceMotion = true
+        model.showDetail(candidate.star)
+        model.collectSelected(); model.collectSelected()
+        #expect(model.collected.count == 1)
+        let restored = HomeViewModel(location:location,date:date,defaults:defaults)
+        #expect(restored.collected[candidate.id]?.latitude == location.latitude)
+        let cloudy = VisibilityEstimator.observation(star:candidate.star,direction:candidate.direction,limit:6,sunAltitude:-30,atmosphere:Atmosphere(cloudCover:95))
+        #expect(!cloudy.likelyVisible)
+        let daylight = VisibilityEstimator.observation(star:candidate.star,direction:candidate.direction,limit:6,sunAltitude:20,atmosphere:Atmosphere())
+        #expect(!daylight.canCollect)
+        let below = VisibilityEstimator.observation(star:candidate.star,direction:SIMD3(0,0,-1),limit:6,sunAltitude:-30,atmosphere:Atmosphere())
+        #expect(!below.likelyVisible)
+        let hazy = VisibilityEstimator.observation(star:candidate.star,direction:candidate.direction,limit:6,sunAltitude:-30,atmosphere:Atmosphere(aerosolOpticalDepth:1))
+        #expect(hazy.dimmedMagnitude >= candidate.dimmedMagnitude)
+    }
+
+    @Test func daytimeMapShowsStarsAndConstellationsWhileObservationUsesRealConditions() throws {
+        let defaults = UserDefaults(suiteName:"celyx.daylight.tests")!
+        defaults.removePersistentDomain(forName:"celyx.daylight.tests")
+        defer { defaults.removePersistentDomain(forName:"celyx.daylight.tests") }
+        let model = HomeViewModel(location:ObserverLocation(latitude:-6.1754,longitude:106.8272,isManual:true),
+                                  date:Date(timeIntervalSince1970:1793633400-10*3600),defaults:defaults)
+        #expect(try #require(model.snapshot).sunAltitude > 60)
+        #expect(!model.displayedObservations.isEmpty)
+        #expect(model.displayedObservations.contains { $0.star.hasCommonName })
+        #expect(!model.visibleConstellationIDs.isEmpty)
+        #expect(model.observations.allSatisfy { !$0.canCollect })
+        let sky = try #require(model.snapshot)
+        let moonAltitude = asin(sky.moonDirection.z)*180 / .pi
+        #expect(model.scene.limitingMagnitude == VisibilityEstimator.limitingMagnitude(
+            sunAltitude:-18,quality:model.quality,moonAltitude:moonAltitude,moonIllumination:sky.moonIllumination))
+        var drawings: [ProjectedConstellationFigure] = []
+        for figure in model.constellationFigures {
+            let center = sky.basis*figure.center
+            model.scene.azimuth = atan2(center.x,center.y); model.scene.altitude = asin(center.z)
+            drawings += ConstellationFigureProjection.project([figure],visibleIDs:model.visibleConstellationIDs,
+                scene:model.scene,size:CGSize(width:402,height:874))
+        }
+        #expect(!drawings.isEmpty)
+    }
+
+    @Test func zoomRevealsFainterStarsIncludingUnnamedCatalogueEntries() throws {
+        let model = HomeViewModel.preview()
+        let original = Set(model.displayedObservations.map(\.id))
+        let baseLimit = model.scene.starLimitingMagnitude
+        model.zoom(1.5)
+        let middleLimit = model.scene.starLimitingMagnitude
+        #expect(middleLimit > baseLimit)
+        model.zoom(100)
+        let zoomed = Set(model.displayedObservations.map(\.id))
+        #expect(model.scene.starLimitingMagnitude > middleLimit)
+        #expect(original.isSubset(of:zoomed))
+        #expect(zoomed.count > original.count)
+        #expect(model.displayedObservations.contains { !original.contains($0.id) && !$0.star.hasCommonName })
+        model.endZoom(); model.reset()
+        #expect(Set(model.displayedObservations.map(\.id)) == original)
+        for quality in SkyQuality.allCases {
+            model.quality = quality
+            let base = model.scene.starLimitingMagnitude
+            model.zoom(100)
+            #expect(model.scene.starLimitingMagnitude >= base)
+            #expect(model.scene.starLimitingMagnitude == 6.5)
+            model.endZoom(); model.reset()
+        }
+    }
+
+    @Test func sunUsesLivePositionAndCanBeCollectedAndRestoredDuringDaytime() throws {
+        let suite = "celyx.sun.tests"
+        let defaults = UserDefaults(suiteName:suite)!
+        defaults.removePersistentDomain(forName:suite)
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let location = ObserverLocation(latitude:-6.1754,longitude:106.8272,isManual:true)
+        let noon = Date(timeIntervalSince1970:1793633400-10*3600)
+        let model = HomeViewModel(location:location,date:noon,defaults:defaults)
+        model.query = "Matahari"
+        #expect(model.results.map(\.id) == [CatalogStar.sun.id])
+        model.query = "Sun"
+        #expect(model.results.contains { $0.isSun })
+        #expect(model.nearby.contains { $0.star.isSun })
+        model.scene.reduceMotion = true
+        model.showDetail(.sun)
+        let solar = try #require(model.selectedObservation)
+        #expect(solar.canCollect)
+        #expect(solar.direction == model.scene.sunDirection)
+        #expect(abs(model.scene.altitude-asin(solar.direction.z)) < 1e-10)
+        model.collectSelected(); model.collectSelected()
+        #expect(model.collected.count == 1)
+        let restored = HomeViewModel(location:location,date:noon,defaults:defaults)
+        #expect(restored.collected[CatalogStar.sun.id]?.latitude == location.latitude)
+        let night = HomeViewModel(location:location,date:noon.addingTimeInterval(10*3600),defaults:defaults)
+        night.scene.reduceMotion = true
+        night.showDetail(.sun)
+        #expect(try #require(night.selectedObservation).canCollect == false)
+        #expect(!night.nearby.contains { $0.star.isSun })
+    }
+
+    @Test func finderProjectsTrueDirectionsAndNeverSnapsAlignedObjectsToCenter() throws {
+        #expect(SkyFinderProjection.worldDirection(SIMD3(0,1,0)) == SIMD3(0,0,-1))
+        #expect(SkyFinderProjection.worldDirection(SIMD3(1,0,0)) == SIMD3(1,0,0))
+        #expect(SkyFinderProjection.worldDirection(SIMD3(0,0,1)) == SIMD3(0,1,0))
+        let size = CGSize(width:400,height:800)
+        // Perspective matrix with a forward-facing -Z camera.
+        let projection = simd_float4x4(columns:(SIMD4(2,0,0,0),SIMD4(0,1,0,0),SIMD4(0,0,-1,-1),SIMD4(0,0,-0.02,0)))
+        func guide(_ direction: SIMD3<Float>,view: simd_float4x4 = matrix_identity_float4x4) -> SkyFinderProjection {
+            SkyFinderProjection.project(direction:simd_normalize(direction),view:view,projection:projection,size:size)
+        }
+        let centered = guide(SIMD3(0,0,-1))
+        #expect(centered.isAligned)
+        #expect(centered.point == CGPoint(x:200,y:400))
+        let near = guide(SIMD3(0.02,0,-1))
+        #expect(near.isAligned)
+        #expect(try #require(near.point).x > 200)
+        let right = guide(SIMD3(1,0,-1))
+        #expect(!right.isAligned && right.point == nil && right.arrow.dx > 0)
+        let up = guide(SIMD3(0,1,-1))
+        #expect(up.arrow.dy < 0)
+        let behind = guide(SIMD3(-0.1,0,1))
+        #expect(behind.point == nil && behind.arrow.dx < 0)
+        #expect(guide(SIMD3(0,0,1)).point == nil)
+        let roll = simd_float4x4(simd_quatf(angle:.pi/2,axis:SIMD3(0,0,1)))
+        let rolled = guide(SIMD3(0.1,0,-1),view:roll)
+        #expect(abs(rolled.arrow.dx) < 0.001 && rolled.arrow.dy < 0)
+    }
+
+    @Test func finderPresentationWaitsForDetailDismissalAndRequiresLocation() throws {
+        let model = HomeViewModel.preview()
+        model.scene.reduceMotion = true
+        model.showDetail(.sun)
+        model.findSelectedInSky()
+        #expect(model.activeSheet == nil)
+        #expect(model.finderTarget == nil)
+        model.handleSheetDismissal()
+        #expect(model.finderTarget?.isSun == true)
+        let missing = HomeViewModel()
+        missing.selectedStar = .sun
+        missing.findSelectedInSky(); missing.handleSheetDismissal()
+        #expect(missing.finderTarget == nil)
+    }
+
+    @Test func deepZoomFadesAtmosphereWithoutChangingAstronomicalPositions() throws {
+        let model = HomeViewModel.preview()
+        let basis = try #require(model.snapshot).basis
+        let solar = model.scene.sunDirection
+        let originalObservations = model.observations.map(\.likelyVisible)
+        #expect(model.scene.spaceBlend == 0)
+        model.scene.fieldOfView = 35
+        #expect(model.scene.spaceBlend == 0)
+        model.scene.fieldOfView = 20
+        #expect(model.scene.spaceBlend > 0 && model.scene.spaceBlend < 1)
+        model.scene.cloudCover = 95
+        #expect(model.scene.renderedCloudCover < 95)
+        model.scene.fieldOfView = 8
+        #expect(model.scene.spaceBlend == 1)
+        #expect(model.scene.renderedExtinction == 0)
+        #expect(model.scene.renderedCloudCover == 0)
+        #expect(model.snapshot?.basis == basis)
+        #expect(model.scene.sunDirection == solar)
+        #expect(model.observations.map(\.likelyVisible) == originalObservations)
+        model.scene.cloudCover = 0
+        model.reset()
+        #expect(model.scene.spaceBlend == 0)
+        #expect(model.scene.renderedExtinction == model.scene.extinction)
+    }
+
+    @Test func cameraFlightTakesShortestTurnAndZoomsContinuously() {
+        let from = SkyCameraPose(azimuth:359 * .pi/180,altitude:0.2,fieldOfView:72)
+        let to = SkyCameraPose(azimuth:1 * .pi/180,altitude:0.8,fieldOfView:8)
+        let middle = SkyCameraPose.interpolate(from:from,to:to,progress:0.5)
+        #expect(abs(middle.azimuth-2 * .pi) < 1e-10)
+        #expect(abs(middle.fieldOfView-24) < 1e-10)
+        var last = from.fieldOfView
+        for step in 0...100 {
+            let pose = SkyCameraPose.interpolate(from:from,to:to,progress:Double(step)/100)
+            #expect(pose.fieldOfView <= last+1e-10)
+            #expect(abs(pose.azimuth-from.azimuth) <= 2 * .pi/180+1e-10)
+            last = pose.fieldOfView
+        }
+    }
+
+    @Test func detailFlightAnimatesInAndRestoresPreviousCameraOnDismissal() async throws {
+        let model = HomeViewModel.preview()
+        model.scene.azimuth = 0.35; model.scene.altitude = 0.4; model.scene.fieldOfView = 56
+        let original = SkyCameraPose(scene:model.scene)
+        let star = try #require(model.namedObservations.first?.star)
+        model.showDetail(star)
+        #expect(model.isCameraTransitioning)
+        #expect(model.activeSheet == nil)
+        #expect(SkyCameraPose(scene:model.scene) == original)
+        try await Task.sleep(for:.milliseconds(180))
+        #expect(model.detailVisualProgress > 0 && model.detailVisualProgress < 1)
+        #expect(model.scene.fieldOfView < 56 && model.scene.fieldOfView > 8)
+        try await Task.sleep(for:.milliseconds(1100))
+        #expect(model.activeSheet == .detail)
+        #expect(!model.isCameraTransitioning)
+        #expect(abs(model.scene.fieldOfView-8) < 1e-8)
+        model.closeDetail(); model.handleSheetDismissal()
+        #expect(model.isCameraTransitioning)
+        try await Task.sleep(for:.milliseconds(1100))
+        #expect(!model.isInspectingStar)
+        #expect(model.detailVisualProgress == 0)
+        #expect(abs(model.scene.azimuth-original.azimuth) < 1e-8)
+        #expect(abs(model.scene.altitude-original.altitude) < 1e-8)
+        #expect(abs(model.scene.fieldOfView-original.fieldOfView) < 1e-8)
+    }
+
+    @Test func gardenResolvesRealRecordsSortsNewestAndPreservesMissingCatalogueItems() throws {
+        let catalogue = try SkyAssets.stars()
+        let first = try #require(catalogue.first)
+        let old = Date(timeIntervalSince1970:100)
+        let recent = Date(timeIntervalSince1970:200)
+        let records = [first.id:CollectedStar(id:first.id,date:old,latitude:-6.2,longitude:106.8),
+                       -1:CollectedStar(id:-1,date:recent,latitude:-7,longitude:107),
+                       999999:CollectedStar(id:999999,date:old,latitude:0,longitude:0)]
+        let items = GardenCollectionItem.resolve(records:records,catalogue:catalogue)
+        #expect(items.count == records.count)
+        #expect(items.first?.star.isSun == true)
+        #expect(items.first?.record.latitude == -7)
+        #expect(items.contains { $0.id == 999999 && $0.star.title == "Objek 999999" })
+        #expect(GardenCollectionItem.resolve(records:[:],catalogue:catalogue).isEmpty)
+        #expect(FileManager.default.fileExists(atPath:try SkyAssets.url("your-galaxy-1400",extension:"jpg").path))
+    }
+
+    @Test func gardenMarkersStayOnTheDiscAndSelectionCanRotateIntoView() {
+        let center = CGPoint(x:200,y:400)
+        for id in [-1,0,1,100,3247] {
+            let rotation = -.pi/2+0.35-GardenOrbit.angle(id:id)
+            let selected = GardenOrbit.point(id:id,rotation:rotation,diameter:800,center:center)
+            #expect(selected.x > 44 && selected.x < 356)
+            #expect(selected.y > 120 && selected.y < 650)
+            let repeated = GardenOrbit.point(id:id,rotation:rotation+2 * .pi,diameter:800,center:center)
+            #expect(abs(selected.x-repeated.x) < 1e-8)
+            #expect(abs(selected.y-repeated.y) < 1e-8)
+        }
+    }
+
+    @Test func gardenPortalZoomsBothWaysWithoutChangingSkyCamera() async throws {
+        let model = HomeViewModel.preview()
+        let pose = SkyCameraPose(scene:model.scene)
+        model.openGarden()
+        #expect(model.showsGarden && model.isGardenTransitioning)
+        #expect(model.gardenProgress == 0)
+        try await Task.sleep(for:.milliseconds(180))
+        #expect(model.gardenProgress > 0 && model.gardenProgress < 1)
+        try await Task.sleep(for:.milliseconds(1100))
+        #expect(model.showsGarden && !model.isGardenTransitioning)
+        #expect(model.gardenProgress == 1)
+        model.closeGarden()
+        #expect(model.isGardenTransitioning)
+        try await Task.sleep(for:.milliseconds(180))
+        #expect(model.gardenProgress > 0 && model.gardenProgress < 1)
+        try await Task.sleep(for:.milliseconds(1100))
+        #expect(!model.showsGarden && !model.isGardenTransitioning)
+        #expect(model.gardenProgress == 0)
+        #expect(SkyCameraPose(scene:model.scene) == pose)
+    }
+
+    @Test func missingAndInvalidLocationNeverPretendToBeLive() {
+        let model = HomeViewModel()
+        #expect(model.location == nil)
+        #expect(model.nearby.isEmpty)
+        model.manualLatitude = "95"; model.manualLongitude = "200"
+        model.useManualLocation()
+        #expect(model.location == nil)
+        model.manualLatitude = "-6.1754"; model.manualLongitude = "106.8272"
+        model.useManualLocation()
+        #expect(model.location?.isManual == true)
+        #expect(model.scene.hasLocation)
+    }
+
+    @Test func stereographicProjectionRoundTripsAtTallScreenEdges() throws {
+        for fieldOfView in [6.0,8,20,35,72,100] {
+        let focal = CameraProjection.focalLength(width: 402, height: 874, fieldOfView: fieldOfView)
+        for x in [-201.0,0,201] {
+            for y in [-463.0,0,411] {
+                let offset = SIMD2(x,y)
+                let ray = CameraProjection.ray(offset: offset,focal: focal)
+                #expect(abs(simd_length(ray)-1) < 1e-10)
+                let screen = try #require(CameraProjection.project(direction: ray,focal: focal))
+                #expect(simd_length(screen-offset) < 1e-9)
+                // Equal screen distances should have equal angular scale in X and Y,
+                // even at the corners where the previous pinhole camera stretched shapes.
+                let dx = CameraProjection.ray(offset: offset+SIMD2(0.01,0),focal: focal)-ray
+                let dy = CameraProjection.ray(offset: offset+SIMD2(0,0.01),focal: focal)-ray
+                #expect(abs(simd_length(dx)/simd_length(dy)-1) < 0.0001)
+                #expect(abs(simd_dot(simd_normalize(dx),simd_normalize(dy))) < 0.0001)
+            }
+        }
+        #expect(CameraProjection.project(direction: SIMD3(0,0,-1),focal: focal) == nil)
+        }
+    }
+
+    @Test func rendererCompilesGPUStarsAndFitsTextureBudget() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let view = MTKView(frame: CGRect(x: 0,y: 0,width: 402,height: 874),device: device)
+        let renderer = try PanoramaRenderer(view: view)
+        #expect(renderer.starCount == 3248)
+        #expect(renderer.textureByteCount <= 160*1024*1024)
+    }
+
+    @Test func figureCatalogueIncludesAllBundledIllustrations() throws {
+        let figures = try ConstellationFigure.load()
+        #expect(figures.count == 85)
+        for figure in figures {
+            let file = URL(fileURLWithPath:figure.definition.file)
+            #expect(FileManager.default.fileExists(atPath:try SkyAssets.url(file.deletingPathExtension().lastPathComponent,extension:file.pathExtension).path))
+        }
+        #expect(!figures.contains { ["Pup","Ser","Vel"].contains($0.id) })
+    }
+
+    @Test func constellationArtworkTracksAllThreeAnchorsAcrossZoomAndRotation() throws {
+        let model = HomeViewModel.preview()
+        let sky = try #require(model.snapshot)
+        let figure = try #require(model.constellationFigures.first { $0.id == "And" })
+        let center = sky.basis*figure.center
+        model.scene.azimuth = atan2(center.x,center.y)
+        model.scene.altitude = asin(center.z)
+        let size = CGSize(width:402,height:874)
+        for fov in [35.0,72,100] {
+            for offset in [0.0,0.12] {
+                var scene = model.scene
+                scene.azimuth += offset; scene.fieldOfView = fov
+                let drawing = try #require(ConstellationFigureProjection.project([figure],visibleIDs:["And"],scene:scene,size:size).first)
+                let az = scene.azimuth, alt = scene.altitude
+                let forward = SIMD3(sin(az)*cos(alt),cos(az)*cos(alt),sin(alt))
+                let right = SIMD3(cos(az),-sin(az),0.0), up = simd_cross(right,forward)
+                let focal = CameraProjection.focalLength(width:size.width,height:size.height,fieldOfView:fov)
+                for anchor in figure.definition.anchors {
+                    let d = sky.basis*anchor.equatorial
+                    let p = try #require(CameraProjection.project(direction:SIMD3(simd_dot(d,right),simd_dot(d,up),simd_dot(d,forward)),focal:focal))
+                    let actual = CGPoint(x:anchor.pixel[0],y:anchor.pixel[1]).applying(drawing.transform)
+                    #expect(abs(actual.x-(size.width*0.5+p.x)) < 1e-7)
+                    #expect(abs(actual.y-(size.height*0.47-p.y)) < 1e-7)
+                }
+            }
+        }
+        let source = [CGPoint.zero,CGPoint(x:1,y:1),CGPoint(x:2,y:2)]
+        #expect(ConstellationFigureProjection.affine(source:source,target:source) == nil)
+    }
+
+    @Test func constellationArtworkFadesAndStaysInsideViewingRadius() throws {
+        let model = HomeViewModel.preview()
+        let figure = try #require(model.constellationFigures.first { $0.id == "And" })
+        let sky = try #require(model.snapshot)
+        let center = sky.basis*figure.center
+        var scene = model.scene
+        scene.azimuth = atan2(center.x,center.y); scene.altitude = asin(center.z)
+        let size = CGSize(width:402,height:874)
+        func drawings(_ scene: SkySceneState,_ ids: Set<String> = ["And"]) -> [ProjectedConstellationFigure] {
+            ConstellationFigureProjection.project([figure],visibleIDs:ids,scene:scene,size:size)
+        }
+        let initial = try #require(drawings(scene).first)
+        var edge = scene; edge.altitude -= 18 * .pi/180
+        let faded = try #require(drawings(edge).first)
+        #expect(faded.opacity > 0 && faded.opacity < initial.opacity)
+        edge.altitude = scene.altitude-23 * .pi/180
+        #expect(drawings(edge).isEmpty)
+        #expect(drawings(scene,[]).isEmpty)
+        var disabled = scene; disabled.showsConstellationFigures = false
+        #expect(drawings(disabled).isEmpty)
+        var daylight = scene; daylight.sunDirection = SIMD3(0,0,1)
+        let daytimeDrawing = try #require(drawings(daylight).first)
+        #expect(daytimeDrawing.opacity == initial.opacity)
+        disabled = scene; disabled.hasLocation = false
+        #expect(drawings(disabled).isEmpty)
+        disabled = scene; disabled.cloudCover = 90
+        #expect(drawings(disabled).isEmpty)
     }
 
 }

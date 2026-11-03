@@ -1,0 +1,169 @@
+//
+//  PanoramaShader.txt
+//  celyx
+//
+//  Created by Ferdiansyah Annora on 02/11/26.
+//
+
+#include <metal_stdlib>
+using namespace metal;
+struct Uniforms {
+    float4 camera; // azimuth, altitude, field of view, elapsed time
+    float4 viewport; // drawable width, height, focal length, pixels per point
+    float4 layers; // Milky Way, stars, grid, lines
+    float4 eqX;
+    float4 eqY;
+    float4 eqZ;
+    float4 forward;
+    float4 right;
+    float4 up;
+    float4 boatRotation; // cos pitch, sin pitch, cos roll, sin roll
+    float4 conditions; // limiting magnitude, extinction, cloud cover, location ready
+    float4 sun;
+    float4 moon;
+    float4 starVisibility; // zoom-adjusted magnitude, atmosphere-to-space blend, virtual star extinction
+};
+struct VertexOut { float4 position [[position]]; float2 uv; };
+vertex VertexOut panoramaVertex(uint id [[vertex_id]]) {
+    float2 p = float2((id << 1) & 2, id & 2);
+    return {float4(p * 2 - 1, 0, 1), float2(p.x, 1 - p.y)};
+}
+// Inverse stereographic projection is conformal: local shapes do not stretch
+// differently along horizontal and vertical axes at the edges of a tall screen.
+float3 viewRay(float2 pixel, constant Uniforms &u) {
+    float2 q = float2(pixel.x-u.viewport.x*.5, u.viewport.y*.47-pixel.y)/(2*u.viewport.z);
+    float q2 = dot(q,q);
+    return ((1-q2)*u.forward.xyz + 2*q.x*u.right.xyz + 2*q.y*u.up.xyz)/(1+q2);
+}
+float2 environmentUV(float3 d) {
+    return float2(atan2(d.x,d.y)/(2*M_PI_F)+.5, .5-asin(clamp(d.z,-1.0f,1.0f))/M_PI_F);
+}
+constexpr sampler panoramaSampler(coord::normalized, s_address::repeat, t_address::clamp_to_edge,
+                                   min_filter::linear, mag_filter::linear, mip_filter::linear);
+fragment float4 panoramaFragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
+    texture2d<float> sky [[texture(0)]], texture2d<float> mw [[texture(1)]],
+    texture2d<float> lines [[texture(2)]]) {
+    float3 d = viewRay(in.uv*u.viewport.xy,u);
+    float3 col = sky.sample(panoramaSampler,environmentUV(d)).rgb;
+    float sunAltitude = asin(clamp(u.sun.z,-1.0f,1.0f))*180/M_PI_F;
+    float day = smoothstep(-18.0f,3.0f,sunAltitude);
+    float night = 1-smoothstep(-18.0f,-6.0f,sunAltitude);
+    float h = max(d.z,0.0f);
+    float3 dayColor = mix(float3(.65,.80,.95),float3(.12,.38,.78),sqrt(h));
+    float glow = pow(max(dot(d,u.sun.xyz),0.0f),12.0f);
+    float twilight = smoothstep(-18.0f,-6.0f,sunAltitude)*(1-smoothstep(-6.0f,2.0f,sunAltitude));
+    dayColor = mix(dayColor,float3(.85,.35,.14),twilight*exp(-h*4)*(0.25+0.75*glow));
+    col = mix(col,dayColor,day);
+    float space = u.starVisibility.y;
+    float3 spaceColor = mix(float3(.003,.004,.012),float3(.008,.012,.028),sqrt(h));
+    col = mix(col,spaceColor,space);
+    if(d.z >= 0 && u.conditions.w > .5) {
+        float3 e = float3(dot(d,u.eqX.xyz),dot(d,u.eqY.xyz),dot(d,u.eqZ.xyz));
+        float2 euv = float2(atan2(e.y,e.x)/(2*M_PI_F),acos(clamp(e.z,-1.0f,1.0f))/M_PI_F);
+        if(u.layers.x > .5) {
+            float3 m = mw.sample(panoramaSampler,euv).rgb;
+            col += m*m*1.15*(.25+.75*smoothstep(0.0f,.35f,d.z))*mix(night,1.0f,space)*mix(clamp((u.conditions.x-2)/3.6,0.0f,1.0f),1.0f,space);
+        }
+        if(u.layers.w > .5) col += lines.sample(panoramaSampler,euv).rgb*.55;
+        if(u.layers.z > .5) {
+            float2 g = float2(atan2(d.x,d.y),asin(d.z))*180/M_PI_F;
+            float2 dist = abs(fract(g/15+.5)-.5)*15;
+            float grid = 1-smoothstep(.06f,.22f,min(dist.x,dist.y));
+            col += float3(.20,.32,.48)*grid*.45;
+        }
+    }
+    // The solar disc stays in world coordinates and grows with optical zoom.
+    // A ~0.53-degree disc plus atmospheric glare reads as a Sun, not a star point.
+    float sunAngle = atan2(length(cross(d,u.sun.xyz)),clamp(dot(d,u.sun.xyz),-1.0f,1.0f));
+    float solarRadius = .266f*M_PI_F/180;
+    float pixelAngle = max(fwidth(sunAngle),.00001f);
+    if(u.conditions.w > .5 && sunAltitude > -.833f && d.z >= 0) {
+        float disc = 1-smoothstep(solarRadius-pixelAngle,solarRadius+pixelAngle,sunAngle);
+        float highSun = mix(smoothstep(0.0f,18.0f,sunAltitude),1.0f,space);
+        float3 sunlight = mix(float3(1.0,.30,.055),float3(1.0,.97,.84),highSun);
+        float normalizedRadius = min(sunAngle/solarRadius,1.0f);
+        float limb = .6f+.4f*sqrt(max(0.0f,1-normalizedRadius*normalizedRadius));
+        float innerGlow = exp(-pow(sunAngle/(.7f*M_PI_F/180),2.0f));
+        float aureole = exp(-sunAngle/(2.8f*M_PI_F/180));
+        float hazeGlow = exp(-sunAngle/(7.0f*M_PI_F/180));
+        float haze = clamp(u.conditions.y,0.0f,1.0f);
+        col += sunlight*(innerGlow*.85f+aureole*.26f+hazeGlow*(.035f+.06f*haze))*(1-space);
+        col = mix(col,sunlight*limb,disc);
+    }
+    col = mix(col,mix(float3(.20,.23,.29),float3(.68,.72,.77),day),u.conditions.z/100*.4);
+    return float4(col,1);
+}
+
+struct Star { float4 directionMagnitude; float4 color; };
+struct StarOut {
+    float4 position [[position]];
+    float size [[point_size]];
+    float4 color;
+    float core;
+};
+vertex StarOut starVertex(uint id [[vertex_id]], constant Uniforms &u [[buffer(0)]],
+                         const device Star *stars [[buffer(1)]]) {
+    Star star = stars[id];
+    float3 eq = star.directionMagnitude.xyz;
+    float3 d = eq.x*u.eqX.xyz + eq.y*u.eqY.xyz + eq.z*u.eqZ.xyz;
+    float z = dot(d,u.forward.xyz);
+    StarOut out;
+    out.position = float4(2,2,0,1);
+    out.size = 1; out.color = float4(0); out.core = .2;
+    if(z <= -.9 || d.z <= 0 || u.conditions.w < .5) return out;
+    float altitude = asin(clamp(d.z,-1.0f,1.0f))*180/M_PI_F;
+    float airMass = 1/(d.z+.50572*pow(altitude+6.07995,-1.6364));
+    float dimmed = star.directionMagnitude.w + u.starVisibility.z*max(airMass-1,0.0f);
+    if(altitude <= 1 || dimmed > u.starVisibility.x) return out;
+    float2 offset = 2*float2(dot(d,u.right.xyz),dot(d,u.up.xyz))/(1+z)*u.viewport.z;
+    float2 pixel = float2(u.viewport.x*.5+offset.x,u.viewport.y*.47-offset.y);
+    out.position = float4(pixel.x/u.viewport.x*2-1,1-pixel.y/u.viewport.y*2,0,1);
+    float mag = star.directionMagnitude.w;
+    float radius = clamp(2.4-.42*mag,.65f,3.6f)*min(sqrt(72/u.camera.z),1.8f);
+    float glow = mag < 2 ? 5.0 : 3.0;
+    out.size = radius*2*glow*u.viewport.w;
+    out.core = 1/glow;
+    out.color = float4(star.color.rgb,smoothstep(0.0f,.75f,u.starVisibility.x-dimmed));
+    return out;
+}
+fragment float4 starFragment(StarOut in [[stage_in]], float2 point [[point_coord]]) {
+    float radius = length(point*2-1);
+    if(radius > 1) discard_fragment();
+    float core = 1-smoothstep(in.core*.35,in.core,radius);
+    float halo = exp(-radius*radius*9)*.16;
+    return float4(in.color.rgb*(core+halo)*in.color.a,0);
+}
+
+// Foreground is composited after stars, so islands, sea and boat occlude them.
+// Input textures use premultiplied RGBA8; preserve that convention throughout.
+float4 over(float4 base, float4 layer) { return layer+base*(1-layer.a); }
+fragment float4 foregroundFragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
+    texture2d<float> islands [[texture(3)]], texture2d<float> sea [[texture(4)]],
+    texture2d<float> boat [[texture(5)]], texture2d<float> dayBoat [[texture(6)]]) {
+    float3 d = viewRay(in.uv*u.viewport.xy,u);
+    float2 uv = environmentUV(d);
+    // Calculate derivatives before divergent visibility branches. Implicit LOD
+    // inside them produces small stripes at the sea/island horizon on GPU quads.
+    gradient2d environmentGradient(dfdx(uv),dfdy(uv));
+    float4 col = float4(0);
+    if(d.z < .18 && d.z > -.02) {
+        // The source RGB contains vertical bands. Use its coastline mask only;
+        // fill the land with a continuous tint instead of amplifying those bands in daylight.
+        float mask = smoothstep(0.0f,.25f,islands.sample(panoramaSampler,uv,environmentGradient).a);
+        float3 land = mix(float3(.018,.028,.045),float3(.025,.038,.055),smoothstep(0.0f,.12f,d.z));
+        col = float4(land*mask,mask);
+    }
+    if(d.z < .003) col = over(col,sea.sample(panoramaSampler,uv,environmentGradient));
+    float4 rot = u.boatRotation;
+    float3 b = float3(d.x,d.y*rot.x-d.z*rot.y,d.y*rot.y+d.z*rot.x);
+    b = float3(b.x*rot.z-b.z*rot.w,b.y,b.x*rot.w+b.z*rot.z);
+    float2 boatUV = environmentUV(b);
+    gradient2d boatGradient(dfdx(boatUV),dfdy(boatUV));
+    float day = smoothstep(-18.0f,3.0f,asin(clamp(u.sun.z,-1.0f,1.0f))*180/M_PI_F);
+    col.rgb = mix(col.rgb,min(col.rgb*3+float3(.08,.16,.21)*col.a,float3(1)),day);
+    if(b.z < .02) {
+        float4 boatColor = mix(boat.sample(panoramaSampler,boatUV,boatGradient),dayBoat.sample(panoramaSampler,boatUV,boatGradient),day);
+        col = over(col,boatColor);
+    }
+    return col*(1-u.starVisibility.y);
+}

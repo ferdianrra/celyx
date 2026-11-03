@@ -1,0 +1,3062 @@
+{
+ "Aql": {
+  "file": "figures/aquila.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     163,
+     232
+    ],
+    "hip": 97649,
+    "ra_deg": 297.6958,
+    "dec_deg": 8.8683
+   },
+   {
+    "pixel": [
+     385,
+     131
+    ],
+    "hip": 93244,
+    "ra_deg": 284.9057,
+    "dec_deg": 15.0683
+   },
+   {
+    "pixel": [
+     397,
+     397
+    ],
+    "hip": 93805,
+    "ra_deg": 286.5623,
+    "dec_deg": -4.8826
+   }
+  ]
+ },
+ "And": {
+  "file": "figures/andromeda.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     198,
+     215
+    ],
+    "hip": 3881,
+    "ra_deg": 12.4535,
+    "dec_deg": 41.0789
+   },
+   {
+    "pixel": [
+     337,
+     136
+    ],
+    "hip": 3092,
+    "ra_deg": 9.8319,
+    "dec_deg": 30.861
+   },
+   {
+    "pixel": [
+     224,
+     428
+    ],
+    "hip": 9640,
+    "ra_deg": 30.9748,
+    "dec_deg": 42.3297
+   }
+  ]
+ },
+ "Scl": {
+  "file": "figures/sculptor.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     231,
+     39
+    ],
+    "hip": 115102,
+    "ra_deg": 349.706,
+    "dec_deg": -32.532
+   },
+   {
+    "pixel": [
+     240,
+     106
+    ],
+    "hip": 116231,
+    "ra_deg": 353.2427,
+    "dec_deg": -37.8183
+   },
+   {
+    "pixel": [
+     32,
+     174
+    ],
+    "hip": 4577,
+    "ra_deg": 14.6515,
+    "dec_deg": -29.3574
+   }
+  ]
+ },
+ "Ara": {
+  "file": "figures/ara.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     98,
+     70
+    ],
+    "hip": 83081,
+    "ra_deg": 254.6551,
+    "dec_deg": -55.9901
+   },
+   {
+    "pixel": [
+     191,
+     93
+    ],
+    "hip": 85727,
+    "ra_deg": 262.7748,
+    "dec_deg": -60.6838
+   },
+   {
+    "pixel": [
+     107,
+     249
+    ],
+    "hip": 88714,
+    "ra_deg": 271.6578,
+    "dec_deg": -50.0915
+   }
+  ]
+ },
+ "Lib": {
+  "file": "figures/libra.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     41,
+     27
+    ],
+    "hip": 74785,
+    "ra_deg": 229.2517,
+    "dec_deg": -9.3829
+   },
+   {
+    "pixel": [
+     58,
+     170
+    ],
+    "hip": 77853,
+    "ra_deg": 238.4564,
+    "dec_deg": -16.7293
+   },
+   {
+    "pixel": [
+     224,
+     107
+    ],
+    "hip": 73714,
+    "ra_deg": 226.0176,
+    "dec_deg": -25.282
+   }
+  ]
+ },
+ "Cet": {
+  "file": "figures/cetus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     87,
+     63
+    ],
+    "hip": 14143,
+    "ra_deg": 45.5938,
+    "dec_deg": 4.3529
+   },
+   {
+    "pixel": [
+     28,
+     274
+    ],
+    "hip": 12770,
+    "ra_deg": 41.0306,
+    "dec_deg": -13.8587
+   },
+   {
+    "pixel": [
+     412,
+     440
+    ],
+    "hip": 1562,
+    "ra_deg": 4.857,
+    "dec_deg": -8.8239
+   }
+  ]
+ },
+ "Ari": {
+  "file": "figures/aries.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     12,
+     130
+    ],
+    "hip": 13209,
+    "ra_deg": 42.4959,
+    "dec_deg": 27.2605
+   },
+   {
+    "pixel": [
+     58,
+     206
+    ],
+    "hip": 13914,
+    "ra_deg": 44.803,
+    "dec_deg": 21.3404
+   },
+   {
+    "pixel": [
+     210,
+     47
+    ],
+    "hip": 8832,
+    "ra_deg": 28.3825,
+    "dec_deg": 19.2939
+   }
+  ]
+ },
+ "Sct": {
+  "file": "figures/scutum.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     52,
+     17
+    ],
+    "hip": 92175,
+    "ra_deg": 281.7936,
+    "dec_deg": -4.7479
+   },
+   {
+    "pixel": [
+     224,
+     124
+    ],
+    "hip": 90595,
+    "ra_deg": 277.2994,
+    "dec_deg": -14.5658
+   },
+   {
+    "pixel": [
+     139,
+     206
+    ],
+    "hip": 92814,
+    "ra_deg": 283.6796,
+    "dec_deg": -15.603
+   }
+  ]
+ },
+ "Pyx": {
+  "file": "figures/pyxis.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     152,
+     220
+    ],
+    "hip": 41723,
+    "ra_deg": 127.6192,
+    "dec_deg": -32.1593
+   },
+   {
+    "pixel": [
+     94,
+     159
+    ],
+    "hip": 42828,
+    "ra_deg": 130.8981,
+    "dec_deg": -33.1864
+   },
+   {
+    "pixel": [
+     44,
+     202
+    ],
+    "hip": 42515,
+    "ra_deg": 130.0256,
+    "dec_deg": -35.3084
+   }
+  ]
+ },
+ "Boo": {
+  "file": "figures/bootes.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     225,
+     222
+    ],
+    "hip": 72105,
+    "ra_deg": 221.2468,
+    "dec_deg": 27.0742
+   },
+   {
+    "pixel": [
+     365,
+     184
+    ],
+    "hip": 71075,
+    "ra_deg": 218.0195,
+    "dec_deg": 38.3083
+   },
+   {
+    "pixel": [
+     207,
+     401
+    ],
+    "hip": 67927,
+    "ra_deg": 208.6712,
+    "dec_deg": 18.3977
+   }
+  ]
+ },
+ "Cae": {
+  "file": "figures/caelum.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     16,
+     231
+    ],
+    "hip": 21060,
+    "ra_deg": 67.7087,
+    "dec_deg": -44.9537
+   },
+   {
+    "pixel": [
+     76,
+     145
+    ],
+    "hip": 21770,
+    "ra_deg": 70.1406,
+    "dec_deg": -41.8638
+   },
+   {
+    "pixel": [
+     199,
+     75
+    ],
+    "hip": 21861,
+    "ra_deg": 70.5145,
+    "dec_deg": -37.1443
+   }
+  ]
+ },
+ "Cha": {
+  "file": "figures/chamaeleon.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     29,
+     214
+    ],
+    "hip": 60000,
+    "ra_deg": 184.5872,
+    "dec_deg": -79.3122
+   },
+   {
+    "pixel": [
+     73,
+     123
+    ],
+    "hip": 51839,
+    "ra_deg": 158.8675,
+    "dec_deg": -78.6078
+   },
+   {
+    "pixel": [
+     184,
+     33
+    ],
+    "hip": 40702,
+    "ra_deg": 124.6305,
+    "dec_deg": -76.9197
+   }
+  ]
+ },
+ "Cnc": {
+  "file": "figures/cancer.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     29,
+     166
+    ],
+    "hip": 44066,
+    "ra_deg": 134.6218,
+    "dec_deg": 11.8577
+   },
+   {
+    "pixel": [
+     101,
+     255
+    ],
+    "hip": 40526,
+    "ra_deg": 124.1288,
+    "dec_deg": 9.1855
+   },
+   {
+    "pixel": [
+     206,
+     91
+    ],
+    "hip": 40843,
+    "ra_deg": 125.0161,
+    "dec_deg": 27.2177
+   }
+  ]
+ },
+ "Cap": {
+  "file": "figures/capricornus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     15,
+     436
+    ],
+    "hip": 107556,
+    "ra_deg": 326.7602,
+    "dec_deg": -16.1273
+   },
+   {
+    "pixel": [
+     403,
+     7
+    ],
+    "hip": 100064,
+    "ra_deg": 304.5136,
+    "dec_deg": -12.5449
+   },
+   {
+    "pixel": [
+     460,
+     438
+    ],
+    "hip": 102978,
+    "ra_deg": 312.9554,
+    "dec_deg": -26.9191
+   }
+  ]
+ },
+ "Car": {
+  "file": "figures/argonavis.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     202,
+     455
+    ],
+    "hip": 45238,
+    "ra_deg": 138.3006,
+    "dec_deg": -69.7172
+   },
+   {
+    "pixel": [
+     62,
+     216
+    ],
+    "hip": 50191,
+    "ra_deg": 153.6841,
+    "dec_deg": -42.1219
+   },
+   {
+    "pixel": [
+     298,
+     22
+    ],
+    "hip": 39757,
+    "ra_deg": 121.8861,
+    "dec_deg": -24.3043
+   }
+  ]
+ },
+ "Cas": {
+  "file": "figures/cassiopeia.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     390,
+     336
+    ],
+    "hip": 8886,
+    "ra_deg": 28.5988,
+    "dec_deg": 63.6701
+   },
+   {
+    "pixel": [
+     163,
+     156
+    ],
+    "hip": 3179,
+    "ra_deg": 10.1267,
+    "dec_deg": 56.5373
+   },
+   {
+    "pixel": [
+     73,
+     243
+    ],
+    "hip": 746,
+    "ra_deg": 2.2933,
+    "dec_deg": 59.1498
+   }
+  ]
+ },
+ "Cen": {
+  "file": "figures/centaurus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     118,
+     157
+    ],
+    "hip": 68933,
+    "ra_deg": 211.6709,
+    "dec_deg": -36.37
+   },
+   {
+    "pixel": [
+     194,
+     444
+    ],
+    "hip": 71683,
+    "ra_deg": 219.9115,
+    "dec_deg": -60.834
+   },
+   {
+    "pixel": [
+     463,
+     412
+    ],
+    "hip": 56561,
+    "ra_deg": 173.9454,
+    "dec_deg": -63.0198
+   }
+  ]
+ },
+ "Cep": {
+  "file": "figures/cepheus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     60,
+     335
+    ],
+    "hip": 116727,
+    "ra_deg": 354.8373,
+    "dec_deg": 77.6323
+   },
+   {
+    "pixel": [
+     125,
+     170
+    ],
+    "hip": 106032,
+    "ra_deg": 322.1649,
+    "dec_deg": 70.5607
+   },
+   {
+    "pixel": [
+     335,
+     147
+    ],
+    "hip": 109492,
+    "ra_deg": 332.7136,
+    "dec_deg": 58.2013
+   }
+  ]
+ },
+ "Com": {
+  "file": "figures/coma-berenices.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     27,
+     199
+    ],
+    "hip": 64241,
+    "ra_deg": 197.497,
+    "dec_deg": 17.5294
+   },
+   {
+    "pixel": [
+     38,
+     58
+    ],
+    "hip": 64394,
+    "ra_deg": 197.9686,
+    "dec_deg": 27.8782
+   },
+   {
+    "pixel": [
+     172,
+     64
+    ],
+    "hip": 60742,
+    "ra_deg": 186.7345,
+    "dec_deg": 28.2684
+   }
+  ]
+ },
+ "CVn": {
+  "file": "figures/canes-venatici.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     117,
+     113
+    ],
+    "hip": 63901,
+    "ra_deg": 196.4352,
+    "dec_deg": 35.7989
+   },
+   {
+    "pixel": [
+     206,
+     40
+    ],
+    "hip": 61317,
+    "ra_deg": 188.4362,
+    "dec_deg": 41.3575
+   },
+   {
+    "pixel": [
+     207,
+     152
+    ],
+    "hip": 61309,
+    "ra_deg": 188.4121,
+    "dec_deg": 33.2476
+   }
+  ]
+ },
+ "Aur": {
+  "file": "figures/auriga.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     196,
+     189
+    ],
+    "hip": 28380,
+    "ra_deg": 89.9303,
+    "dec_deg": 37.2126
+   },
+   {
+    "pixel": [
+     419,
+     208
+    ],
+    "hip": 24608,
+    "ra_deg": 79.1723,
+    "dec_deg": 45.998
+   },
+   {
+    "pixel": [
+     290,
+     423
+    ],
+    "hip": 23015,
+    "ra_deg": 74.2484,
+    "dec_deg": 33.1661
+   }
+  ]
+ },
+ "Col": {
+  "file": "figures/columba.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     139,
+     29
+    ],
+    "hip": 30277,
+    "ra_deg": 95.5285,
+    "dec_deg": -33.4364
+   },
+   {
+    "pixel": [
+     40,
+     190
+    ],
+    "hip": 28328,
+    "ra_deg": 89.7867,
+    "dec_deg": -42.8151
+   },
+   {
+    "pixel": [
+     204,
+     211
+    ],
+    "hip": 25859,
+    "ra_deg": 82.8031,
+    "dec_deg": -35.4705
+   }
+  ]
+ },
+ "Cir": {
+  "file": "figures/circinus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     5,
+     36
+    ],
+    "hip": 75323,
+    "ra_deg": 230.8444,
+    "dec_deg": -59.3208
+   },
+   {
+    "pixel": [
+     39,
+     11
+    ],
+    "hip": 74824,
+    "ra_deg": 229.3788,
+    "dec_deg": -58.8012
+   },
+   {
+    "pixel": [
+     235,
+     239
+    ],
+    "hip": 71908,
+    "ra_deg": 220.6274,
+    "dec_deg": -64.9751
+   }
+  ]
+ },
+ "Crt": {
+  "file": "figures/crater.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     45,
+     41
+    ],
+    "hip": 58188,
+    "ra_deg": 179.004,
+    "dec_deg": -17.1508
+   },
+   {
+    "pixel": [
+     160,
+     149
+    ],
+    "hip": 55282,
+    "ra_deg": 169.8352,
+    "dec_deg": -14.7785
+   },
+   {
+    "pixel": [
+     55,
+     242
+    ],
+    "hip": 54682,
+    "ra_deg": 167.9145,
+    "dec_deg": -22.8258
+   }
+  ]
+ },
+ "CrA": {
+  "file": "figures/corona-australis.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     14,
+     142
+    ],
+    "hip": 93825,
+    "ra_deg": 286.6046,
+    "dec_deg": -37.0634
+   },
+   {
+    "pixel": [
+     218,
+     34
+    ],
+    "hip": 90887,
+    "ra_deg": 278.0889,
+    "dec_deg": -39.704
+   },
+   {
+    "pixel": [
+     195,
+     208
+    ],
+    "hip": 92953,
+    "ra_deg": 284.0707,
+    "dec_deg": -42.7107
+   }
+  ]
+ },
+ "CrB": {
+  "file": "figures/corona-borealis.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     16,
+     186
+    ],
+    "hip": 78493,
+    "ra_deg": 240.3607,
+    "dec_deg": 29.8511
+   },
+   {
+    "pixel": [
+     201,
+     203
+    ],
+    "hip": 76952,
+    "ra_deg": 235.6857,
+    "dec_deg": 26.2956
+   },
+   {
+    "pixel": [
+     157,
+     20
+    ],
+    "hip": 76127,
+    "ra_deg": 233.2324,
+    "dec_deg": 31.3591
+   }
+  ]
+ },
+ "Crv": {
+  "file": "figures/corvus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     65,
+     59
+    ],
+    "hip": 60965,
+    "ra_deg": 187.4661,
+    "dec_deg": -16.5154
+   },
+   {
+    "pixel": [
+     77,
+     235
+    ],
+    "hip": 61359,
+    "ra_deg": 188.5968,
+    "dec_deg": -23.3968
+   },
+   {
+    "pixel": [
+     213,
+     187
+    ],
+    "hip": 59316,
+    "ra_deg": 182.5312,
+    "dec_deg": -22.6198
+   }
+  ]
+ },
+ "Cru": {
+  "file": "figures/crux.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     112,
+     21
+    ],
+    "hip": 61084,
+    "ra_deg": 187.7914,
+    "dec_deg": -57.1132
+   },
+   {
+    "pixel": [
+     42,
+     20
+    ],
+    "hip": 62434,
+    "ra_deg": 191.9304,
+    "dec_deg": -59.6888
+   },
+   {
+    "pixel": [
+     21,
+     106
+    ],
+    "hip": 60718,
+    "ra_deg": 186.6497,
+    "dec_deg": -63.0991
+   }
+  ]
+ },
+ "Cyg": {
+  "file": "figures/cygnus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     7,
+     382
+    ],
+    "hip": 107310,
+    "ra_deg": 326.0357,
+    "dec_deg": 28.7426
+   },
+   {
+    "pixel": [
+     474,
+     46
+    ],
+    "hip": 94779,
+    "ra_deg": 289.2756,
+    "dec_deg": 53.3685
+   },
+   {
+    "pixel": [
+     467,
+     453
+    ],
+    "hip": 95947,
+    "ra_deg": 292.6803,
+    "dec_deg": 27.9597
+   }
+  ]
+ },
+ "Del": {
+  "file": "figures/delphinus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     59,
+     31
+    ],
+    "hip": 102532,
+    "ra_deg": 311.6646,
+    "dec_deg": 16.1243
+   },
+   {
+    "pixel": [
+     75,
+     148
+    ],
+    "hip": 102805,
+    "ra_deg": 312.4074,
+    "dec_deg": 12.5451
+   },
+   {
+    "pixel": [
+     211,
+     143
+    ],
+    "hip": 101421,
+    "ra_deg": 308.3032,
+    "dec_deg": 11.3033
+   }
+  ]
+ },
+ "Dor": {
+  "file": "figures/dorado.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     56,
+     197
+    ],
+    "hip": 27890,
+    "ra_deg": 88.5249,
+    "dec_deg": -63.0896
+   },
+   {
+    "pixel": [
+     75,
+     228
+    ],
+    "hip": 27100,
+    "ra_deg": 86.1933,
+    "dec_deg": -65.7355
+   },
+   {
+    "pixel": [
+     219,
+     46
+    ],
+    "hip": 19893,
+    "ra_deg": 64.0065,
+    "dec_deg": -51.4866
+   }
+  ]
+ },
+ "Dra": {
+  "file": "figures/draco.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     13,
+     411
+    ],
+    "hip": 56211,
+    "ra_deg": 172.8511,
+    "dec_deg": 69.3311
+   },
+   {
+    "pixel": [
+     361,
+     154
+    ],
+    "hip": 85670,
+    "ra_deg": 262.6082,
+    "dec_deg": 52.3014
+   },
+   {
+    "pixel": [
+     449,
+     429
+    ],
+    "hip": 97433,
+    "ra_deg": 297.0428,
+    "dec_deg": 70.2679
+   }
+  ]
+ },
+ "Nor": {
+  "file": "figures/norma.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     17,
+     45
+    ],
+    "hip": 78639,
+    "ra_deg": 240.8037,
+    "dec_deg": -49.2297
+   },
+   {
+    "pixel": [
+     101,
+     38
+    ],
+    "hip": 79509,
+    "ra_deg": 243.3697,
+    "dec_deg": -54.6305
+   },
+   {
+    "pixel": [
+     16,
+     112
+    ],
+    "hip": 80582,
+    "ra_deg": 246.796,
+    "dec_deg": -47.5548
+   }
+  ]
+ },
+ "Eri": {
+  "file": "figures/eridanus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     41,
+     95
+    ],
+    "hip": 22109,
+    "ra_deg": 71.3756,
+    "dec_deg": -3.2547
+   },
+   {
+    "pixel": [
+     296,
+     44
+    ],
+    "hip": 13701,
+    "ra_deg": 44.1069,
+    "dec_deg": -8.8981
+   },
+   {
+    "pixel": [
+     493,
+     490
+    ],
+    "hip": 7588,
+    "ra_deg": 24.4283,
+    "dec_deg": -57.2368
+   }
+  ]
+ },
+ "Sge": {
+  "file": "figures/sagitta.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     6,
+     12
+    ],
+    "hip": 98920,
+    "ra_deg": 301.2896,
+    "dec_deg": 19.9911
+   },
+   {
+    "pixel": [
+     249,
+     213
+    ],
+    "hip": 96757,
+    "ra_deg": 295.0241,
+    "dec_deg": 18.0139
+   },
+   {
+    "pixel": [
+     218,
+     243
+    ],
+    "hip": 96837,
+    "ra_deg": 295.2622,
+    "dec_deg": 17.476
+   }
+  ]
+ },
+ "For": {
+  "file": "figures/fornax.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     42,
+     125
+    ],
+    "hip": 14879,
+    "ra_deg": 48.0187,
+    "dec_deg": -28.9876
+   },
+   {
+    "pixel": [
+     128,
+     37
+    ],
+    "hip": 13202,
+    "ra_deg": 42.4757,
+    "dec_deg": -27.942
+   },
+   {
+    "pixel": [
+     190,
+     129
+    ],
+    "hip": 13147,
+    "ra_deg": 42.2725,
+    "dec_deg": -32.4059
+   }
+  ]
+ },
+ "Gem": {
+  "file": "figures/gemini.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     14,
+     81
+    ],
+    "hip": 37740,
+    "ra_deg": 116.1119,
+    "dec_deg": 24.398
+   },
+   {
+    "pixel": [
+     117,
+     252
+    ],
+    "hip": 32362,
+    "ra_deg": 101.3224,
+    "dec_deg": 12.8956
+   },
+   {
+    "pixel": [
+     249,
+     165
+    ],
+    "hip": 28734,
+    "ra_deg": 91.0301,
+    "dec_deg": 23.2633
+   }
+  ]
+ },
+ "Cam": {
+  "file": "figures/camelopardalis.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     77,
+     46
+    ],
+    "hip": 25110,
+    "ra_deg": 80.6405,
+    "dec_deg": 79.2311
+   },
+   {
+    "pixel": [
+     128,
+     135
+    ],
+    "hip": 22783,
+    "ra_deg": 73.5125,
+    "dec_deg": 66.3427
+   },
+   {
+    "pixel": [
+     219,
+     136
+    ],
+    "hip": 16228,
+    "ra_deg": 52.2672,
+    "dec_deg": 59.9403
+   }
+  ]
+ },
+ "CMa": {
+  "file": "figures/canis-major.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     21,
+     347
+    ],
+    "hip": 35904,
+    "ra_deg": 111.0238,
+    "dec_deg": -29.3031
+   },
+   {
+    "pixel": [
+     321,
+     24
+    ],
+    "hip": 33160,
+    "ra_deg": 103.5475,
+    "dec_deg": -12.0386
+   },
+   {
+    "pixel": [
+     318,
+     492
+    ],
+    "hip": 30122,
+    "ra_deg": 95.0783,
+    "dec_deg": -30.0634
+   }
+  ]
+ },
+ "UMa": {
+  "file": "figures/ursa-major.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     26,
+     75
+    ],
+    "hip": 67301,
+    "ra_deg": 206.8853,
+    "dec_deg": 49.3133
+   },
+   {
+    "pixel": [
+     452,
+     272
+    ],
+    "hip": 41704,
+    "ra_deg": 127.5665,
+    "dec_deg": 60.7182
+   },
+   {
+    "pixel": [
+     258,
+     394
+    ],
+    "hip": 50372,
+    "ra_deg": 154.2743,
+    "dec_deg": 42.9144
+   }
+  ]
+ },
+ "Gru": {
+  "file": "figures/grus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     49,
+     109
+    ],
+    "hip": 114131,
+    "ra_deg": 346.7198,
+    "dec_deg": -43.5204
+   },
+   {
+    "pixel": [
+     85,
+     206
+    ],
+    "hip": 112623,
+    "ra_deg": 342.1386,
+    "dec_deg": -51.3169
+   },
+   {
+    "pixel": [
+     220,
+     45
+    ],
+    "hip": 108085,
+    "ra_deg": 328.4821,
+    "dec_deg": -37.3649
+   }
+  ]
+ },
+ "Her": {
+  "file": "figures/hercules.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     44,
+     115
+    ],
+    "hip": 80170,
+    "ra_deg": 245.4801,
+    "dec_deg": 19.1531
+   },
+   {
+    "pixel": [
+     254,
+     477
+    ],
+    "hip": 79992,
+    "ra_deg": 244.9352,
+    "dec_deg": 46.3134
+   },
+   {
+    "pixel": [
+     441,
+     102
+    ],
+    "hip": 88794,
+    "ra_deg": 271.8856,
+    "dec_deg": 28.7625
+   }
+  ]
+ },
+ "Hor": {
+  "file": "figures/horlogium.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     16,
+     235
+    ],
+    "hip": 19747,
+    "ra_deg": 63.5004,
+    "dec_deg": -42.2944
+   },
+   {
+    "pixel": [
+     184,
+     67
+    ],
+    "hip": 12484,
+    "ra_deg": 40.165,
+    "dec_deg": -54.5499
+   },
+   {
+    "pixel": [
+     235,
+     119
+    ],
+    "hip": 14240,
+    "ra_deg": 45.9036,
+    "dec_deg": -59.7378
+   }
+  ]
+ },
+ "Hya": {
+  "file": "figures/hydra.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     26,
+     491
+    ],
+    "hip": 64962,
+    "ra_deg": 199.7304,
+    "dec_deg": -23.1715
+   },
+   {
+    "pixel": [
+     111,
+     149
+    ],
+    "hip": 55434,
+    "ra_deg": 170.2841,
+    "dec_deg": 6.0293
+   },
+   {
+    "pixel": [
+     401,
+     33
+    ],
+    "hip": 43813,
+    "ra_deg": 133.8485,
+    "dec_deg": 5.9456
+   }
+  ]
+ },
+ "Hyi": {
+  "file": "figures/hydrus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     14,
+     204
+    ],
+    "hip": 9236,
+    "ra_deg": 29.6918,
+    "dec_deg": -61.5699
+   },
+   {
+    "pixel": [
+     201,
+     43
+    ],
+    "hip": 2021,
+    "ra_deg": 6.4187,
+    "dec_deg": -77.2542
+   },
+   {
+    "pixel": [
+     241,
+     215
+    ],
+    "hip": 17678,
+    "ra_deg": 56.8094,
+    "dec_deg": -74.239
+   }
+  ]
+ },
+ "Ind": {
+  "file": "figures/indus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     64,
+     143
+    ],
+    "hip": 101772,
+    "ra_deg": 309.3917,
+    "dec_deg": -47.2915
+   },
+   {
+    "pixel": [
+     154,
+     20
+    ],
+    "hip": 103227,
+    "ra_deg": 313.7025,
+    "dec_deg": -58.4542
+   },
+   {
+    "pixel": [
+     175,
+     98
+    ],
+    "hip": 105319,
+    "ra_deg": 319.9664,
+    "dec_deg": -53.4494
+   }
+  ]
+ },
+ "Lac": {
+  "file": "figures/lacerta.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     249,
+     42
+    ],
+    "hip": 110538,
+    "ra_deg": 335.8901,
+    "dec_deg": 52.229
+   },
+   {
+    "pixel": [
+     108,
+     123
+    ],
+    "hip": 111104,
+    "ra_deg": 337.6219,
+    "dec_deg": 43.1234
+   },
+   {
+    "pixel": [
+     67,
+     215
+    ],
+    "hip": 109937,
+    "ra_deg": 333.9924,
+    "dec_deg": 37.7487
+   }
+  ]
+ },
+ "Mon": {
+  "file": "figures/monoceros.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     20,
+     306
+    ],
+    "hip": 39863,
+    "ra_deg": 122.1485,
+    "dec_deg": -2.9838
+   },
+   {
+    "pixel": [
+     394,
+     80
+    ],
+    "hip": 31978,
+    "ra_deg": 100.2444,
+    "dec_deg": 9.8958
+   },
+   {
+    "pixel": [
+     509,
+     359
+    ],
+    "hip": 29651,
+    "ra_deg": 93.7139,
+    "dec_deg": -6.2748
+   }
+  ]
+ },
+ "Lep": {
+  "file": "figures/lepus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     21,
+     48
+    ],
+    "hip": 28910,
+    "ra_deg": 91.5388,
+    "dec_deg": -14.9353
+   },
+   {
+    "pixel": [
+     246,
+     62
+    ],
+    "hip": 24244,
+    "ra_deg": 78.0746,
+    "dec_deg": -11.8692
+   },
+   {
+    "pixel": [
+     213,
+     235
+    ],
+    "hip": 23685,
+    "ra_deg": 76.3653,
+    "dec_deg": -22.371
+   }
+  ]
+ },
+ "Leo": {
+  "file": "figures/leo.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     69,
+     411
+    ],
+    "hip": 57632,
+    "ra_deg": 177.2649,
+    "dec_deg": 14.5721
+   },
+   {
+    "pixel": [
+     383,
+     186
+    ],
+    "hip": 49669,
+    "ra_deg": 152.093,
+    "dec_deg": 11.9672
+   },
+   {
+    "pixel": [
+     321,
+     32
+    ],
+    "hip": 47908,
+    "ra_deg": 146.4628,
+    "dec_deg": 23.7743
+   }
+  ]
+ },
+ "Lup": {
+  "file": "figures/lupus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     90,
+     257
+    ],
+    "hip": 74395,
+    "ra_deg": 228.0714,
+    "dec_deg": -52.0992
+   },
+   {
+    "pixel": [
+     207,
+     435
+    ],
+    "hip": 70576,
+    "ra_deg": 216.545,
+    "dec_deg": -45.3793
+   },
+   {
+    "pixel": [
+     425,
+     239
+    ],
+    "hip": 75177,
+    "ra_deg": 230.4516,
+    "dec_deg": -36.2614
+   }
+  ]
+ },
+ "Lyn": {
+  "file": "figures/lynx.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     100,
+     216
+    ],
+    "hip": 44248,
+    "ra_deg": 135.1603,
+    "dec_deg": 41.7829
+   },
+   {
+    "pixel": [
+     337,
+     212
+    ],
+    "hip": 36145,
+    "ra_deg": 111.6786,
+    "dec_deg": 49.2115
+   },
+   {
+    "pixel": [
+     472,
+     119
+    ],
+    "hip": 30060,
+    "ra_deg": 94.9058,
+    "dec_deg": 59.011
+   }
+  ]
+ },
+ "Lyr": {
+  "file": "figures/lyra.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     100,
+     96
+    ],
+    "hip": 92791,
+    "ra_deg": 283.6262,
+    "dec_deg": 36.8986
+   },
+   {
+    "pixel": [
+     157,
+     38
+    ],
+    "hip": 91262,
+    "ra_deg": 279.2346,
+    "dec_deg": 38.7837
+   },
+   {
+    "pixel": [
+     139,
+     162
+    ],
+    "hip": 92420,
+    "ra_deg": 282.52,
+    "dec_deg": 33.3627
+   }
+  ]
+ },
+ "Ant": {
+  "file": "figures/antlia.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     4,
+     84
+    ],
+    "hip": 51172,
+    "ra_deg": 156.7879,
+    "dec_deg": -31.0678
+   },
+   {
+    "pixel": [
+     72,
+     69
+    ],
+    "hip": 47758,
+    "ra_deg": 146.0504,
+    "dec_deg": -27.7695
+   },
+   {
+    "pixel": [
+     42,
+     120
+    ],
+    "hip": 48926,
+    "ra_deg": 149.7179,
+    "dec_deg": -35.891
+   }
+  ]
+ },
+ "Mic": {
+  "file": "figures/microscopium.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     122,
+     226
+    ],
+    "hip": 105140,
+    "ra_deg": 319.4845,
+    "dec_deg": -32.1725
+   },
+   {
+    "pixel": [
+     168,
+     148
+    ],
+    "hip": 103738,
+    "ra_deg": 315.3228,
+    "dec_deg": -32.2578
+   },
+   {
+    "pixel": [
+     234,
+     115
+    ],
+    "hip": 102831,
+    "ra_deg": 312.492,
+    "dec_deg": -33.7797
+   }
+  ]
+ },
+ "Mus": {
+  "file": "figures/musca.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     57,
+     52
+    ],
+    "hip": 61199,
+    "ra_deg": 188.117,
+    "dec_deg": -72.133
+   },
+   {
+    "pixel": [
+     177,
+     68
+    ],
+    "hip": 62322,
+    "ra_deg": 191.5702,
+    "dec_deg": -68.1081
+   },
+   {
+    "pixel": [
+     129,
+     236
+    ],
+    "hip": 57363,
+    "ra_deg": 176.4021,
+    "dec_deg": -66.7288
+   }
+  ]
+ },
+ "Oct": {
+  "file": "figures/octans.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     15,
+     16
+    ],
+    "hip": 70638,
+    "ra_deg": 216.732,
+    "dec_deg": -83.6679
+   },
+   {
+    "pixel": [
+     236,
+     239
+    ],
+    "hip": 107089,
+    "ra_deg": 325.3688,
+    "dec_deg": -77.39
+   },
+   {
+    "pixel": [
+     247,
+     140
+    ],
+    "hip": 112405,
+    "ra_deg": 341.5154,
+    "dec_deg": -81.3816
+   }
+  ]
+ },
+ "Aps": {
+  "file": "figures/apus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     66,
+     60
+    ],
+    "hip": 81852,
+    "ra_deg": 250.7719,
+    "dec_deg": -77.5174
+   },
+   {
+    "pixel": [
+     76,
+     87
+    ],
+    "hip": 81065,
+    "ra_deg": 248.3641,
+    "dec_deg": -78.8971
+   },
+   {
+    "pixel": [
+     163,
+     110
+    ],
+    "hip": 72370,
+    "ra_deg": 221.9655,
+    "dec_deg": -79.0448
+   }
+  ]
+ },
+ "Oph": {
+  "file": "figures/ophiuchus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     5,
+     183
+    ],
+    "hip": 92946,
+    "ra_deg": 284.0549,
+    "dec_deg": 4.2036
+   },
+   {
+    "pixel": [
+     452,
+     47
+    ],
+    "hip": 77233,
+    "ra_deg": 236.5469,
+    "dec_deg": 15.4218
+   },
+   {
+    "pixel": [
+     238,
+     453
+    ],
+    "hip": 85755,
+    "ra_deg": 262.854,
+    "dec_deg": -23.9626
+   }
+  ]
+ },
+ "Ori": {
+  "file": "figures/orion.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     59,
+     11
+    ],
+    "hip": 27913,
+    "ra_deg": 88.5958,
+    "dec_deg": 20.2762
+   },
+   {
+    "pixel": [
+     329,
+     477
+    ],
+    "hip": 27366,
+    "ra_deg": 86.9391,
+    "dec_deg": -9.6696
+   },
+   {
+    "pixel": [
+     421,
+     91
+    ],
+    "hip": 22449,
+    "ra_deg": 72.46,
+    "dec_deg": 6.9613
+   }
+  ]
+ },
+ "Pav": {
+  "file": "figures/pavo.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     55,
+     60
+    ],
+    "hip": 100751,
+    "ra_deg": 306.4119,
+    "dec_deg": -56.7351
+   },
+   {
+    "pixel": [
+     110,
+     208
+    ],
+    "hip": 98495,
+    "ra_deg": 300.1477,
+    "dec_deg": -72.9105
+   },
+   {
+    "pixel": [
+     235,
+     146
+    ],
+    "hip": 86929,
+    "ra_deg": 266.4333,
+    "dec_deg": -64.7239
+   }
+  ]
+ },
+ "Peg": {
+  "file": "figures/pegasus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     164,
+     41
+    ],
+    "hip": 107315,
+    "ra_deg": 326.0465,
+    "dec_deg": 9.875
+   },
+   {
+    "pixel": [
+     47,
+     283
+    ],
+    "hip": 109410,
+    "ra_deg": 332.4969,
+    "dec_deg": 33.1782
+   },
+   {
+    "pixel": [
+     409,
+     349
+    ],
+    "hip": 1067,
+    "ra_deg": 3.309,
+    "dec_deg": 15.1836
+   }
+  ]
+ },
+ "Pic": {
+  "file": "figures/pictor.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     4,
+     252
+    ],
+    "hip": 32607,
+    "ra_deg": 102.0479,
+    "dec_deg": -61.9414
+   },
+   {
+    "pixel": [
+     148,
+     138
+    ],
+    "hip": 27530,
+    "ra_deg": 87.4568,
+    "dec_deg": -56.1667
+   },
+   {
+    "pixel": [
+     167,
+     38
+    ],
+    "hip": 27321,
+    "ra_deg": 86.8212,
+    "dec_deg": -51.0665
+   }
+  ]
+ },
+ "Per": {
+  "file": "figures/perseus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     164,
+     323
+    ],
+    "hip": 18532,
+    "ra_deg": 59.4635,
+    "dec_deg": 40.0102
+   },
+   {
+    "pixel": [
+     299,
+     175
+    ],
+    "hip": 15863,
+    "ra_deg": 51.0807,
+    "dec_deg": 49.8612
+   },
+   {
+    "pixel": [
+     385,
+     386
+    ],
+    "hip": 13254,
+    "ra_deg": 42.6459,
+    "dec_deg": 38.3186
+   }
+  ]
+ },
+ "Equ": {
+  "file": "figures/equuleus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     17,
+     180
+    ],
+    "hip": 104521,
+    "ra_deg": 317.5854,
+    "dec_deg": 10.1316
+   },
+   {
+    "pixel": [
+     149,
+     86
+    ],
+    "hip": 104987,
+    "ra_deg": 318.956,
+    "dec_deg": 5.2478
+   },
+   {
+    "pixel": [
+     160,
+     160
+    ],
+    "hip": 105570,
+    "ra_deg": 320.7234,
+    "dec_deg": 6.8111
+   }
+  ]
+ },
+ "CMi": {
+  "file": "figures/canis-minor.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     96,
+     43
+    ],
+    "hip": 37921,
+    "ra_deg": 116.5675,
+    "dec_deg": 10.7683
+   },
+   {
+    "pixel": [
+     101,
+     171
+    ],
+    "hip": 37279,
+    "ra_deg": 114.8255,
+    "dec_deg": 5.225
+   },
+   {
+    "pixel": [
+     184,
+     124
+    ],
+    "hip": 36188,
+    "ra_deg": 111.7877,
+    "dec_deg": 8.2893
+   }
+  ]
+ },
+ "LMi": {
+  "file": "figures/leo-minor.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     8,
+     40
+    ],
+    "hip": 53229,
+    "ra_deg": 163.3279,
+    "dec_deg": 34.2149
+   },
+   {
+    "pixel": [
+     214,
+     127
+    ],
+    "hip": 46952,
+    "ra_deg": 143.5558,
+    "dec_deg": 36.3976
+   },
+   {
+    "pixel": [
+     61,
+     155
+    ],
+    "hip": 50303,
+    "ra_deg": 154.0602,
+    "dec_deg": 29.3105
+   }
+  ]
+ },
+ "Vul": {
+  "file": "figures/vulpecula.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     35,
+     133
+    ],
+    "hip": 98543,
+    "ra_deg": 300.2752,
+    "dec_deg": 27.7536
+   },
+   {
+    "pixel": [
+     174,
+     111
+    ],
+    "hip": 95771,
+    "ra_deg": 292.1764,
+    "dec_deg": 24.6649
+   },
+   {
+    "pixel": [
+     242,
+     135
+    ],
+    "hip": 94703,
+    "ra_deg": 289.0543,
+    "dec_deg": 21.3904
+   }
+  ]
+ },
+ "UMi": {
+  "file": "figures/ursa-minor.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     15,
+     20
+    ],
+    "hip": 11767,
+    "ra_deg": 37.9462,
+    "dec_deg": 89.2641
+   },
+   {
+    "pixel": [
+     193,
+     51
+    ],
+    "hip": 59504,
+    "ra_deg": 183.0497,
+    "dec_deg": 77.6162
+   },
+   {
+    "pixel": [
+     93,
+     209
+    ],
+    "hip": 79822,
+    "ra_deg": 244.3769,
+    "dec_deg": 75.7553
+   }
+  ]
+ },
+ "Phe": {
+  "file": "figures/phoenix.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     55,
+     243
+    ],
+    "hip": 8837,
+    "ra_deg": 28.4115,
+    "dec_deg": -46.3027
+   },
+   {
+    "pixel": [
+     209,
+     15
+    ],
+    "hip": 765,
+    "ra_deg": 2.3525,
+    "dec_deg": -45.7474
+   },
+   {
+    "pixel": [
+     229,
+     214
+    ],
+    "hip": 5348,
+    "ra_deg": 17.0961,
+    "dec_deg": -55.2458
+   }
+  ]
+ },
+ "Psc": {
+  "file": "figures/pisces.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     24,
+     104
+    ],
+    "hip": 4889,
+    "ra_deg": 15.7046,
+    "dec_deg": 31.8043
+   },
+   {
+    "pixel": [
+     111,
+     489
+    ],
+    "hip": 9487,
+    "ra_deg": 30.5118,
+    "dec_deg": 2.7638
+   },
+   {
+    "pixel": [
+     481,
+     155
+    ],
+    "hip": 114971,
+    "ra_deg": 349.2914,
+    "dec_deg": 3.2823
+   }
+  ]
+ },
+ "PsA": {
+  "file": "figures/piscis-austrinus.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     190,
+     5
+    ],
+    "hip": 113246,
+    "ra_deg": 343.9871,
+    "dec_deg": -32.5396
+   },
+   {
+    "pixel": [
+     82,
+     202
+    ],
+    "hip": 107608,
+    "ra_deg": 326.934,
+    "dec_deg": -30.8983
+   },
+   {
+    "pixel": [
+     236,
+     92
+    ],
+    "hip": 111954,
+    "ra_deg": 340.1639,
+    "dec_deg": -27.0436
+   }
+  ]
+ },
+ "Vol": {
+  "file": "figures/volans.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     55,
+     85
+    ],
+    "hip": 44382,
+    "ra_deg": 135.6117,
+    "dec_deg": -66.3961
+   },
+   {
+    "pixel": [
+     210,
+     122
+    ],
+    "hip": 35228,
+    "ra_deg": 109.2076,
+    "dec_deg": -67.9572
+   },
+   {
+    "pixel": [
+     207,
+     163
+    ],
+    "hip": 34481,
+    "ra_deg": 107.1868,
+    "dec_deg": -70.4989
+   }
+  ]
+ },
+ "Ret": {
+  "file": "figures/reticulum.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     47,
+     56
+    ],
+    "hip": 18597,
+    "ra_deg": 59.6864,
+    "dec_deg": -61.4002
+   },
+   {
+    "pixel": [
+     78,
+     88
+    ],
+    "hip": 19780,
+    "ra_deg": 63.6061,
+    "dec_deg": -62.4739
+   },
+   {
+    "pixel": [
+     16,
+     111
+    ],
+    "hip": 19921,
+    "ra_deg": 64.1211,
+    "dec_deg": -59.3022
+   }
+  ]
+ },
+ "Sgr": {
+  "file": "figures/sagittarius.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     96,
+     82
+    ],
+    "hip": 95168,
+    "ra_deg": 290.4182,
+    "dec_deg": -17.8472
+   },
+   {
+    "pixel": [
+     307,
+     492
+    ],
+    "hip": 95294,
+    "ra_deg": 290.8046,
+    "dec_deg": -44.7998
+   },
+   {
+    "pixel": [
+     506,
+     100
+    ],
+    "hip": 87072,
+    "ra_deg": 266.8901,
+    "dec_deg": -27.8308
+   }
+  ]
+ },
+ "Sco": {
+  "file": "figures/scorpius.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     447,
+     29
+    ],
+    "hip": 78820,
+    "ra_deg": 241.3593,
+    "dec_deg": -19.8055
+   },
+   {
+    "pixel": [
+     62,
+     365
+    ],
+    "hip": 85927,
+    "ra_deg": 263.4022,
+    "dec_deg": -37.1038
+   },
+   {
+    "pixel": [
+     217,
+     462
+    ],
+    "hip": 82729,
+    "ra_deg": 253.646,
+    "dec_deg": -42.3613
+   }
+  ]
+ },
+ "Sex": {
+  "file": "figures/sextans.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     26,
+     54
+    ],
+    "hip": 51437,
+    "ra_deg": 157.5728,
+    "dec_deg": -0.637
+   },
+   {
+    "pixel": [
+     68,
+     36
+    ],
+    "hip": 49641,
+    "ra_deg": 151.9845,
+    "dec_deg": -0.3716
+   },
+   {
+    "pixel": [
+     118,
+     84
+    ],
+    "hip": 48437,
+    "ra_deg": 148.1268,
+    "dec_deg": -8.105
+   }
+  ]
+ },
+ "Men": {
+  "file": "figures/mensa.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     100,
+     67
+    ],
+    "hip": 21949,
+    "ra_deg": 70.7665,
+    "dec_deg": -70.931
+   },
+   {
+    "pixel": [
+     179,
+     136
+    ],
+    "hip": 25918,
+    "ra_deg": 82.9698,
+    "dec_deg": -76.341
+   },
+   {
+    "pixel": [
+     54,
+     183
+    ],
+    "hip": 29134,
+    "ra_deg": 92.1846,
+    "dec_deg": -68.8434
+   }
+  ]
+ },
+ "Tau": {
+  "file": "figures/taurus.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     13,
+     92
+    ],
+    "hip": 26451,
+    "ra_deg": 84.4112,
+    "dec_deg": 21.1425
+   },
+   {
+    "pixel": [
+     399,
+     438
+    ],
+    "hip": 15900,
+    "ra_deg": 51.2033,
+    "dec_deg": 9.0289
+   },
+   {
+    "pixel": [
+     382,
+     192
+    ],
+    "hip": 17999,
+    "ra_deg": 57.7184,
+    "dec_deg": 23.9615
+   }
+  ]
+ },
+ "Tel": {
+  "file": "figures/telescopium.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     30,
+     66
+    ],
+    "hip": 91589,
+    "ra_deg": 280.1829,
+    "dec_deg": -47.0272
+   },
+   {
+    "pixel": [
+     101,
+     40
+    ],
+    "hip": 90422,
+    "ra_deg": 276.7434,
+    "dec_deg": -45.9685
+   },
+   {
+    "pixel": [
+     106,
+     92
+    ],
+    "hip": 90568,
+    "ra_deg": 277.2076,
+    "dec_deg": -49.0706
+   }
+  ]
+ },
+ "Tuc": {
+  "file": "figures/tucana.png",
+  "size": [
+   256,
+   256
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     53,
+     121
+    ],
+    "hip": 2484,
+    "ra_deg": 7.8859,
+    "dec_deg": -62.9582
+   },
+   {
+    "pixel": [
+     154,
+     86
+    ],
+    "hip": 114996,
+    "ra_deg": 349.3575,
+    "dec_deg": -58.2357
+   },
+   {
+    "pixel": [
+     224,
+     141
+    ],
+    "hip": 110130,
+    "ra_deg": 334.6256,
+    "dec_deg": -60.2596
+   }
+  ]
+ },
+ "Tri": {
+  "file": "figures/triangulum.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     16,
+     42
+    ],
+    "hip": 10064,
+    "ra_deg": 32.3859,
+    "dec_deg": 34.9873
+   },
+   {
+    "pixel": [
+     13,
+     70
+    ],
+    "hip": 10559,
+    "ra_deg": 33.9845,
+    "dec_deg": 33.3589
+   },
+   {
+    "pixel": [
+     97,
+     78
+    ],
+    "hip": 8796,
+    "ra_deg": 28.2704,
+    "dec_deg": 29.5788
+   }
+  ]
+ },
+ "TrA": {
+  "file": "figures/triangulum-australe.png",
+  "size": [
+   128,
+   128
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     26,
+     12
+    ],
+    "hip": 77952,
+    "ra_deg": 238.7862,
+    "dec_deg": -63.4307
+   },
+   {
+    "pixel": [
+     108,
+     15
+    ],
+    "hip": 74946,
+    "ra_deg": 229.7277,
+    "dec_deg": -68.6795
+   },
+   {
+    "pixel": [
+     60,
+     106
+    ],
+    "hip": 82273,
+    "ra_deg": 252.1662,
+    "dec_deg": -69.0277
+   }
+  ]
+ },
+ "Aqr": {
+  "file": "figures/aquarius.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     144,
+     464
+    ],
+    "hip": 115438,
+    "ra_deg": 350.7426,
+    "dec_deg": -20.1006
+   },
+   {
+    "pixel": [
+     179,
+     98
+    ],
+    "hip": 109074,
+    "ra_deg": 331.446,
+    "dec_deg": -0.3199
+   },
+   {
+    "pixel": [
+     465,
+     49
+    ],
+    "hip": 102618,
+    "ra_deg": 311.919,
+    "dec_deg": -9.4958
+   }
+  ]
+ },
+ "Vir": {
+  "file": "figures/virgo.png",
+  "size": [
+   512,
+   512
+  ],
+  "anchors": [
+   {
+    "pixel": [
+     65,
+     389
+    ],
+    "hip": 72220,
+    "ra_deg": 221.5622,
+    "dec_deg": 1.8929
+   },
+   {
+    "pixel": [
+     454,
+     57
+    ],
+    "hip": 57380,
+    "ra_deg": 176.4648,
+    "dec_deg": 6.5294
+   },
+   {
+    "pixel": [
+     338,
+     382
+    ],
+    "hip": 65474,
+    "ra_deg": 201.2982,
+    "dec_deg": -11.1613
+   }
+  ]
+ }
+}

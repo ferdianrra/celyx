@@ -1,0 +1,4 @@
+Astronomy Engine by Don Cross
+https://github.com/cosinekitty/astronomy
+Commit: 865d3da7d8112bbc7911238052c6af4aaf877181
+MIT License. Upstream source kept unmodified.
