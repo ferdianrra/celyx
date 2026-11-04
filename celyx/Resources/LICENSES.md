@@ -12,3 +12,7 @@
 | environment/boat-360*.png | The project owner's Gemini panorama, upscaled | Check Google's terms for generated images |
 
 CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/
+
+## Garden artwork supplied with Assets Galaxy
+
+Garden's native procedural geometry is adapted from the project owner's supplied `Assets Galaxy/Galaxy/3d/index.html`. Optimized Canopus, Sirius A, Rigel, Moon, Mercury, Venus, Mars and Jupiter textures and the named-star portraits are derived from that same supplied asset folder. Source asset ownership/terms remain those of the supplied files. Three.js and its JavaScript dependencies are not bundled or executed by this adaptation.

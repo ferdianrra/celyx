@@ -21,6 +21,8 @@ struct StarPortraitView: View {
             } else if star.isMoon {
                 Image("StarSurface").resizable().scaledToFit().saturation(0)
                     .colorMultiply(Color(white:0.86)).clipShape(Circle()).padding(9)
+            } else if let portrait = GardenBodyAssets.portrait(star) {
+                Image(uiImage:portrait).resizable().scaledToFit()
             } else {
                 ZStack {
                     Circle().fill(RadialGradient(colors:[color.opacity(0.9),color.opacity(0.3),.clear],center:.center,startRadius:0,endRadius:65))
