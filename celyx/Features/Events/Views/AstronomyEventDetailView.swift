@@ -16,6 +16,7 @@ struct AstronomyEventDetailView: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let description = event.description ?? event.summary { Text(description).font(.body).foregroundStyle(.white.opacity(0.8)) }
+                    EventViewingLocationsSection(event:event)
                     Text("This is the event’s peak time. Whether you can see it depends on your location and the sky that day.")
                         .font(.footnote).foregroundStyle(.secondary)
                     if let sourceURL = event.sourceURL {

@@ -1,6 +1,6 @@
 import Foundation
 
-struct AstronomyEvent: Codable, Identifiable {
+struct AstronomyEvent: Codable, Identifiable, Sendable {
     let id: String
     let kind: String
     let time: Date
@@ -10,8 +10,24 @@ struct AstronomyEvent: Codable, Identifiable {
     let objects: [String]?
     let url: String?
     let source: EventSource?
+    var position: Position? = nil
+    var circumstances: Circumstances? = nil
 
-    struct EventSource: Codable {
+    struct Position: Codable, Sendable {
+        let ra_deg: Double
+        let dec_deg: Double
+    }
+    struct Circumstances: Codable, Sendable {
+        var magnitude: Double? = nil
+        var distance_ld: Double? = nil
+        var greatest_at: GeographicPoint? = nil
+        struct GeographicPoint: Codable, Sendable {
+            let lat_deg: Double
+            let lon_deg: Double
+        }
+    }
+
+    struct EventSource: Codable, Sendable {
         let name: String?
         let url: String?
         let license: String?
