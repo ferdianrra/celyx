@@ -9,8 +9,12 @@ import SwiftUI
 
 struct HomeView: View {
     @State private var model: HomeViewModel
+    private var onReturnToGarden: (() -> Void)? = nil
     @MainActor init() { _model = State(initialValue:HomeViewModel()) }
-    init(model: HomeViewModel) { _model = State(initialValue:model) }
+    init(model: HomeViewModel,onReturnToGarden: (() -> Void)? = nil) {
+        _model = State(initialValue:model)
+        self.onReturnToGarden = onReturnToGarden
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var phase
 
@@ -60,7 +64,7 @@ struct HomeView: View {
                         .ignoresSafeArea().allowsHitTesting(false)
                     VStack {
                         HStack {
-                            Picker("Mode melihat",selection:Binding(get:{model.mode},set:model.setMode)) {
+                            Picker("Viewing mode",selection:Binding(get:{model.mode},set:model.setMode)) {
                                 Text("Touch").tag(LookMode.touch)
                                 Text("Gyro").tag(LookMode.motion).disabled(!model.motionAvailable)
                             }.pickerStyle(.segmented).frame(width:180)
@@ -104,7 +108,9 @@ struct HomeView: View {
                             .frame(maxWidth: 210)
                             .accessibilityLabel("\(model.locationTitle), \(model.currentTimeLabel). Sky settings")
                             Spacer(minLength:12)
-                            HUDButton(symbol:"sparkles", label:"Your Galaxy") { model.openGarden() }
+                            HUDButton(symbol:"sparkles", label:"Your Galaxy") {
+                                if let onReturnToGarden { onReturnToGarden() } else { model.openGarden() }
+                            }
                         }
                     }
                     .padding(.horizontal, 27).padding(.top, 12).padding(.bottom, -geometry.safeAreaInsets.bottom)

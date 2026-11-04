@@ -2,9 +2,12 @@ import SwiftUI
 
 struct GardenView: View {
     let model: HomeViewModel
+    var isHome = false
+    var onStartCollect: (() -> Void)? = nil
     let onClose: () -> Void
     @State private var selectedID: Int?
     @State private var showsCollection = false
+    @State private var showsCalendar = false
     @State private var inspectedItem: GardenCollectionItem?
     @State private var baseRotation = 0.0
     @State private var rotationStartedAt = Date()
@@ -17,7 +20,7 @@ struct GardenView: View {
     @GestureState private var pinch = 1.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var phase
-    private var rotates: Bool { !reduceMotion && phase == .active && !showsCollection && inspectedItem == nil && !rotationPaused && !isOrbiting }
+    private var rotates: Bool { !reduceMotion && phase == .active && !showsCollection && !showsCalendar && !model.showsStarCamera && inspectedItem == nil && !rotationPaused && !isOrbiting }
     private var selectedItem: GardenCollectionItem? { model.collectionItems.first { $0.id == selectedID } }
 
     var body: some View {
@@ -30,8 +33,8 @@ struct GardenView: View {
                         let rotation = baseRotation+orbitDrag.width/180+(rotates ? context.date.timeIntervalSince(rotationStartedAt)*rotationSpeed : 0)
                         GardenSpaceView(items:items,selectedID:selectedID,rotation:rotation,
                             elevation:clampedElevation(elevation-orbitDrag.height/240),
-                            zoom:min(3.2,max(0.75,zoom*pinch)),travel:reduceMotion ? 1 : model.gardenProgress,
-                            isActive:phase == .active && !showsCollection && inspectedItem == nil && !reduceMotion && !rotationPaused && !isOrbiting) { id in
+                            zoom:min(3.2,max(0.75,zoom*pinch)),travel:isHome || reduceMotion ? 1 : model.gardenProgress,
+                            isActive:phase == .active && !showsCollection && !showsCalendar && !model.showsStarCamera && inspectedItem == nil && !reduceMotion && !rotationPaused && !isOrbiting) { id in
                             withAnimation(.easeInOut(duration:0.2)) { selectedID = selectedID == id ? nil : id }
                         }
                         .ignoresSafeArea()
@@ -66,10 +69,26 @@ struct GardenView: View {
                                 Text(model.collectionItems.isEmpty ? "Look up and find your first star." : "Tap a light to revisit a memory.")
                                     .font(.subheadline).foregroundStyle(.white.opacity(0.6))
                                 Text("Drag to orbit · Pinch to zoom").font(.caption).foregroundStyle(.white.opacity(0.45))
-                                if model.collectionItems.isEmpty {
+                                if model.collectionItems.isEmpty && !isHome {
                                     Button("Explore the Sky") { onClose() }.buttonStyle(.bordered).padding(.top,8)
                                 }
                             }.multilineTextAlignment(.center).padding(18)
+                        }
+                        if isHome {
+                            VStack(spacing:14) {
+                                Button(action:{ onStartCollect?() }) {
+                                    Label("Start Collecting",systemImage:"camera.viewfinder")
+                                        .font(.headline).frame(maxWidth:.infinity).padding(.vertical,10)
+                                }
+                                .buttonStyle(.borderedProminent).tint(.white).foregroundStyle(.black)
+                                .controlSize(.large)
+                                HStack {
+                                    Spacer()
+                                    Button(action:onClose) {
+                                        Label("Explore the Sky",systemImage:"sparkles")
+                                    }.buttonStyle(.bordered).controlSize(.large)
+                                }
+                            }.padding(.top,10)
                         }
                     }.padding(.horizontal,24).padding(.bottom,18)
                 }
@@ -80,22 +99,26 @@ struct GardenView: View {
             .toolbarColorScheme(.dark,for:.navigationBar)
             .toolbar {
                 ToolbarItem(placement:.topBarLeading) {
-                    Button("Back to Sky",systemImage:"chevron.left") { onClose() }
-                        .accessibilityLabel("Back to Sky")
+                    if isHome {
+                        Button("Collection",systemImage:"books.vertical") { showsCollection = true }
+                    } else {
+                        Button("Back to Sky",systemImage:"chevron.left",action:onClose)
+                    }
                 }
                 ToolbarItemGroup(placement:.topBarTrailing) {
-                    Button("Reset View",systemImage:"arrow.counterclockwise") {
-                        withAnimation(reduceMotion ? nil : .easeInOut(duration:0.3)) {
-                            elevation = atan(0.63); zoom = 1; baseRotation = 0
-                            rotationStartedAt = Date()
+                    if isHome {
+                        Button("Calendar",systemImage:"calendar") { showsCalendar = true }
+                    } else {
+                        Button("View Collection",systemImage:"books.vertical") { showsCollection = true }
+                    }
+                    Menu {
+                        Button("Reset View",systemImage:"arrow.counterclockwise",action:resetView)
+                        Button(rotationPaused ? "Rotate galaxy" : "Pause rotation",systemImage:rotationPaused ? "play.fill" : "pause.fill") {
+                            rotationPaused.toggle()
                         }
-                    }
-                    Button(rotationPaused ? "Rotate galaxy" : "Pause rotation",systemImage:rotationPaused ? "play.fill" : "pause.fill") {
-                        rotationPaused.toggle()
-                    }
-                    .accessibilityIdentifier("garden-rotation-toggle")
-                    Button("View Collection",systemImage:"books.vertical") { showsCollection = true }
-                        .accessibilityLabel("View Collection")
+                        .accessibilityIdentifier("garden-rotation-toggle")
+                    } label: { Image(systemName:"ellipsis") }
+                    .accessibilityLabel("Galaxy view options")
                 }
             }
             .navigationDestination(isPresented:$showsCollection) {
@@ -108,6 +131,7 @@ struct GardenView: View {
                     }
                 }
             }
+            .navigationDestination(isPresented:$showsCalendar) { GardenCalendarView() }
             .sheet(item:$inspectedItem) { item in SavedStarNoteView(item:item) }
         }
         .foregroundStyle(.white).tint(.white).preferredColorScheme(.dark)
@@ -116,6 +140,12 @@ struct GardenView: View {
             if new { rotationStartedAt = Date() }
         }
         .onAppear { rotationStartedAt = Date() }
+    }
+    private func resetView() {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration:0.3)) {
+            elevation = atan(0.63); zoom = 1; baseRotation = 0
+            rotationStartedAt = Date()
+        }
     }
     private func clampedElevation(_ angle: Double) -> Double {
         min(85 * .pi/180,max(-80 * .pi/180,angle))
