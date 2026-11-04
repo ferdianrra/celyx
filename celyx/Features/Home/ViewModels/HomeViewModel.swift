@@ -116,8 +116,8 @@ final class HomeViewModel {
         return HomeViewModel(location:ObserverLocation(latitude:-6.1754,longitude:106.8272,isManual:true),
                              date:Date(timeIntervalSince1970:1793633400),defaults:defaults)
     }
-    var results: [CatalogStar] { ([CatalogStar.sun,CatalogStar.moon]+stars).filter { $0.hasCommonName && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || ($0.isSun && "Sun".localizedCaseInsensitiveContains(query))) } }
-    var nearby: [StarObservation] { (observations + [sunObservation,moonObservation].compactMap { $0 }).filter { $0.altitude > 0 }.sorted { $0.star.mag < $1.star.mag } }
+    var results: [CatalogStar] { ([CatalogStar.sun,CatalogStar.moon]+(snapshot?.planets.map(\.star) ?? CatalogStar.planets)+stars).filter { $0.hasCommonName && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || ($0.isSun && "Sun".localizedCaseInsensitiveContains(query))) } }
+    var nearby: [StarObservation] { (observations + planetObservations + [sunObservation,moonObservation].compactMap { $0 }).filter { $0.altitude > 0 }.sorted { $0.star.mag < $1.star.mag } }
     var namedObservations: [StarObservation] { observations.filter { $0.star.hasCommonName && $0.altitude > 0 } }
     // Map visibility is independent of naked-eye observing conditions.
     var displayedObservations: [StarObservation] {
@@ -143,7 +143,13 @@ final class HomeViewModel {
         return StarObservation(star:.moon,direction:snapshot.moonDirection,dimmedMagnitude:CatalogStar.moon.mag,
             likelyVisible:above,reason:above ? "Above the horizon" : "Below the horizon")
     }
-    var selectedObservation: StarObservation? { selectedStar?.isSun == true ? sunObservation : selectedStar?.isMoon == true ? moonObservation : observations.first { $0.id == selectedStar?.id } }
+    var planetObservations: [StarObservation] {
+        snapshot?.planets.map { body in
+            StarObservation(star:body.star,direction:body.direction,dimmedMagnitude:body.star.mag,
+                likelyVisible:body.direction.z > 0,reason:body.direction.z > 0 ? "Above the horizon" : "Below the horizon")
+        } ?? []
+    }
+    var selectedObservation: StarObservation? { selectedStar?.isSun == true ? sunObservation : selectedStar?.isMoon == true ? moonObservation : selectedStar?.isPlanet == true ? planetObservations.first { $0.id == selectedStar?.id } : observations.first { $0.id == selectedStar?.id } }
     var motionAvailable: Bool { motion.isAvailable }
     var heading: Double { (scene.azimuth*180 / .pi+360).truncatingRemainder(dividingBy:360) }
     var locationTitle: String { location.map { $0.isManual ? "Custom location" : "Here & now" } ?? "Turn on location" }
@@ -305,7 +311,7 @@ final class HomeViewModel {
         }
     }
     private func beginDetailFlight(_ star: CatalogStar) {
-        guard let direction = (star.isSun ? sunObservation : star.isMoon ? moonObservation : observations.first { $0.id == star.id })?.direction else {
+        guard let direction = (star.isSun ? sunObservation : star.isMoon ? moonObservation : star.isPlanet ? planetObservations.first(where: { $0.id == star.id }) : observations.first { $0.id == star.id })?.direction else {
             activeSheet = .detail; return
         }
         if returnCameraPose == nil { returnCameraPose = SkyCameraPose(scene:scene) }
@@ -350,7 +356,7 @@ final class HomeViewModel {
         }
     }
     func focus(_ star: CatalogStar) {
-        guard let p = (star.isSun ? sunObservation : star.isMoon ? moonObservation : observations.first(where: { $0.id == star.id }))?.direction else { return }
+        guard let p = (star.isSun ? sunObservation : star.isMoon ? moonObservation : star.isPlanet ? planetObservations.first(where: { $0.id == star.id }) : observations.first(where: { $0.id == star.id }))?.direction else { return }
         scene.azimuth = atan2(p.x,p.y); scene.altitude = asin(p.z)
         if mode == .motion { restartMotion() }
     }

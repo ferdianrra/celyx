@@ -17,7 +17,7 @@ struct HomeSheetView: View {
                     switch sheet {
                     case .search:
                         List(model.results) { star in
-                            Button { model.showDetail(star) } label: { starRow(star,observation:star.isSun ? model.sunObservation : star.isMoon ? model.moonObservation : model.observations.first { $0.id == star.id }) }.tint(.primary)
+                            Button { model.showDetail(star) } label: { starRow(star,observation:star.isSun ? model.sunObservation : star.isMoon ? model.moonObservation : star.isPlanet ? model.planetObservations.first { $0.id == star.id } : model.observations.first { $0.id == star.id }) }.tint(.primary)
                         }
                         .searchable(text:$model.query,prompt:"Stars, Sun or Moon")
                         .overlay { if model.results.isEmpty { ContentUnavailableView.search(text:model.query) } }

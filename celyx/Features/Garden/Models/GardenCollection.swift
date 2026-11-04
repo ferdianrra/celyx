@@ -9,7 +9,7 @@ struct GardenCollectionItem: Identifiable {
     var collectedDate: String { record.date.formatted(.dateTime.month(.abbreviated).day().year().locale(Locale(identifier:"en"))) }
 
     static func resolve(records: [Int:CollectedStar], catalogue: [CatalogStar]) -> [Self] {
-        let indexed = Dictionary(catalogue.map { ($0.id,$0) },uniquingKeysWith:{ first,_ in first })
+        let indexed = Dictionary((catalogue+CatalogStar.planets).map { ($0.id,$0) },uniquingKeysWith:{ first,_ in first })
         return records.values.map { record in
             let star = record.id == CatalogStar.sun.id ? .sun : record.id == CatalogStar.moon.id ? .moon : indexed[record.id] ?? CatalogStar(
                 id:record.id,ra_deg:0,dec_deg:0,mag:0,bv:nil,name:nil,designation:"Object \(record.id)",

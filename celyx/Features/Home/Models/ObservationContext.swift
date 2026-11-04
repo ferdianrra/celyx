@@ -22,6 +22,7 @@ struct SkySnapshot {
     let sunDirection: SIMD3<Double>
     let moonDirection: SIMD3<Double>
     let moonIllumination: Double
+    var planets: [(star:CatalogStar,direction:SIMD3<Double>)] = []
     var sunAltitude: Double { asin(sunDirection.z) * 180 / .pi }
     var phase: String {
         sunAltitude >= -0.833 ? "Daytime" : sunAltitude > -6 ? "Civil twilight" : sunAltitude > -12 ? "Nautical twilight" : sunAltitude > -18 ? "Astronomical twilight" : "Night"

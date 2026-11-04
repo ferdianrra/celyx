@@ -64,7 +64,7 @@ enum CameraStarDetector {
         var noiseHistogram = [Int](repeating:0,count:256)
         for value in 0..<256 { noiseHistogram[abs(value-globalBackground)] += histogram[value] }
         let globalNoise = max(0.8,Double(medianBin(noiseHistogram))*1.4826)
-        let minimumPeak = max(10,globalBackground+Int(max(5,globalNoise*4)))
+        let minimumPeak = max(10,globalBackground+Int(max(4,globalNoise*3)))
         var result: [CameraLightPoint] = []
         for y in stride(from:margin,to:height-margin,by:3) {
             for x in stride(from:margin,to:width-margin,by:3) {
@@ -85,7 +85,7 @@ enum CameraStarDetector {
                 let deviations = ring.map { abs($0-background) }.sorted()
                 let deviation = max(0.8,(deviations[3]+deviations[4])/2*1.4826)
                 let contrast = Double(peak)-background
-                guard background < 185, contrast > max(5,deviation*5) else { continue }
+                guard background < 185, contrast > max(4,deviation*4) else { continue }
                 let threshold = background+max(2,max(deviation*2,contrast*0.28))
                 var queue = [(px,py)], visited: Set<Int> = [py*width+px]
                 var cursor = 0, count = 0, sum = 0.0, sx = 0.0, sy = 0.0

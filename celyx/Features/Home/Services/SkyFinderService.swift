@@ -26,7 +26,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     private(set) var skyDate: Date?
     var scannerPaused = false
     var observerLocation: ObserverLocation? { hasLocationFix ? location : nil }
-    private var detections: [Int:(hits: Int, offset: CGPoint, size: CGSize, time: TimeInterval, direction: SIMD3<Float>)] = [:]
+    private var candidateHistory: [Int:(starID:Int,hits:Int)] = [:]
     private var lastDetectionTime: TimeInterval = -1
     private var previousForward: SIMD3<Float>?
     private var scanDirections: [(CatalogStar,SIMD3<Double>)] = []
@@ -59,6 +59,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     private var running = false
     private var hasStartedSession = false
     var isCameraRunning: Bool { hasStartedSession }
+    var isAdjustingCamera: Bool { lastFrameTime < controlsSettleUntil || captureDevice?.isRampingVideoZoom == true }
     private var sky: SkySnapshot?
     private var lastSnapshot = Date.distantPast
     private let photoContext = CIContext(options:[.cacheIntermediates:false])
@@ -118,7 +119,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
 
     func updateViewport(size: CGSize, orientation: UIInterfaceOrientation) {
         if viewport != size || self.orientation != orientation {
-            annotations = []; detections = [:]; lastDetectionTime = -1
+            annotations = []; candidateHistory = [:]; lastDetectionTime = -1
         }
         viewport = size; self.orientation = orientation
     }
@@ -185,7 +186,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         cameraHeadingAccuracy = heading.trueHeading >= 0 && heading.headingAccuracy >= 0 ? heading.headingAccuracy : nil
     }
     func recalibrateCameraDirection() {
-        annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []
+        annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []
         lastDetectionTime = -1
         if running && hasLocationFix { hasStartedSession = false; runSession() }
     }
@@ -252,7 +253,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         if maximumExposure <= minimumExposure { cameraControlMessage = "Brightness controls aren’t available in this camera mode." }
     }
     private func invalidateCameraMatches() {
-        annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; detectedLightCount = 0; lastDetectionTime = -1
+        annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; detectedLightCount = 0; lastDetectionTime = -1
         controlsSettleUntil = lastFrameTime+0.8
     }
     func setExposure(_ requested: Double) {
@@ -279,7 +280,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             else { device.videoZoomFactor = factor; cameraZoom = Double(device.videoZoomFactor/zoomBase) }
             cameraControlMessage = nil
             invalidateCameraMatches()
-        } catch { cameraControlMessage = "We couldn’t change the zoom. Try again. Coba lagi sebentar." }
+        } catch { cameraControlMessage = "We couldn’t change the zoom. Try again." }
     }
     @discardableResult
     func focus(at point: CGPoint, locked: Bool = false) -> Bool {
@@ -337,7 +338,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         restoreCameraControls()
         running = false; hasStartedSession = false
         session.pause(); locationManager.stopUpdatingLocation(); locationManager.stopUpdatingHeading(); hasLocationFix = false
-        projection = nil; annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; detectedLightCount = 0
+        projection = nil; annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; detectedLightCount = 0
         cameraHeadingAccuracy = nil; lastDetectionTime = -1; previousForward = nil
         status = .preparing
     }
@@ -356,8 +357,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         }
         switch frame.camera.trackingState {
         case .normal: status = .tracking
-        case .limited: annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; status = .limited("Hold your phone steady and move away from magnets."); projection = nil; return
-        case .notAvailable: annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; status = .limited("Finding the camera’s direction…"); projection = nil; return
+        case .limited: annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; status = .limited("Hold your phone steady and move away from magnets."); projection = nil; return
+        case .notAvailable: annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; status = .limited("Finding the camera’s direction…"); projection = nil; return
         }
         let now = Date()
         if sky == nil || now.timeIntervalSince(lastSnapshot) >= 1 {
@@ -367,6 +368,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                     let direction = sky.direction(ra:star.ra_deg,dec:star.dec_deg)
                     return direction.z > sin(5 * .pi/180) ? (star,direction) : nil
                 }
+                scanDirections += sky.planets.filter { $0.direction.z > sin(5 * .pi/180) }.map { ($0.star,$0.direction) }
                 scanDirections += [(CatalogStar.sun,sky.sunDirection),(CatalogStar.moon,sky.moonDirection)].filter { $0.1.z > 0 }
             }
         }
@@ -375,7 +377,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             scan(frame:frame,sky:sky)
             return
         }
-        let horizon = star.isSun ? sky.sunDirection : star.isMoon ? sky.moonDirection : sky.direction(ra:star.ra_deg,dec:star.dec_deg)
+        let horizon = star.isSun ? sky.sunDirection : star.isMoon ? sky.moonDirection : sky.planets.first(where: { $0.star.id == star.id })?.direction ?? sky.direction(ra:star.ra_deg,dec:star.dec_deg)
         altitude = asin(min(1,max(-1,horizon.z))) * 180 / .pi
         guard horizon.z > 0 else { projection = nil; return }
         projection = SkyFinderProjection.project(direction:SkyFinderProjection.worldDirection(horizon),
@@ -383,21 +385,15 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             projection:frame.camera.projectionMatrix(viewRotationAngle:viewRotationAngle,viewportSize:viewport,zNear:0.01,zFar:2000),size:viewport)
     }
     private func scan(frame: ARFrame, sky: SkySnapshot) {
-        guard captureDevice?.isRampingVideoZoom != true, frame.timestamp >= controlsSettleUntil, !scannerPaused else { annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; detectedLightCount = 0; return }
+        guard captureDevice?.isRampingVideoZoom != true, frame.timestamp >= controlsSettleUntil, !scannerPaused else { annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; detectedLightCount = 0; return }
         let forward4 = frame.camera.transform.columns.2
         let forward = SIMD3(forward4.x,forward4.y,forward4.z)
         if let previousForward, simd_dot(forward,previousForward) < cos(1.5 * .pi/180) {
-            detections = [:]; annotations = []; opticalTracks = []; unidentifiedLights = []
+            candidateHistory = [:]; annotations = []; opticalTracks = []; unidentifiedLights = []
         }
         previousForward = forward
         let view = frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle)
         let projectionMatrix = frame.camera.projectionMatrix(viewRotationAngle:viewRotationAngle,viewportSize:viewport,zNear:0.01,zFar:2000)
-        let candidates: [(CatalogStar,CGPoint)] = scanDirections.compactMap { star,direction in
-            let projected = SkyFinderProjection.project(direction:SkyFinderProjection.worldDirection(direction),view:view,projection:projectionMatrix,size:viewport)
-            guard let point = projected.point, point.x > 24, point.x < viewport.width-24,
-                  point.y > 24, point.y < viewport.height-90 else { return nil }
-            return (star,point)
-        }
         func projectLight(_ direction: SIMD3<Float>) -> CGPoint? {
             SkyFinderProjection.project(direction:direction,view:view,projection:projectionMatrix,size:viewport).point
         }
@@ -409,7 +405,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             return simd_normalize(SIMD3(world.x,world.y,world.z))
         }
         let time = frame.timestamp
-        if lastDetectionTime < 0 || time-lastDetectionTime >= 0.18 {
+        let didDetect = lastDetectionTime < 0 || time-lastDetectionTime >= 0.18
+        if didDetect {
             lastDetectionTime = time
             let transform = frame.displayTransform(viewRotationAngle:viewRotationAngle,viewportSize:viewport)
             let sources = CameraStarDetector.detectDiscs(in:frame.capturedImage) + CameraStarDetector.detect(in:frame.capturedImage,zoom:cameraZoom)
@@ -429,75 +426,58 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                     guard let point = projectLight(track.direction) else { return false }
                     return hypot(point.x-light.0.x,point.y-light.0.y) < 16
                 }) else { continue }
-                let previous = opticalTracks.filter { !usedTracks.contains($0.id) && time-$0.time < 0.55 }.compactMap { track -> (CameraOpticalTrack,Double)? in
+                let previous = opticalTracks.filter { !usedTracks.contains($0.id) && time-$0.time < 0.65 }.compactMap { track -> (CameraOpticalTrack,Double)? in
                     guard let point = projectLight(track.direction) else { return nil }
                     return (track,hypot(point.x-light.0.x,point.y-light.0.y))
-                }.filter { $0.1 < 12 }.min { $0.1 < $1.1 }?.0
+                }.filter { $0.1 < min(22,max(12,10*sqrt(cameraZoom))) }.min { $0.1 < $1.1 }?.0
                 let id: Int
                 if let previous { id = previous.id; usedTracks.insert(id) }
                 else { nextOpticalID += 1; id = nextOpticalID }
                 tracks.append(CameraOpticalTrack(id:id,hits:(previous?.hits ?? 0)+1,direction:worldRay(light.0),size:light.1,time:time,isDisc:light.2))
             }
+            // A faint source may disappear for one analysis pass as exposure/noise changes.
+            // Retain its track briefly instead of restarting confirmation from zero.
+            tracks += opticalTracks.filter { !usedTracks.contains($0.id) && time-$0.time < 0.65 }
             opticalTracks = tracks
-            let searchRadius = min(70,max(20,Double(projectionMatrix.columns.0.x)*viewport.width/2*tan(2 * .pi/180)))
-            let headingReady = cameraHeadingAccuracy.map { $0 <= 15 } ?? false
-            var next: [Int:(hits: Int, offset: CGPoint, size: CGSize, time: TimeInterval, direction: SIMD3<Float>)] = [:]
-            var used: Set<Int> = []
-            for (star,predicted) in candidates where headingReady {
-                let matches = lights.enumerated().filter { !used.contains($0.offset) && (!$0.element.2 || star.isSolarSystemBody) }.map { index,light in
-                    (index,light,hypot(light.0.x-predicted.x,light.0.y-predicted.y))
-                }.filter { $0.2 < searchRadius }.sorted { $0.2 < $1.2 }
-                guard let match = matches.first else { continue }
-                // Suppress ambiguous local matches; this remains a sensor-assisted estimate, not plate solving.
-                let competing = candidates.filter { $0.0.id != star.id }.map { hypot($0.1.x-match.1.0.x,$0.1.y-match.1.0.y) }.min() ?? .infinity
-                guard competing > match.2*1.6+4 else { continue }
-                let offset = CGPoint(x:match.1.0.x-predicted.x,y:match.1.0.y-predicted.y)
-                let previous = detections[star.id]
-                let stable = previous.map { hypot($0.offset.x-offset.x,$0.offset.y-offset.y) < 7 && time-$0.time < 0.55 } ?? false
-                next[star.id] = (stable ? (previous?.hits ?? 0)+1 : 1,offset,match.1.1,time,worldRay(match.1.0))
-                used.insert(match.0)
-            }
-            detections = next
         }
-        var visible: [CameraStarAnnotation] = []
-        for (star,_) in candidates {
-            guard let detection = detections[star.id], detection.hits >= 3, time-detection.time < 0.3 else { continue }
-            guard let point = projectLight(detection.direction) else { continue }
-            guard !visible.contains(where:{ hypot($0.point.x-point.x,$0.point.y-point.y) < 65 }) else { continue }
-            visible.append(CameraStarAnnotation(star:star,point:point,size:detection.size,sourceDirection:detection.direction))
-            if visible.count >= 8 { break }
-        }
-        // Compass offsets can move catalogue positions outside a narrow zoomed viewport.
-        // Compare world-space angles, while keeping every marker on the observed light.
         let angularCandidates = scanDirections.map { ($0.0,SkyFinderProjection.worldDirection($0.1)) }
+        var visible: [CameraStarAnnotation] = []
         var unknown: [CameraLightAnnotation] = []
-        for track in opticalTracks.sorted(by: { $0.hits > $1.hits }) where track.hits >= 3 && time-track.time < 0.3 {
-            guard let point = projectLight(track.direction), point.y < viewport.height-90,
-                  !visible.contains(where: { hypot($0.point.x-point.x,$0.point.y-point.y) < 90 }),
-                  !unknown.contains(where: { hypot($0.point.x-point.x,$0.point.y-point.y) < 90 }) else { continue }
-            let ranked = angularCandidates.map { star,direction in
-                (star,Double(acos(min(1,max(-1,simd_dot(track.direction,direction)))))*180 / .pi)
+        var nextHistory: [Int:(starID:Int,hits:Int)] = [:]
+        for track in opticalTracks.sorted(by: { $0.hits == $1.hits ? $0.id < $1.id : $0.hits > $1.hits }) where time-track.time < 0.4 {
+            guard let point = projectLight(track.direction), point.y < viewport.height-90 else { continue }
+            let match = CameraCandidateMatcher.best(direction:track.direction,isDisc:track.isDisc,
+                zoom:cameraZoom,headingAccuracy:cameraHeadingAccuracy,candidates:angularCandidates)
+            let previous = candidateHistory[track.id]
+            if let match {
+                let observedThisPass = didDetect && track.time == time
+                let hits = observedThisPass ? (previous?.starID == match.star.id ? (previous?.hits ?? 0)+1 : 1) : (previous?.starID == match.star.id ? previous?.hits ?? 0 : 0)
+                nextHistory[track.id] = (match.star.id,hits)
+                if track.hits >= 3, hits >= 2, visible.count < 8,
+                   !visible.contains(where: { $0.star.id == match.star.id || hypot($0.point.x-point.x,$0.point.y-point.y) < 90 }),
+                   !unknown.contains(where: { hypot($0.point.x-point.x,$0.point.y-point.y) < 90 }) {
+                    visible.append(CameraStarAnnotation(star:match.star,point:point,size:track.size,
+                        estimatedSeparation:match.separation,sourceDirection:track.direction))
+                    continue
+                }
             }
-            let nearbyBody = ranked.filter { $0.0.isSolarSystemBody && $0.1 <= 20 }.min { $0.1 < $1.1 }
-            let nearest = track.isDisc && nearbyBody != nil ? nearbyBody : ranked.min { $0.1 < $1.1 }
-            // A bounded fallback avoids naming unrelated lights using a distant sky object.
-            if let (star,separation) = nearest, separation <= 20,
-               !visible.contains(where: { $0.star.id == star.id }), visible.count < 8 {
-                visible.append(CameraStarAnnotation(star:star,point:point,size:track.size,estimatedSeparation:separation,sourceDirection:track.direction))
-            } else if unknown.count < 8 {
+            if track.hits >= 2, unknown.count < 8,
+               !visible.contains(where: { hypot($0.point.x-point.x,$0.point.y-point.y) < 90 }),
+               !unknown.contains(where: { hypot($0.point.x-point.x,$0.point.y-point.y) < 90 }) {
                 unknown.append(CameraLightAnnotation(id:track.id,point:point,size:track.size))
             }
         }
+        candidateHistory = nextHistory
         annotations = visible
         unidentifiedLights = unknown
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
-        projection = nil; annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; hasStartedSession = false
+        projection = nil; annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; hasStartedSession = false
         status = .unavailable("The camera stopped: \(error.localizedDescription)")
     }
     func sessionWasInterrupted(_ session: ARSession) {
-        projection = nil; annotations = []; unidentifiedLights = []; detections = [:]; opticalTracks = []; status = .limited("Camera paused. Come back to the app to keep looking.")
+        projection = nil; annotations = []; unidentifiedLights = []; candidateHistory = [:]; opticalTracks = []; status = .limited("Camera paused. Come back to the app to keep looking.")
     }
     func sessionInterruptionEnded(_ session: ARSession) {
         hasStartedSession = false

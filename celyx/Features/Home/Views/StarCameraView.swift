@@ -107,13 +107,13 @@ struct StarCameraView: View {
             .alert("What’s that light?",isPresented:$showsInfo) {
                 Button("Got it",role:.cancel) {}
             } message: {
-                Text("See a name with ≈? That’s our best guess for the light in your camera, based on what’s nearby in the sky. Tap it to take a closer look. A compass offset—or a light on the ground—can throw the guess off.")
+                Text("We look for bright stars and planets near the light in your camera. Direction, expected brightness and a steady match help us pick one suggestion. A ≈ name is still a guess. If two matches are too close to call, we leave the light unnamed. Lights on the ground can still fool the camera.")
             }
             .alert("We spotted a light",isPresented:$showsUnknownInfo) {
                 Button("Recalibrate compass") { service.recalibrateCameraDirection() }
                 Button("Close",role:.cancel) {}
             } message: {
-                Text("We can see a light, but there isn’t a close match in this part of the sky yet. Try recalibrating your compass and point your camera back at it.")
+                Text("We can see a light, but we can’t give it a clear name yet. The matches may be too close to call, or the compass may need recalibrating. It could also be a light on the ground.")
             }
             .alert("Couldn’t capture that",isPresented:$showsCaptureError) {
                 Button("Try Again",role:.cancel) {}
@@ -137,7 +137,7 @@ struct StarCameraView: View {
     private func select(_ annotation: CameraStarAnnotation) {
         let current = service.annotations.first(where: { $0.id == annotation.id }) ?? annotation
         let note = current.estimatedSeparation.map {
-            String(format:"Our best guess is %@, about %.1f° from this light. The name may change if your compass is off.",current.star.title,$0)
+            String(format:"Our best match is %@, based on direction and brightness. Direction offset: %.1f°. This is still a guess, not a confirmed identification.",current.star.title,$0)
         }
         guard let capture = service.captureObservation(annotation:current,identificationNote:note) else {
             showsCaptureError = true
@@ -235,9 +235,14 @@ struct StarCameraView: View {
         VStack(spacing:8) {
             switch service.status {
             case .tracking:
-                if service.annotations.isEmpty {
-                    Text(service.unidentifiedLights.isEmpty ? "Looking for a little light…" : "A light, but no close match yet").font(.subheadline.weight(.medium))
-                    Text(service.unidentifiedLights.isEmpty ? "Point at the sky and hold still for a moment." : "Tap the white marker for a little help.").font(.caption).foregroundStyle(.secondary)
+                if service.isAdjustingCamera {
+                    Text("Letting the camera settle…").font(.subheadline.weight(.medium))
+                    Text("Hold still for a moment after changing focus, brightness or zoom.").font(.caption).foregroundStyle(.secondary)
+                } else if service.annotations.isEmpty {
+                    Text(!service.unidentifiedLights.isEmpty ? "Light detected · name not confirmed" : service.detectedLightCount > 0 ? "Light spotted · hold still…" : "Looking for a little light…")
+                        .font(.subheadline.weight(.medium))
+                    Text((service.cameraHeadingAccuracy ?? 0) > 25 ? "Your compass needs a moment. The light can still be marked while we find its name." : !service.unidentifiedLights.isEmpty ? "The white marker follows the light, even without a name." : service.detectedLightCount > 0 ? "Keeping it steady helps us hold the marker." : "Point at the sky. If the light looks faint, try a little more brightness.")
+                        .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(service.annotations.contains(where: { $0.estimatedSeparation != nil }) ? "≈ Our best guess" : "Tap a name to take a closer look").font(.caption)
                     if service.annotations.contains(where: { $0.estimatedSeparation != nil }) {

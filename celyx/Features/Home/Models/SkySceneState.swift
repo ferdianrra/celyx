@@ -66,8 +66,19 @@ struct CatalogStar: Decodable, Identifiable {
     static let sun = CatalogStar(id:-1,ra_deg:0,dec_deg:0,mag:-26.74,bv:0.65,name:"Sun",designation:"Sun",distance_ly:nil,con:nil,collectible_candidate:true)
     static let moon = CatalogStar(id:-2,ra_deg:0,dec_deg:0,mag:-12.7,bv:nil,name:"Moon",designation:"Moon",distance_ly:nil,con:nil,collectible_candidate:true)
     var isMoon: Bool { id == Self.moon.id }
-    var isSolarSystemBody: Bool { isSun || isMoon }
-    var kind: String { isSun ? "Sun" : isMoon ? "Moon" : "Star" }
+    static let planets: [CatalogStar] = [
+        planet(id:-3,name:"Mercury",magnitude:0),planet(id:-4,name:"Venus",magnitude:-4),
+        planet(id:-5,name:"Mars",magnitude:1),planet(id:-6,name:"Jupiter",magnitude:-2),
+        planet(id:-7,name:"Saturn",magnitude:1)
+    ]
+    static func planet(id: Int,name: String,magnitude: Double) -> CatalogStar {
+        CatalogStar(id:id,ra_deg:0,dec_deg:0,mag:magnitude,bv:nil,name:name,designation:name,
+            distance_ly:nil,con:nil,collectible_candidate:true)
+    }
+    var isPlanet: Bool { (-7 ... -3).contains(id) }
+    var isSolarDisc: Bool { isSun || isMoon }
+    var isSolarSystemBody: Bool { isSun || isMoon || isPlanet }
+    var kind: String { isSun ? "Sun" : isMoon ? "Moon" : isPlanet ? "Planet" : "Star" }
     var isSun: Bool { id == Self.sun.id }
     var hasCommonName: Bool { !(name?.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ?? true) }
     var temperature: Double? {
@@ -75,6 +86,15 @@ struct CatalogStar: Decodable, Identifiable {
         return 4600*(1/(0.92*bv+1.7)+1/(0.92*bv+0.62))
     }
     var rgb: SIMD3<Double> {
+        if isPlanet {
+            switch id {
+            case -3: return SIMD3(0.70,0.67,0.63)
+            case -4: return SIMD3(0.97,0.88,0.69)
+            case -5: return SIMD3(0.90,0.41,0.23)
+            case -6: return SIMD3(0.90,0.75,0.60)
+            default: return SIMD3(0.88,0.80,0.57)
+            }
+        }
         let t = min(1,max(0,((temperature ?? 7000)-3000)/12000))
         return SIMD3(1-0.35*t,0.58+0.32*min(t*2,1),0.35+0.65*min(t*2,1))
     }

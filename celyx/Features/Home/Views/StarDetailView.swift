@@ -15,6 +15,9 @@ struct StarPortraitView: View {
         Group {
             if star.isSun {
                 SunPortraitView(altitude:solarAltitude)
+            } else if star.isPlanet {
+                Circle().fill(RadialGradient(colors:[color,.black.opacity(0.9)],center:.init(x:0.3,y:0.25),startRadius:0,endRadius:80))
+                    .padding(9)
             } else if star.isMoon {
                 Image("StarSurface").resizable().scaledToFit().saturation(0)
                     .colorMultiply(Color(white:0.86)).clipShape(Circle()).padding(9)
@@ -27,7 +30,7 @@ struct StarPortraitView: View {
                 }
             }
         }
-        .accessibilityLabel(star.isSun ? "Illustration of the Sun" : star.isMoon ? "Illustration of the Moon" : "Illustration of \(star.title), color based on the star catalog")
+        .accessibilityLabel(star.isSun ? "Illustration of the Sun" : star.isMoon ? "Illustration of the Moon" : star.isPlanet ? "Illustration of \(star.title)" : "Illustration of \(star.title), color based on the star catalog")
     }
 }
 
@@ -71,7 +74,7 @@ struct StarDetailView: View {
                         StarPortraitView(star:star,solarAltitude:model.sunObservation?.altitude ?? 60).frame(width:64,height:64)
                         VStack(alignment:.leading,spacing:4) {
                             Text(star.title).font(.title2.bold())
-                            Text(star.isSun ? "Our nearest star" : star.isMoon ? "Earth’s natural satellite" : "Star in \(model.constellationName(star))").font(.subheadline).foregroundStyle(.white.opacity(0.65))
+                            Text(star.isSun ? "Our nearest star" : star.isMoon ? "Earth’s natural satellite" : star.isPlanet ? "Planet in our Solar System" : "Star in \(model.constellationName(star))").font(.subheadline).foregroundStyle(.white.opacity(0.65))
                         }
                         Spacer()
                         Button { if let onClose { onClose() } else { model.closeDetail() } } label: { Image(systemName:"xmark").padding(9).background(.white.opacity(0.12),in:Circle()) }
@@ -135,6 +138,9 @@ struct StarDetailView: View {
                             .font(.subheadline).foregroundStyle(.white.opacity(0.8))
                         Text("This is an illustration, with its color based on the star catalog. Distance and brightness come from HYG; temperature is an estimate.")
                             .font(.caption).foregroundStyle(.white.opacity(0.55))
+                    } else if star.isPlanet {
+                        Text("Its position and brightness are calculated for your location and the current time.")
+                            .font(.subheadline).foregroundStyle(.white.opacity(0.8))
                     } else if star.isMoon {
                         Text("The Moon’s position follows your location and the current time.")
                             .font(.subheadline).foregroundStyle(.white.opacity(0.8))
