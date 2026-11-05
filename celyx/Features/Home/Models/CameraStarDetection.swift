@@ -3,7 +3,7 @@ import CoreVideo
 import CoreGraphics
 import simd
 
-struct CameraLightPoint {
+nonisolated struct CameraLightPoint: Sendable {
     let point: CGPoint // normalized unrotated camera-image coordinates
     let bounds: CGRect
     let contrast: Double
@@ -31,7 +31,26 @@ struct CameraStarAnnotation: Identifiable {
     var id: Int { star.id }
 }
 
-enum CameraStarDetector {
+/// Catalog projections and optical observations stay separate: a projection is not evidence of visibility.
+struct CameraMappedObject: Identifiable {
+    let star: CatalogStar
+    let point: CGPoint
+    var likelyVisible = false
+    var id: Int { star.id }
+}
+
+// Retain one read-only camera buffer while the worker analyzes it. No mutable pixel access escapes.
+nonisolated struct CameraAnalysisBuffer: @unchecked Sendable {
+    let value: CVPixelBuffer
+}
+
+struct CameraAimTarget {
+    let object: CameraMappedObject
+    let detection: CameraStarAnnotation?
+    var id: Int { object.id }
+}
+
+nonisolated enum CameraStarDetector {
     // Compact high-contrast sources only. Extended lights and isolated hot pixels are rejected.
     static func detect(in image: CVPixelBuffer,zoom: Double = 1) -> [CameraLightPoint] {
         let format = CVPixelBufferGetPixelFormatType(image)

@@ -19,7 +19,8 @@ struct CameraCollectionFlow: View {
                 } else if let capture {
                     draft = capture; showsJournal = true
                 } else { captureError = true }
-            },cameraCollectTitle:model.collected[star.id]?.photoFilename == nil ? "Collect" : "View Your Note")
+            },cameraCollectTitle:model.collected[star.id]?.photoFilename == nil ? "Collect" : "View Your Note",
+                cameraCollectEnabled:capture != nil || model.collected[star.id]?.photoFilename != nil)
             .sheet(item:$savedItem) { item in SavedStarNoteView(item:item) }
             .navigationDestination(isPresented:$showsJournal) {
                 if let draft { NewStarNoteView(model:model,draft:draft,onSaved:onClose) }
@@ -32,7 +33,7 @@ struct CameraCollectionFlow: View {
     }
 }
 
-private struct NewStarNoteView: View {
+struct NewStarNoteView: View {
     let model: HomeViewModel
     let draft: CameraObservationDraft
     let onSaved: () -> Void

@@ -66,6 +66,7 @@ struct StarDetailView: View {
     var showsFindAction = true
     var onCameraCollect: (() -> Void)? = nil
     var cameraCollectTitle = "Collect"
+    var cameraCollectEnabled = true
     var body: some View {
         ScrollView {
             if let star = model.selectedStar {
@@ -86,7 +87,9 @@ struct StarDetailView: View {
                         Text(identificationNote).font(.footnote).foregroundStyle(.orange)
                     }
                     if onCameraCollect != nil {
-                        Label("Light detected in your camera",systemImage:"camera.fill").font(.footnote).foregroundStyle(.green)
+                        Label(cameraCollectEnabled ? "Camera observation" : "Mapped position · not detected yet",
+                              systemImage:cameraCollectEnabled ? "camera.fill" : "location")
+                            .font(.footnote).foregroundStyle(cameraCollectEnabled ? Color.green : .secondary)
                     } else {
                     Label(observation?.reason ?? "Turn on location to find its position",systemImage:observation?.likelyVisible == true ? "circle.fill" : "info.circle")
                         .font(.footnote).foregroundStyle(observation?.likelyVisible == true ? .green : .white.opacity(0.75))
@@ -99,9 +102,10 @@ struct StarDetailView: View {
                     }
                     .buttonStyle(.plain).foregroundStyle(Color(red:0.04,green:0.06,blue:0.18))
                     .background(.white.opacity((onCameraCollect != nil || model.location != nil) ? 1:0.45),in:Capsule())
-                    .disabled(onCameraCollect == nil && model.location == nil)
+                    .disabled(onCameraCollect != nil ? !cameraCollectEnabled : model.location == nil)
+                    .opacity(onCameraCollect != nil && !cameraCollectEnabled ? 0.45 : 1)
                     .accessibilityIdentifier("collect-star")
-                    Text(onCameraCollect != nil ? "Your photo is ready. Add a note and keep this moment." : isCollected ? "Saved to your collection." : "Open the camera to capture and save what you see.")
+                    Text(onCameraCollect != nil ? (cameraCollectEnabled ? "Your photo is ready. Add a note and keep this moment." : "Go back to the camera and keep this spot in view to collect it.") : isCollected ? "Saved to your collection." : "Open the camera to capture and save what you see.")
                         .font(.caption).foregroundStyle(.white.opacity(0.6))
                     if showsFindAction {
                         Button { model.findSelectedInSky() } label: {
