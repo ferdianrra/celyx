@@ -113,17 +113,18 @@ struct SkyCameraPreview: UIViewRepresentable {
     let onViewport: (CGSize,UIInterfaceOrientation) -> Void
     var onTap: ((CGPoint) -> Void)? = nil
     var onHold: ((CGPoint) -> Void)? = nil
+    var onExposureDrag: ((CGFloat,CGPoint,Bool) -> Void)? = nil
     func makeUIView(context: Context) -> FinderCameraView {
         let view = FinderCameraView()
         view.session = session
         view.scene = SCNScene()
         view.viewportChanged = onViewport
-        view.tapped = onTap; view.held = onHold
+        view.tapped = onTap; view.held = onHold; view.exposureDragged = onExposureDrag
         view.installCameraGestures()
         return view
     }
     func updateUIView(_ view: FinderCameraView,context: Context) {
-        view.tapped = onTap; view.held = onHold
+        view.tapped = onTap; view.held = onHold; view.exposureDragged = onExposureDrag
         view.updateViewport()
     }
     static func dismantleUIView(_ view: FinderCameraView,coordinator: ()) { view.session.pause() }
@@ -133,12 +134,37 @@ final class FinderCameraView: ARSCNView {
     var viewportChanged: ((CGSize,UIInterfaceOrientation) -> Void)?
     var tapped: ((CGPoint) -> Void)?
     var held: ((CGPoint) -> Void)?
+    var exposureDragged: ((CGFloat,CGPoint,Bool) -> Void)?
+    private var exposurePanActive = false
     func installCameraGestures() {
         let tap = UITapGestureRecognizer(target:self,action:#selector(didTap(_:)))
         let hold = UILongPressGestureRecognizer(target:self,action:#selector(didHold(_:)))
         hold.minimumPressDuration = 0.7
         tap.require(toFail:hold)
         addGestureRecognizer(tap); addGestureRecognizer(hold)
+        if exposureDragged != nil {
+            let pan = UIPanGestureRecognizer(target:self,action:#selector(didDragExposure(_:)))
+            pan.minimumNumberOfTouches = 1; pan.maximumNumberOfTouches = 1
+            tap.require(toFail:pan)
+            addGestureRecognizer(pan)
+        }
+    }
+    @objc private func didDragExposure(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in:self)
+        let location = gesture.location(in:self)
+        let start = CGPoint(x:location.x-translation.x,y:location.y-translation.y)
+        switch gesture.state {
+        case .began:
+            let velocity = gesture.velocity(in:self)
+            exposurePanActive = abs(velocity.y) > abs(velocity.x)
+            if exposurePanActive { exposureDragged?(translation.y,start,false) }
+        case .changed:
+            if exposurePanActive { exposureDragged?(translation.y,start,false) }
+        case .ended,.cancelled,.failed:
+            if exposurePanActive { exposureDragged?(translation.y,start,true) }
+            exposurePanActive = false
+        default: break
+        }
     }
     @objc private func didTap(_ gesture: UITapGestureRecognizer) { tapped?(gesture.location(in:self)) }
     @objc private func didHold(_ gesture: UILongPressGestureRecognizer) {

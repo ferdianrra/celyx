@@ -17,9 +17,12 @@ enum CameraCandidateMatcher {
         if let headingAccuracy, !headingAccuracy.isFinite || headingAccuracy < 0 || headingAccuracy > 25 { return nil }
         let radius = min(12,max(6,(headingAccuracy ?? 10)*0.75))
         let preferredLimit = preferredMagnitudeLimit(zoom:zoom)
+        let minimumDot = cos(radius * .pi/180)
         let ranked = candidates.compactMap { star,expected -> CameraCandidateMatch? in
-            let separation = Double(acos(min(1,max(-1,simd_dot(direction,expected)))))*180 / .pi
-            guard separation <= radius, star.mag <= 5.5 else { return nil }
+            let dot = Double(simd_dot(direction,expected))
+            guard dot >= minimumDot, star.mag <= 5.5 else { return nil }
+            let separation = acos(min(1,max(-1,dot)))*180 / .pi
+            guard separation <= radius else { return nil }
             // A point source several degrees away should not acquire the Sun/Moon's name.
             if (star.isSun || star.isMoon) && !isDisc && separation > 3 { return nil }
             let brightnessPenalty = max(0,star.mag-1)*0.9 + max(0,star.mag-3)*0.8

@@ -2,13 +2,26 @@
 //  ContentView.swift
 //  celyx
 //
-//  Created by Ferdiansyah Annora on 02/11/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View { HomeView().environment(\.locale,Locale(identifier:"en")) }
+    @State private var model = HomeViewModel()
+    @State private var showsSky = false
+
+    var body: some View {
+        Group {
+            if showsSky {
+                HomeView(model:model,onReturnToGarden:{
+                    model.suspend()
+                    showsSky = false
+                })
+            } else {
+                GardenView(model:model,isHome:true,onStartCollect:model.openStarCamera,onClose:{ showsSky = true })
+                    .fullScreenCover(isPresented:$model.showsStarCamera) { StarCameraView(model:model) }
+            }
+        }
+        .environment(\.locale,Locale(identifier:"en"))
+    }
 }
 
 #Preview { ContentView() }

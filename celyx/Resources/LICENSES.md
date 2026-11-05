@@ -12,3 +12,16 @@
 | environment/boat-360*.png | The project owner's Gemini panorama, upscaled | Check Google's terms for generated images |
 
 CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/
+
+## Garden artwork supplied with Assets Galaxy
+
+Garden's native procedural geometry is adapted from the project owner's supplied `Assets Galaxy/Galaxy/3d/index.html`. Optimized Canopus, Sirius A, Rigel, Moon, Mercury, Venus, Mars and Jupiter textures and the named-star portraits are derived from that same supplied asset folder. Source asset ownership/terms remain those of the supplied files. Three.js and its JavaScript dependencies are not bundled or executed by this adaptation.
+
+## Upcoming Events
+
+Data from SpaceCatalog.org: https://spacecatalog.org/api
+Each event retains its original producer name, source URL, licence statement and requested attribution in the event detail. These upstream terms govern the corresponding data. Current sources include NASA/JPL close-approach data and International Meteor Organization meteor-shower calendars.
+
+Event artwork (`event-meteor.png`, `event-planets.png`, `event-moon.png`, `event-eclipse.png`) was supplied by the project owner.
+
+Minecart LCD by Daymarius, downloaded from the author’s DaFont listing: https://www.dafont.com/minecart-lcd.font . The author states: “Free for Personal and Commercial use.” See `MinecartLCD-license.txt` bundled with the font. The font is used for calendar dates.
