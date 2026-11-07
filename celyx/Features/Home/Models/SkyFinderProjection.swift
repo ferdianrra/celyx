@@ -9,8 +9,13 @@ struct SkyFinderProjection {
     var isAligned: Bool { separation <= 3 }
 
     // Astronomy: east, north, up. ARKit gravityAndHeading: east, up, south.
+    // The calibrated compass error is removed here: ARKit's north is turned to true north, so every
+    // catalogue position (projection, light matching, crosshair) uses the corrected heading.
     static func worldDirection(_ horizon: SIMD3<Double>) -> SIMD3<Float> {
-        SIMD3(Float(horizon.x),Float(horizon.z),Float(-horizon.y))
+        // Where ARKit's frame shows an azimuth A, the true azimuth is A + offset: rotate by −offset.
+        let c = SkyCalibration.arCos, s = SkyCalibration.arSin
+        let east = horizon.x*c-horizon.y*s, north = horizon.x*s+horizon.y*c
+        return SIMD3(Float(east),Float(horizon.z),Float(-north))
     }
 
     static func project(direction: SIMD3<Float>, view: simd_float4x4,
@@ -31,5 +36,24 @@ struct SkyFinderProjection {
         if simd_length(arrow) < 0.0001 { arrow = SIMD2(1,0) }
         arrow = simd_normalize(arrow)
         return SkyFinderProjection(point:point,arrow:CGVector(dx:arrow.x,dy:arrow.y),separation:separation)
+    }
+}
+
+/// Standard atmospheric refraction (Sæmundsson 1986, 10 °C / 1010 hPa).
+/// Lifts a geometric horizon direction (east, north, up) to where it actually appears:
+/// ~29′ at the horizon, ~5′ at 10°, ~1′ at 45°, 0 at the zenith.
+enum Refraction {
+    static func arcminutes(trueAltitude h: Double) -> Double {
+        guard h > -1.5 else { return 0 }
+        let degrees = h+10.3/(h+5.11)
+        return max(0,1.02/tan(degrees * .pi/180))
+    }
+    static func apparent(_ direction: SIMD3<Double>) -> SIMD3<Double> {
+        let horizontal = (direction.x*direction.x+direction.y*direction.y).squareRoot()
+        guard horizontal > 1e-9 else { return direction }
+        let altitude = atan2(direction.z,horizontal)*180 / .pi
+        let lifted = (altitude+arcminutes(trueAltitude:altitude)/60) * .pi/180
+        let scale = cos(lifted)/horizontal
+        return SIMD3(direction.x*scale,direction.y*scale,sin(lifted))
     }
 }

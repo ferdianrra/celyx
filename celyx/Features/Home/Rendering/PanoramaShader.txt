@@ -38,13 +38,21 @@ float3 viewRay(float2 pixel, constant Uniforms &u) {
 float2 environmentUV(float3 d) {
     return float2(atan2(d.x,d.y)/(2*M_PI_F)+.5, .5-asin(clamp(d.z,-1.0f,1.0f))/M_PI_F);
 }
+// Screen-space derivatives of an equirectangular U jump by ~1 where atan2 wraps,
+// which forces the smallest mip and draws a dashed seam. Unwrap them.
+gradient2d wrappedGradient(float2 uv) {
+    float2 x = dfdx(uv), y = dfdy(uv);
+    x.x -= round(x.x); y.x -= round(y.x);
+    return gradient2d(x,y);
+}
 constexpr sampler panoramaSampler(coord::normalized, s_address::repeat, t_address::clamp_to_edge,
                                    min_filter::linear, mag_filter::linear, mip_filter::linear);
 fragment float4 panoramaFragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
     texture2d<float> sky [[texture(0)]], texture2d<float> mw [[texture(1)]],
     texture2d<float> lines [[texture(2)]]) {
     float3 d = viewRay(in.uv*u.viewport.xy,u);
-    float3 col = sky.sample(panoramaSampler,environmentUV(d)).rgb;
+    float2 skyUV = environmentUV(d);
+    float3 col = sky.sample(panoramaSampler,skyUV,wrappedGradient(skyUV)).rgb;
     float sunAltitude = asin(clamp(u.sun.z,-1.0f,1.0f))*180/M_PI_F;
     float day = smoothstep(-18.0f,3.0f,sunAltitude);
     float night = 1-smoothstep(-18.0f,-6.0f,sunAltitude);
@@ -60,11 +68,12 @@ fragment float4 panoramaFragment(VertexOut in [[stage_in]], constant Uniforms &u
     if(d.z >= 0 && u.conditions.w > .5) {
         float3 e = float3(dot(d,u.eqX.xyz),dot(d,u.eqY.xyz),dot(d,u.eqZ.xyz));
         float2 euv = float2(atan2(e.y,e.x)/(2*M_PI_F),acos(clamp(e.z,-1.0f,1.0f))/M_PI_F);
+        gradient2d eqGradient = wrappedGradient(euv);
         if(u.layers.x > .5) {
-            float3 m = mw.sample(panoramaSampler,euv).rgb;
+            float3 m = mw.sample(panoramaSampler,euv,eqGradient).rgb;
             col += m*m*1.15*(.25+.75*smoothstep(0.0f,.35f,d.z))*mix(night,1.0f,space)*mix(clamp((u.conditions.x-2)/3.6,0.0f,1.0f),1.0f,space);
         }
-        if(u.layers.w > .5) col += lines.sample(panoramaSampler,euv).rgb*.55;
+        if(u.layers.w > .5) col += lines.sample(panoramaSampler,euv,eqGradient).rgb*.55;
         if(u.layers.z > .5) {
             float2 g = float2(atan2(d.x,d.y),asin(d.z))*180/M_PI_F;
             float2 dist = abs(fract(g/15+.5)-.5)*15;
@@ -119,7 +128,8 @@ vertex StarOut starVertex(uint id [[vertex_id]], constant Uniforms &u [[buffer(0
     float2 pixel = float2(u.viewport.x*.5+offset.x,u.viewport.y*.47-offset.y);
     out.position = float4(pixel.x/u.viewport.x*2-1,1-pixel.y/u.viewport.y*2,0,1);
     float mag = star.directionMagnitude.w;
-    float radius = clamp(2.4-.42*mag,.65f,3.6f)*min(sqrt(72/u.camera.z),1.8f);
+    // Catalogue stars stay ≤ 3.6px. Only the garden's Sun (-5) and Moon (-4) are drawn as larger lights.
+    float radius = (mag <= -3.5 ? 10.0f : mag <= -3 ? 7.0f : clamp(2.4-.42*mag,.65f,3.6f))*min(sqrt(72/u.camera.z),1.8f);
     float glow = mag < 2 ? 5.0 : 3.0;
     out.size = radius*2*glow*u.viewport.w;
     out.core = 1/glow;
@@ -144,7 +154,7 @@ fragment float4 foregroundFragment(VertexOut in [[stage_in]], constant Uniforms 
     float2 uv = environmentUV(d);
     // Calculate derivatives before divergent visibility branches. Implicit LOD
     // inside them produces small stripes at the sea/island horizon on GPU quads.
-    gradient2d environmentGradient(dfdx(uv),dfdy(uv));
+    gradient2d environmentGradient = wrappedGradient(uv);
     float4 col = float4(0);
     if(d.z < .18 && d.z > -.02) {
         // The source RGB contains vertical bands. Use its coastline mask only;
@@ -158,7 +168,7 @@ fragment float4 foregroundFragment(VertexOut in [[stage_in]], constant Uniforms 
     float3 b = float3(d.x,d.y*rot.x-d.z*rot.y,d.y*rot.y+d.z*rot.x);
     b = float3(b.x*rot.z-b.z*rot.w,b.y,b.x*rot.w+b.z*rot.z);
     float2 boatUV = environmentUV(b);
-    gradient2d boatGradient(dfdx(boatUV),dfdy(boatUV));
+    gradient2d boatGradient = wrappedGradient(boatUV);
     float day = smoothstep(-18.0f,3.0f,asin(clamp(u.sun.z,-1.0f,1.0f))*180/M_PI_F);
     col.rgb = mix(col.rgb,min(col.rgb*3+float3(.08,.16,.21)*col.a,float3(1)),day);
     if(b.z < .02) {

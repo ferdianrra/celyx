@@ -10,9 +10,19 @@ import MetalKit
 import ImageIO
 import simd
 
+/// A star placed in the personal garden sky. `direction` is in the scene's equatorial frame.
+struct GardenSkyStar: Equatable {
+    let id: Int
+    let direction: SIMD3<Double>
+    let magnitude: Double
+    let color: SIMD3<Double>
+}
+
 struct PanoramaView: UIViewRepresentable {
     let scene: SkySceneState
     var isActive = true
+    /// When set, only these stars are drawn instead of the full catalogue (Garden mode).
+    var gardenStars: [GardenSkyStar]? = nil
     var onError: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> MTKView {
@@ -24,6 +34,7 @@ struct PanoramaView: UIViewRepresentable {
             let renderer = try PanoramaRenderer(view: view)
             context.coordinator.renderer = renderer
             renderer.scene = scene
+            renderer.setGardenStars(gardenStars)
             view.delegate = renderer
             updateRendering(view)
         } catch { DispatchQueue.main.async { onError(error.localizedDescription) } }
@@ -31,6 +42,7 @@ struct PanoramaView: UIViewRepresentable {
     }
     func updateUIView(_ view: MTKView, context: Context) {
         context.coordinator.renderer?.scene = scene
+        context.coordinator.renderer?.setGardenStars(gardenStars)
         updateRendering(view)
     }
     private func updateRendering(_ view: MTKView) {
@@ -86,6 +98,8 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
     private let textures: [MTLTexture]
     private let starBuffer: MTLBuffer
     let starCount: Int
+    private var gardenStars: [GardenSkyStar]?
+    private var gardenBuffer: MTLBuffer?
     let textureByteCount: Int
     private let inFlight = DispatchSemaphore(value: 2)
     private let start = CACurrentMediaTime()
@@ -179,6 +193,17 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
         }.cgImage!
     }
 
+    func setGardenStars(_ stars: [GardenSkyStar]?) {
+        guard stars != gardenStars else { return }
+        gardenStars = stars
+        guard let stars, !stars.isEmpty else { gardenBuffer = nil; return }
+        let gpu = stars.map { star in
+            GPUStar(directionMagnitude: SIMD4(Float(star.direction.x),Float(star.direction.y),Float(star.direction.z),Float(star.magnitude)),
+                    color: SIMD4(Float(star.color.x),Float(star.color.y),Float(star.color.z),1))
+        }
+        gardenBuffer = queue.device.makeBuffer(bytes: gpu, length: gpu.count*MemoryLayout<GPUStar>.stride, options: .storageModeShared)
+    }
+
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
     func draw(in view: MTKView) {
         guard inFlight.wait(timeout: .now()) == .success else { return }
@@ -210,9 +235,17 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
         encoder.setRenderPipelineState(backgroundPipeline)
         encoder.drawPrimitives(type: .triangle,vertexStart: 0,vertexCount: 3)
         if scene.showsStars {
-            encoder.setRenderPipelineState(starPipeline)
-            encoder.setVertexBuffer(starBuffer,offset: 0,index: 1)
-            encoder.drawPrimitives(type: .point,vertexStart: 0,vertexCount: starCount)
+            if let gardenStars {
+                if let gardenBuffer {
+                    encoder.setRenderPipelineState(starPipeline)
+                    encoder.setVertexBuffer(gardenBuffer,offset: 0,index: 1)
+                    encoder.drawPrimitives(type: .point,vertexStart: 0,vertexCount: gardenStars.count)
+                }
+            } else {
+                encoder.setRenderPipelineState(starPipeline)
+                encoder.setVertexBuffer(starBuffer,offset: 0,index: 1)
+                encoder.drawPrimitives(type: .point,vertexStart: 0,vertexCount: starCount)
+            }
         }
         encoder.setRenderPipelineState(foregroundPipeline)
         encoder.drawPrimitives(type: .triangle,vertexStart: 0,vertexCount: 3)
