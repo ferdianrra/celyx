@@ -74,24 +74,50 @@ struct CollectedStar: Codable, Identifiable {
     var identificationNote: String? = nil
 }
 
+nonisolated struct VisibilityFilters: Equatable, Sendable {
+    var daylight = true
+    var horizon = true
+    var brightness = true
+    var lightPollution = true
+    var moonlight = true
+    var clouds = true
+    var atmosphericExtinction = true
+    var isModified: Bool { self != Self() }
+}
+
 enum VisibilityEstimator {
-    static func limitingMagnitude(sunAltitude: Double, quality: SkyQuality, moonAltitude: Double, moonIllumination: Double) -> Double {
-        let darkness = min(1,max(0,(-sunAltitude-6)/12))
-        let moonPenalty = moonAltitude > 0 ? moonIllumination * 1.3 : 0
-        return -2 + darkness*(quality.limit+2) - moonPenalty
+    static func visibleObjects(stars: [CatalogStar],sky: SkySnapshot,quality: SkyQuality,atmosphere: Atmosphere,filters: VisibilityFilters = .init()) -> [StarObservation] {
+        let moonAltitude = asin(min(1,max(-1,sky.moonDirection.z)))*180 / .pi
+        let limit = limitingMagnitude(sunAltitude:sky.sunAltitude,quality:quality,moonAltitude:moonAltitude,moonIllumination:sky.moonIllumination,filters:filters)
+        let targets = stars.filter { !$0.isSolarSystemBody }.map { ($0,sky.direction(ra:$0.ra_deg,dec:$0.dec_deg)) }
+            + sky.planets.map { ($0.star,$0.direction) }
+        return targets.map { observation(star:$0.0,direction:$0.1,limit:limit,sunAltitude:sky.sunAltitude,atmosphere:atmosphere,filters:filters) }
+            .filter(\.likelyVisible).sorted {
+                if $0.dimmedMagnitude != $1.dimmedMagnitude { return $0.dimmedMagnitude < $1.dimmedMagnitude }
+                return $0.id < $1.id
+            }
     }
-    static func observation(star: CatalogStar, direction: SIMD3<Double>, limit: Double, sunAltitude: Double, atmosphere: Atmosphere) -> StarObservation {
+    static func limitingMagnitude(sunAltitude: Double, quality: SkyQuality, moonAltitude: Double, moonIllumination: Double, filters: VisibilityFilters = .init()) -> Double {
+        let darkness = filters.daylight ? min(1,max(0,(-sunAltitude-6)/12)) : 1
+        let moonPenalty = filters.moonlight && moonAltitude > 0 ? moonIllumination * 1.3 : 0
+        let skyLimit = filters.lightPollution ? quality.limit : SkyQuality.dark.limit
+        return -2 + darkness*(skyLimit+2) - moonPenalty
+    }
+    static func observation(star: CatalogStar, direction: SIMD3<Double>, limit: Double, sunAltitude: Double, atmosphere: Atmosphere, filters: VisibilityFilters = .init()) -> StarObservation {
         let alt = asin(min(1,max(-1,direction.z))) * 180 / .pi
         let airMass = alt > 0 ? 1 / (sin(alt * .pi/180) + 0.50572 * pow(alt+6.07995,-1.6364)) : 40
-        let dimmed = star.mag + atmosphere.extinction * max(0,airMass-1)
-        let visible = alt > 1 && sunAltitude < -6 && dimmed <= limit && (atmosphere.cloudCover ?? 0) < 75
+        let dimmed = star.mag + (filters.atmosphericExtinction ? atmosphere.extinction * max(0,airMass-1) : 0)
         let reason: String
-        if alt <= 0 { reason = "Below the horizon" }
-        else if sunAltitude >= -6 { reason = "The sky is still bright" }
-        else if alt <= 1 { reason = "Close to the horizon" }
-        else if (atmosphere.cloudCover ?? 0) >= 75 { reason = "Cloudy forecast" }
-        else if dimmed > limit { reason = "May be too faint to see" }
-        else { reason = "May be visible" }
+        if filters.horizon && alt <= 0 { reason = "Below the horizon" }
+        else if filters.daylight && sunAltitude >= -6 { reason = "The sky is still bright" }
+        else if filters.horizon && alt <= 1 { reason = "Close to the horizon" }
+        else if filters.clouds && (atmosphere.cloudCover ?? 0) >= 75 { reason = "Cloudy forecast" }
+        else if filters.brightness && dimmed > limit { reason = "May be too faint to see" }
+        else { reason = filters.isModified ? "Matches selected filters" : "May be visible" }
+        let visible = (!filters.horizon || alt > 1)
+            && (!filters.daylight || sunAltitude < -6)
+            && (!filters.clouds || (atmosphere.cloudCover ?? 0) < 75)
+            && (!filters.brightness || dimmed <= limit)
         return StarObservation(star: star,direction: direction,dimmedMagnitude: dimmed,likelyVisible: visible,reason: reason)
     }
 }

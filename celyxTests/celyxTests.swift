@@ -8,6 +8,9 @@
 import Testing
 import Foundation
 import MetalKit
+import SceneKit
+import UIKit
+import CoreVideo
 import simd
 @testable import celyx
 
@@ -90,6 +93,249 @@ struct celyxTests {
         #expect(!below.likelyVisible)
         let hazy = VisibilityEstimator.observation(star:candidate.star,direction:candidate.direction,limit:6,sunAltitude:-30,atmosphere:Atmosphere(aerosolOpticalDepth:1))
         #expect(hazy.dimmedMagnitude >= candidate.dimmedMagnitude)
+    }
+
+    @Test func zoomWorksWithoutHardwareCameraControlsAndClampsItsRange() {
+        let service = SkyFinderService()
+        #expect(service.maximumZoom == 10)
+        service.setZoom(6,animated:true)
+        #expect(service.cameraZoom == 6)
+        service.setZoom(100)
+        #expect(service.cameraZoom == 10)
+        service.setZoom(0.1)
+        #expect(service.cameraZoom == 1)
+        service.setZoom(.nan)
+        #expect(service.cameraZoom == 1)
+    }
+
+    @Test func zoomedProjectionAndImageCoordinatesProduceTheSameWorldRay() {
+        let base = simd_float4x4(columns:(SIMD4(2,0,0,0),SIMD4(0,1,0,0),SIMD4(0.1,-0.05,-1,-1),SIMD4(0,0,-0.02,0)))
+        for zoom in [1.0,2,6,10] {
+            let transform = CameraZoom.normalizedTransform(zoom)
+            let projection = CameraZoom.projection(base,zoom:zoom)
+            for point in [CGPoint(x:0.5,y:0.5),CGPoint(x:0.48,y:0.52)] {
+                let displayed = point.applying(transform)
+                let recovered = displayed.applying(transform.inverted())
+                #expect(hypot(recovered.x-point.x,recovered.y-point.y) < 1e-10)
+                func ray(_ p: CGPoint,_ matrix: simd_float4x4) -> SIMD3<Float> {
+                    let clip = SIMD4<Float>(Float(p.x*2-1),Float(1-p.y*2),1,1)
+                    let local = simd_inverse(matrix)*clip
+                    return simd_normalize(SIMD3(local.x,local.y,local.z))
+                }
+                #expect(simd_length(ray(point,base)-ray(displayed,projection)) < 0.00001)
+            }
+        }
+    }
+
+    @Test func zoomedPhotosUseTheSameCenteredCropAsThePreview() {
+        let extent = CGRect(x:30,y:40,width:1000,height:800)
+        let viewport = CGSize(width:400,height:800)
+        let base = CameraZoom.imageCrop(extent:extent,viewport:viewport,zoom:1)
+        let zoomed = CameraZoom.imageCrop(extent:extent,viewport:viewport,zoom:4)
+        #expect(zoomed.midX == base.midX && zoomed.midY == base.midY)
+        #expect(zoomed.width == base.width/4 && zoomed.height == base.height/4)
+        #expect(extent.contains(zoomed))
+    }
+
+    @Test func previewZoomScalesCameraAndWorldMarkersTogetherAndConvertsTaps() {
+        let container = FinderCameraContainer(frame:CGRect(x:0,y:0,width:400,height:800))
+        container.zoom = 3
+        container.layoutIfNeeded()
+        #expect(container.clipsToBounds)
+        #expect(container.cameraView.bounds.size == CGSize(width:400,height:800))
+        #expect(container.cameraView.transform.a == 3 && container.cameraView.transform.d == 3)
+        let point = container.cameraView.convert(CGPoint(x:210,y:400),to:container)
+        #expect(abs(point.x-230) < 0.001 && abs(point.y-400) < 0.001)
+        container.cameraView.isPlaying = false
+    }
+
+    private func cameraLuminanceBuffer(width: Int = 320,height: Int = 240,
+        pixel: (Int,Int) -> UInt8) throws -> CVPixelBuffer {
+        var buffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(kCFAllocatorDefault,width,height,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,nil,&buffer)
+        #expect(status == kCVReturnSuccess)
+        let image = try #require(buffer)
+        CVPixelBufferLockBaseAddress(image,[])
+        defer { CVPixelBufferUnlockBaseAddress(image,[]) }
+        let bytes = try #require(CVPixelBufferGetBaseAddressOfPlane(image,0)).assumingMemoryBound(to:UInt8.self)
+        let row = CVPixelBufferGetBytesPerRowOfPlane(image,0)
+        for y in 0..<height { for x in 0..<width { bytes[y*row+x] = pixel(x,y) } }
+        return image
+    }
+
+    @Test func faintCameraSourceSurvivesBrightSkyElsewhereInTheFrame() throws {
+        let image = try cameraLuminanceBuffer { x,y in
+            let r2 = Double((x-90)*(x-90)+(y-120)*(y-120))
+            return UInt8(20+Double(x)*0.32+14*exp(-r2/(2*1.5*1.5)))
+        }
+        let sources = CameraStarDetector.detect(in:image)
+        #expect(sources.contains { hypot($0.point.x*320-90,$0.point.y*240-120) < 2 })
+    }
+
+    @Test func focusedSearchFindsSoftDimLightAtDigitalZoom() throws {
+        let image = try cameraLuminanceBuffer { x,y in
+            let r2 = Double((x-160)*(x-160)+(y-120)*(y-120))
+            return UInt8(20+9*exp(-r2/(2*4.5*4.5)))
+        }
+        let focused = CameraStarDetector.detect(in:image,zoom:2.8,
+            focusRegion:CGRect(x:0.4,y:0.4,width:0.2,height:0.2))
+        #expect(focused.contains { hypot($0.point.x*320-160,$0.point.y*240-120) < 3 })
+    }
+
+    @Test func focusedSearchKeepsSharpSourcesAndExcludesLightsOutsideTheSelectedArea() throws {
+        let image = try cameraLuminanceBuffer { x,y in
+            if (160...161).contains(x) && (120...121).contains(y) { return 90 }
+            if (70...71).contains(x) && (120...121).contains(y) { return 90 }
+            return 20
+        }
+        let sources = CameraStarDetector.detect(in:image,zoom:2.8,
+            focusRegion:CGRect(x:0.4,y:0.4,width:0.2,height:0.2))
+        #expect(sources.count == 1)
+        #expect(try #require(sources.first).point.x > 0.49)
+    }
+
+    @Test func focusedDetectionStillRejectsHotPixelsGrainAndBroadGlows() throws {
+        let image = try cameraLuminanceBuffer { x,y in
+            let r2 = Double((x-220)*(x-220)+(y-120)*(y-120))
+            let grain = (x*37+y*19)%5-2
+            if x == 90 && y == 120 { return 255 }
+            return UInt8(30+grain+Int(20*exp(-r2/(2*25*25))))
+        }
+        let sources = CameraStarDetector.detect(in:image,zoom:2.8,focusRegion:CGRect(x:0,y:0,width:1,height:1))
+        #expect(sources.isEmpty,"Unexpected detections: \(sources)")
+    }
+
+    @Test func calibrationIsSharedInSessionButNeverRestoresAnOldWorldRotation() throws {
+        let suite = "celyx.alignment.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let alignment = CameraSkyAlignment(defaults:defaults)
+        let first = SkyFinderService(alignment:alignment)
+        let second = SkyFinderService(alignment:alignment)
+        let rotation = simd_quatf(angle:0.2,axis:SIMD3<Float>(0,1,0))
+        alignment.save(rotation:rotation,reference:"Sun",date:Date())
+        #expect(first.alignment === second.alignment)
+        #expect(second.alignment.reference == "Sun")
+        #expect(simd_length(alignment.correct(SIMD3(0,0,-1))-SIMD3(0,0,-1)) > 0.1)
+        let relaunched = CameraSkyAlignment(defaults:defaults)
+        #expect(relaunched.requiresCalibration)
+        #expect(relaunched.reference == nil)
+        #expect(relaunched.correct(SIMD3(0,0,-1)) == SIMD3(0,0,-1))
+        #expect(defaults.data(forKey:"cameraSkyAlignment.v1") == nil)
+    }
+
+    @Test func backgroundInvalidatesCalibrationAndRejectsFrozenPhotosFromTheOldWorld() throws {
+        let suite = "celyx.alignment.background.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let alignment = CameraSkyAlignment(defaults:defaults)
+        let service = SkyFinderService(alignment:alignment)
+        alignment.save(rotation:simd_quatf(angle:0.2,axis:SIMD3(0,1,0)),reference:"Sun",date:Date())
+        let frame = CameraAlignmentFrame(generation:alignment.generation,image:UIImage(),size:CGSize(width:100,height:100),
+            date:Date(),location:ObserverLocation(latitude:0,longitude:0),view:matrix_identity_float4x4,projection:matrix_identity_float4x4)
+        service.suspendForBackground()
+        #expect(alignment.requiresCalibration)
+        #expect(alignment.reference == nil)
+        #expect(alignment.generation != frame.generation)
+        #expect(!service.applyAlignment(frame:frame,star:.sun,point:CGPoint(x:50,y:50)))
+        #expect(service.targetMarker == nil)
+        #expect(service.aimTarget() == nil)
+        alignment.save(rotation:simd_quatf(angle:0,axis:SIMD3(0,1,0)),reference:"Sun",date:Date())
+        #expect(!alignment.requiresCalibration)
+    }
+
+    @Test func relocationRequestsCalibrationWithoutReactingToOrdinaryGPSNoise() throws {
+        let suite = "celyx.alignment.location.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let alignment = CameraSkyAlignment(defaults:defaults)
+        let location = ObserverLocation(latitude:-6.17,longitude:106.82,accuracy:30)
+        alignment.save(rotation:simd_quatf(angle:0,axis:SIMD3(0,1,0)),reference:"Sun",date:Date(),location:location)
+        #expect(!alignment.validateLocation(ObserverLocation(latitude:-6.1701,longitude:106.82,accuracy:30)))
+        #expect(!alignment.requiresCalibration)
+        #expect(!alignment.validateLocation(ObserverLocation(latitude:-6.172,longitude:106.82,accuracy:500)))
+        #expect(alignment.validateLocation(ObserverLocation(latitude:-6.18,longitude:106.82,accuracy:30)))
+        #expect(alignment.requiresCalibration)
+    }
+
+    @Test func legacyStoredQuaternionRequiresNewCalibration() throws {
+        let suite = "celyx.alignment.legacy.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        defaults.set(Data("legacy rotation".utf8),forKey:"cameraSkyAlignment.v1")
+        let alignment = CameraSkyAlignment(defaults:defaults)
+        #expect(alignment.requiresCalibration)
+        #expect(alignment.reference == nil)
+        #expect(defaults.data(forKey:"cameraSkyAlignment.v1") == nil)
+    }
+
+    @Test func skyMarkersKeepTheirWorldNodesWhenCameraGuidesMoveAndRemoveFilteredObjects() throws {
+        let view = FinderCameraView(frame:.zero)
+        let scene = SCNScene()
+        view.scene = scene
+        let star = try #require(HomeViewModel.preview().stars.first)
+        let first = CameraSkyPrediction(direction:SIMD3(0,0,-1),star:star,
+            guide:SkyFinderProjection(point:CGPoint(x:100,y:100),arrow:.zero,separation:0))
+        view.updateSkyMarkers([first],labeledIDs:[star.id],selectedID:nil)
+        let node = try #require(scene.rootNode.childNode(withName:"sky:\(star.id)",recursively:false))
+        let position = node.simdPosition
+        let movedGuide = CameraSkyPrediction(direction:first.direction,star:star,
+            guide:SkyFinderProjection(point:CGPoint(x:300,y:400),arrow:.zero,separation:20))
+        view.updateSkyMarkers([movedGuide],labeledIDs:[],selectedID:star.id)
+        #expect(scene.rootNode.childNode(withName:"sky:\(star.id)",recursively:false) === node)
+        #expect(node.simdPosition == position)
+        #expect(node.childNode(withName:"label",recursively:false)?.isHidden == true)
+        #expect(node.childNode(withName:"ring",recursively:false)?.simdScale.x == 1.2)
+        view.updateSkyMarkers([],labeledIDs:[],selectedID:nil)
+        #expect(node.parent == nil)
+        view.isPlaying = false
+    }
+
+    @Test func daylightFilterCanBeDisabledWithoutChangingTimeOrCollectionEligibility() throws {
+        let model = HomeViewModel(location:ObserverLocation(latitude:-6.1754,longitude:106.8272,isManual:true),
+                                  date:Date(timeIntervalSince1970:1793633400-10*3600),defaults:UserDefaults(suiteName:"celyx.filter.tests")!)
+        let originalDate = try #require(model.snapshot).date
+        #expect(model.predictedVisibleObjects.isEmpty)
+        model.visibilityFilters.daylight = false
+        #expect(!model.predictedVisibleObjects.isEmpty)
+        #expect(model.predictedVisibleObjects.allSatisfy { $0.altitude > 1 })
+        #expect(model.snapshot?.date == originalDate)
+        #expect(model.observations.allSatisfy { !$0.canCollect })
+        model.visibilityFilters = VisibilityFilters()
+        #expect(model.predictedVisibleObjects.isEmpty)
+    }
+
+    @Test func visibilityParametersCanBeBypassedIndependently() throws {
+        let star = try #require(HomeViewModel.preview().stars.first { $0.title == "Sirius" })
+        func observation(_ filters: VisibilityFilters, direction: SIMD3<Double> = SIMD3(0,0,1),
+                         limit: Double = 6, sunAltitude: Double = -30, atmosphere: Atmosphere? = nil) -> StarObservation {
+            VisibilityEstimator.observation(star:star,direction:direction,limit:limit,
+                                            sunAltitude:sunAltitude,atmosphere:atmosphere ?? Atmosphere(),filters:filters)
+        }
+        var filters = VisibilityFilters()
+        #expect(!observation(filters,sunAltitude:30).likelyVisible)
+        filters.daylight = false
+        #expect(observation(filters,sunAltitude:30).likelyVisible)
+        #expect(!observation(filters,atmosphere:Atmosphere(cloudCover:95)).likelyVisible)
+        filters = VisibilityFilters(); filters.clouds = false
+        #expect(observation(filters,atmosphere:Atmosphere(cloudCover:95)).likelyVisible)
+        #expect(!observation(filters,sunAltitude:30).likelyVisible)
+        filters = VisibilityFilters(); filters.brightness = false
+        #expect(observation(filters,limit:-10).likelyVisible)
+        #expect(!observation(filters,direction:SIMD3(0,0,-1)).likelyVisible)
+        filters = VisibilityFilters(); filters.horizon = false
+        #expect(observation(filters,direction:SIMD3(0,0,-1),limit:100).likelyVisible)
+        filters = VisibilityFilters(); filters.atmosphericExtinction = false
+        #expect(observation(filters,direction:SIMD3(0,sqrt(0.99),0.1)).dimmedMagnitude == star.mag)
+        func limit(_ filters: VisibilityFilters, quality: SkyQuality = .city, moonAltitude: Double = 45) -> Double {
+            VisibilityEstimator.limitingMagnitude(sunAltitude:-30,quality:quality,moonAltitude:moonAltitude,
+                                                 moonIllumination:1,filters:filters)
+        }
+        filters = VisibilityFilters(); filters.moonlight = false
+        #expect(limit(filters) == limit(VisibilityFilters(),moonAltitude:-45))
+        filters = VisibilityFilters(); filters.lightPollution = false
+        #expect(limit(filters) == limit(VisibilityFilters(),quality:.dark))
     }
 
     @Test func daytimeMapShowsStarsAndConstellationsWhileObservationUsesRealConditions() throws {

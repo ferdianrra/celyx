@@ -15,28 +15,20 @@ struct HomeView: View {
         _model = State(initialValue:model)
         self.onReturnToGarden = onReturnToGarden
     }
+    @State private var showsCollection = false
+    @State private var showsCalendar = false
+    @State private var savedItem: GardenCollectionItem?
+    @State private var pendingCollectionID: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var phase
 
-    var body: some View {
-        skyNavigation
-            .overlay {
-                if model.showsGarden {
-                    GardenView(model:model,onClose:model.closeGarden)
-                        .opacity(reduceMotion ? model.gardenProgress : min(1,max(0,(model.gardenProgress-0.22)/0.12)))
-                        .disabled(model.isGardenTransitioning)
-                }
-            }
-            .onChange(of:model.showsGarden) { _, visible in
-                if !visible && phase == .active { model.resume() }
-            }
-    }
+    var body: some View { skyNavigation }
 
     private var skyNavigation: some View {
         NavigationStack {
             GeometryReader { geometry in
                 ZStack {
-                    PanoramaView(scene: model.scene, isActive: phase == .active && !model.showsStarCamera && model.finderTarget == nil && (!model.showsGarden || model.isGardenTransitioning)) { model.errorMessage = $0 }
+                    PanoramaView(scene: model.scene, isActive: phase == .active && !showsCollection && !showsCalendar && savedItem == nil && !model.showsVisibleSkyAR && !model.showsStarCamera && model.finderTarget == nil && (!model.showsGarden || model.isGardenTransitioning)) { model.errorMessage = $0 }
                         .accessibilityIdentifier("sky-panorama")
                         .accessibilityLabel("360-degree sky panorama")
                         .accessibilityHint(model.mode == .touch ? "Swipe to look around. Pinch to zoom." : "Move your phone to look around. Pinch to zoom.")
@@ -48,8 +40,7 @@ struct HomeView: View {
                         .overlay {
                             GeometryReader { canvas in
                                 ZStack {
-                                    ConstellationFiguresView(model:model,size:canvas.size)
-                                    StarLabelsView(model:model,size:canvas.size)
+                                    StarLabelsView(model:model,size:canvas.size,onSelect:model.showDetail)
                                 }
                                 .opacity(1-min(1,model.gardenProgress*4))
                                 .allowsHitTesting(!model.showsGarden)
@@ -89,31 +80,30 @@ struct HomeView: View {
                         if let error = model.errorMessage {
                             Text(error).accessibilityIdentifier("panorama-error").font(.footnote).padding().background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
                         }
-                        HStack(alignment: .bottom) {
-                            HUDButton(symbol:"camera.viewfinder", label:"Sky Camera") { model.openStarCamera() }
-                            Spacer(minLength: 12)
-                            Button { model.activeSheet = .observing } label: {
-                                VStack(spacing: 15) {
-                                    DotHandle().frame(width: 22,height: 20)
-                                    VStack(spacing: 5) {
-                                        Text(model.locationTitle).font(.system(size: 16, weight: .semibold))
-                                        Text(model.currentTimeLabel).font(.system(size: 11, design: .monospaced)).tracking(1.2).foregroundStyle(.white.opacity(0.55))
-                                    }
-                                    .frame(maxWidth: .infinity).padding(.top,18).padding(.bottom,23)
-                                    .background { HUDGlass().clipShape(DockShape()) }
-                                    .overlay(DockShape().stroke(.white.opacity(0.13),lineWidth:1))
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: 210)
-                            .accessibilityLabel("\(model.locationTitle), \(model.currentTimeLabel). Sky settings")
-                            Spacer(minLength:12)
-                            HUDButton(symbol:"sparkles", label:"Your Galaxy") {
-                                if let onReturnToGarden { onReturnToGarden() } else { model.openGarden() }
-                            }
+                        if model.collected.isEmpty {
+                            VStack(spacing:5) {
+                                Text("Your sky starts here").font(.headline)
+                                Text("Collect your first star and watch this sky grow.")
+                                    .font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                            }.multilineTextAlignment(.center).padding(.bottom,16)
                         }
+                        Button { model.activeSheet = .nearby } label: {
+                            HStack(spacing:8) {
+                                Label("Visible Now",systemImage:"list.star")
+                                if model.location != nil { Text("\(model.predictedVisibleObjects.count)").monospacedDigit().foregroundStyle(.white.opacity(0.65)) }
+                            }.font(.subheadline.weight(.medium)).frame(minHeight:44)
+                        }.buttonStyle(.plain).accessibilityHint("Stars and planets predicted to be visible from your location")
+                        Button { model.openStarCamera() } label: {
+                            Label("Start Collecting",systemImage:"camera.viewfinder")
+                                .font(.headline).frame(maxWidth:.infinity).padding(.vertical,16)
+                        }.buttonStyle(.plain).foregroundStyle(.black).background(.white,in:Capsule())
+                        Button { model.activeSheet = .observing } label: {
+                            Text(model.currentTimeLabel).font(.caption.monospaced()).foregroundStyle(.white.opacity(0.65))
+                                .padding(.vertical,12)
+                        }.buttonStyle(.plain)
+
                     }
-                    .padding(.horizontal, 27).padding(.top, 12).padding(.bottom, -geometry.safeAreaInsets.bottom)
+                    .padding(.horizontal, 27).padding(.top, 12).padding(.bottom, 8)
                     .opacity(1-min(1,model.gardenProgress*5))
                     .allowsHitTesting(!model.isCameraTransitioning && !model.showsGarden)
                 }
@@ -125,18 +115,38 @@ struct HomeView: View {
                 .foregroundStyle(.white)
                 .preferredColorScheme(.dark)
                 .sheet(item:$model.activeSheet,onDismiss:model.handleSheetDismissal) { sheet in
-                    HomeSheetView(model:model, sheet:sheet).presentationDetents(sheet == .detail ? [.height(310),.large] : [.medium,.large]).presentationDragIndicator(.visible)
+                    HomeSheetView(model:model, sheet:sheet).presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
                 }
                 .fullScreenCover(item:$model.finderTarget,onDismiss:model.resume) { star in
-                    if let location = model.location { SkyFinderView(star:star,location:location) }
+                    if let location = model.location { SkyFinderView(star:star,location:location,alignment:model.cameraAlignment,catalogue:model.stars) }
                 }
+                .fullScreenCover(isPresented:$model.showsVisibleSkyAR,onDismiss:model.resume) { VisibleSkyARView(model:model) }
                 .fullScreenCover(isPresented:$model.showsStarCamera,onDismiss:model.resume) { StarCameraView(model:model) }
+                .sheet(isPresented:$showsCalendar) {
+                    NavigationStack {
+                        GardenCalendarView().toolbar { ToolbarItem(placement:.confirmationAction) { Button("Done") { showsCalendar = false } } }
+                    }.preferredColorScheme(.dark)
+                }
+                .sheet(isPresented:$showsCollection,onDismiss:{
+                    if let id = pendingCollectionID, let item = model.collectionItems.first(where:{ $0.id == id }) {
+                        pendingCollectionID = nil; savedItem = item
+                    }
+                }) {
+                    NavigationStack {
+                        GardenCollectionView(model:model) { id in pendingCollectionID = id; showsCollection = false }
+                            .toolbar { ToolbarItem(placement:.confirmationAction) { Button("Done") { showsCollection = false } } }
+                    }.preferredColorScheme(.dark)
+                }
+                .sheet(item:$savedItem) { item in SavedStarNoteView(item:item) }
                 .onAppear { model.scene.reduceMotion = reduceMotion; model.resume() }
                 .onDisappear { model.suspend() }
                 .onChange(of:reduceMotion) { _, value in model.scene.reduceMotion = value }
-                .onChange(of:phase) { _, value in if value == .active { model.resume() } else { model.suspend() } }
+                .onChange(of:phase) { _, value in
+                    if value == .active { model.resume() } else { model.suspend() }
+                    if value == .background { model.cameraAlignment.enterBackground() }
+                }
             }
-            .navigationTitle("Sky")
+            .navigationTitle("Your Sky")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for:.navigationBar)
             .toolbar { skyToolbar }
@@ -147,16 +157,16 @@ struct HomeView: View {
 
     @ToolbarContentBuilder
     private var skyToolbar: some ToolbarContent {
-        ToolbarItem(placement:.topBarLeading) {
+        ToolbarItemGroup(placement:.topBarLeading) {
             Button("Reset view", systemImage:"location.north.fill", action:model.reset)
                 .disabled(model.isCameraTransitioning)
                 .accessibilityIdentifier("reset-sky")
                 .accessibilityLabel("Compass. Reset view. \(String(format:"%.0f",model.heading)) degrees")
         }
         ToolbarItemGroup(placement:.topBarTrailing) {
-            Button("What’s up tonight", systemImage:"list.bullet") { model.activeSheet = .nearby }.disabled(model.isCameraTransitioning)
-            Button("Sky layers", systemImage:"square.3.layers.3d") { model.activeSheet = .layers }.disabled(model.isCameraTransitioning)
-            Button("Find a star", systemImage:"magnifyingglass") { model.activeSheet = .search }.disabled(model.isCameraTransitioning)
+            Button("Collection",systemImage:"books.vertical") { showsCollection = true }
+            Button("Upcoming Events",systemImage:"calendar") { showsCalendar = true }
+            Button("Sky settings",systemImage:"slider.horizontal.3") { model.activeSheet = .observing }
         }
     }
 }
