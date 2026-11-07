@@ -86,7 +86,6 @@ struct GardenSkyView: View {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }
-            .celyxSheet()
         }
         .accessibilityElement(children:.contain)
         .accessibilityLabel("Your garden sky")

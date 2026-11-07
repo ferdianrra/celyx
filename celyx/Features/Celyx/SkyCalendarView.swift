@@ -6,9 +6,15 @@ struct SkyCalendarView: View {
     var events: [SkyEvent] = SkyEvent.catalogue
     let onSelect: (SkyEvent) -> Void
     @State private var month = Calendar.current.dateInterval(of:.month,for:Date())?.start ?? Date()
+    private enum DisplayMode: String, CaseIterable, Identifiable {
+        case list = "List", calendar = "Calendar"
+        var id: Self { self }
+    }
+    @State private var displayMode: DisplayMode = .list
     @State private var selectedDay: Date?
+    @State private var dayEventChoices: [SkyEvent] = []
+    @State private var showsDayEventChoices = false
     @State private var filters: Set<SkyEvent.Kind> = []
-    @Environment(\.dismiss) private var dismiss
     private let calendar = Calendar.current
 
     private var upcoming: [SkyEvent] {
@@ -17,47 +23,68 @@ struct SkyCalendarView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
+        VStack(spacing:16) {
+            Picker("View",selection:$displayMode) {
+                ForEach(DisplayMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal,20).padding(.top,12)
+
+            ScrollView(.horizontal) {
+                filterChips.padding(.horizontal,20)
+            }
+            .scrollIndicators(.hidden)
+            .fixedSize(horizontal:false,vertical:true)
+
             ScrollView {
-                VStack(alignment:.leading,spacing:0) {
-                    navigationBar
-                    VStack(alignment:.leading,spacing:12) {
+                switch displayMode {
+                case .list:
+                    eventList
+                case .calendar:
+                    VStack(alignment:.leading,spacing:16) {
                         monthHeader
-                        monthGrid(proxy:proxy)
-                        filterChips
+                        monthGrid
+                        Text("Tap a marked date to view its events.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal,20).padding(.top,23)
-                    LazyVStack(alignment:.leading,spacing:24) {
-                        ForEach(upcoming) { event in
-                            VStack(alignment:.leading,spacing:12) {
-                                Text(event.headerDate).font(.system(size:14,weight:.semibold)).tracking(-0.43).foregroundStyle(.white).frame(height:22)
-                                Button { onSelect(event) } label: {
-                                    SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .id(event.id)
-                        }
-                    }
-                    .padding(.horizontal,20).padding(.top,25).padding(.bottom,54)
+                    .padding(.horizontal,20).padding(.bottom,24)
                 }
             }
             .scrollIndicators(.hidden)
         }
         .background(CelyxScreenWash())
-        .toolbar(.hidden,for:.navigationBar)
+        .navigationTitle("Sky Calendar")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible,for:.navigationBar)
         .preferredColorScheme(.dark)
+        .confirmationDialog(selectedDay?.formatted(date:.complete,time:.omitted) ?? "Choose an event",
+                            isPresented:$showsDayEventChoices,titleVisibility:.visible) {
+            ForEach(dayEventChoices) { event in
+                Button(event.title) { onSelect(event) }
+            }
+            Button("Cancel",role:.cancel) {}
+        }
     }
 
-    private var navigationBar: some View {
-        HStack {
-            CelyxBackButton { dismiss() }
-            Spacer()
-            Text("Sky Calender").font(.system(size:20)).tracking(-0.45).foregroundStyle(.white)
-            Spacer()
-            Color.clear.frame(width:48,height:48)
+    private var eventList: some View {
+        LazyVStack(alignment:.leading,spacing:24) {
+            if upcoming.isEmpty {
+                ContentUnavailableView("No Upcoming Events",systemImage:"calendar",
+                                       description:Text("Try changing the event filters or switch to Calendar to explore other dates."))
+            }
+            ForEach(upcoming) { event in
+                VStack(alignment:.leading,spacing:12) {
+                    Text(event.headerDate).font(.system(size:14,weight:.semibold)).tracking(-0.43).foregroundStyle(.white).frame(height:22)
+                    Button { onSelect(event) } label: {
+                        SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
-        .padding(.horizontal,20).padding(.vertical,12)
+        .padding(.horizontal,20).padding(.bottom,54)
     }
 
     private var monthHeader: some View {
@@ -70,10 +97,10 @@ struct SkyCalendarView: View {
                 monthButton("chevron.right",by:1).accessibilityLabel("Next month")
             }
         }
-        .frame(height:37)
+        .frame(minHeight:44)
     }
     private func monthButton(_ symbol: String,by value: Int) -> some View {
-        CelyxGlassButton(width:34,height:37,action:{
+        CelyxGlassButton(width:44,height:44,action:{
             if let next = calendar.date(byAdding:.month,value:value,to:month) { withAnimation(.snappy) { month = next } }
         }) {
             Image(systemName:symbol).font(.system(size:12,weight:.bold)).foregroundStyle(.white)
@@ -82,7 +109,7 @@ struct SkyCalendarView: View {
 
     // MARK: Month grid
 
-    private func monthGrid(proxy: ScrollViewProxy) -> some View {
+    private var monthGrid: some View {
         let weeks = weeksInMonth
         let symbols = calendar.shortWeekdaySymbols.rotated(by:calendar.firstWeekday-1)
         return VStack(spacing:12) {
@@ -91,7 +118,7 @@ struct SkyCalendarView: View {
             }
             ForEach(weeks.indices,id:\.self) { row in
                 weekRow(0..<7) { column in
-                    dayCell(weeks[row][column],proxy:proxy)
+                    dayCell(weeks[row][column])
                 }
             }
         }
@@ -99,18 +126,25 @@ struct SkyCalendarView: View {
     private func weekRow<Cell: View>(_ columns: Range<Int>,@ViewBuilder cell: @escaping (Int) -> Cell) -> some View {
         HStack(spacing:0) {
             ForEach(columns,id:\.self) { column in
-                cell(column).frame(width:32)
-                if column < columns.upperBound-1 { Spacer(minLength:0) }
+                cell(column).frame(maxWidth:.infinity)
             }
         }
     }
-    @ViewBuilder private func dayCell(_ day: Date?,proxy: ScrollViewProxy) -> some View {
+    @ViewBuilder private func dayCell(_ day: Date?) -> some View {
         if let day {
-            let dayEvents = events.filter { calendar.isDate($0.start,inSameDayAs:day) }
+            let dayEvents = events.filter {
+                (filters.isEmpty || filters.contains($0.kind)) &&
+                calendar.startOfDay(for:$0.start) <= day && calendar.startOfDay(for:$0.end) >= day
+            }.sorted { $0.start < $1.start }
             let highlighted = calendar.isDate(day,inSameDayAs:selectedDay ?? Date())
             Button {
                 selectedDay = day
-                if let first = dayEvents.first, upcoming.contains(first) { withAnimation { proxy.scrollTo(first.id,anchor:.top) } }
+                if dayEvents.count == 1, let event = dayEvents.first {
+                    onSelect(event)
+                } else if !dayEvents.isEmpty {
+                    dayEventChoices = dayEvents
+                    showsDayEventChoices = true
+                }
             } label: {
                 VStack(spacing:2) {
                     Text("\(calendar.component(.day,from:day))").font(.system(size:16)).tracking(-0.45).foregroundStyle(.white)
@@ -123,10 +157,13 @@ struct SkyCalendarView: View {
                     }
                     .frame(width:32,height:32)
                 }
+                .frame(maxWidth:.infinity,minHeight:66)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(day.formatted(date:.complete,time:.omitted)+(dayEvents.isEmpty ? "" : ", "+dayEvents.map(\.title).joined(separator:", ")))
+            .disabled(dayEvents.isEmpty)
+            .opacity(dayEvents.isEmpty ? 0.45 : 1)
+            .accessibilityLabel(day.formatted(date:.complete,time:.omitted)+(dayEvents.isEmpty ? ", No events" : ", "+dayEvents.map(\.title).joined(separator:", ")))
         } else {
             Color.clear.frame(width:32,height:66)
         }

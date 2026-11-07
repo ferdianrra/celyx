@@ -6,6 +6,7 @@ struct CelyxHomeView: View {
     @State private var events = SkyEventStore()
     @State private var path: [CelyxRoute] = []
     @State private var showsCollection = false
+    @State private var pendingCollectionCategory: CollectionCategory?
     @State private var camera: CollectCameraView.Mode?
     @State private var gardenCamera = NightSeaCamera()
     @State private var gardenReset = 0
@@ -14,7 +15,6 @@ struct CelyxHomeView: View {
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @Environment(\.scenePhase) private var phase
     @AppStorage("galaxyOwnerName") private var ownerName = "Ferdiansyah"
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack(path:$path) {
@@ -46,14 +46,7 @@ struct CelyxHomeView: View {
                     }
                     .padding(.horizontal,20)
                     Spacer(minLength:0)
-                    if !showsCollection { bottomBar.transition(.opacity) }
-                }
-
-                if showsCollection {
-                    CollectionSheet(counts:counts,onSelect:{ path.append(.collection($0)) }) { setCollection(false) }
-                        .padding(.horizontal,6).padding(.bottom,8)
-                        .ignoresSafeArea(edges:.bottom)
-                        .transition(.move(edge:.bottom).combined(with:.opacity))
+                    bottomBar
                 }
             }
             .background(CelyxColor.night)
@@ -70,6 +63,15 @@ struct CelyxHomeView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
+            CollectionSheet(counts:counts,onSelect:{ category in
+                pendingCollectionCategory = category
+                showsCollection = false
+            },onClose:{ showsCollection = false })
+            .presentationDetents([.height(300),.large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground { CelyxBluePanel() }
+        }
         .fullScreenCover(isPresented:$showsFilteredStars) {
             FilteredStarsView(model:model)
         }
@@ -104,7 +106,7 @@ struct CelyxHomeView: View {
                 .foregroundStyle(.white).lineLimit(1)
                 .frame(maxWidth:.infinity)
             }
-            CelyxGlassButton(width:56,action:{ setCollection(true) }) {
+            CelyxGlassButton(width:56,action:{ showsCollection = true }) {
                 Image(systemName:"text.book.closed").font(.system(size:17,weight:.medium)).foregroundStyle(CelyxColor.primaryLabel)
             }
             .accessibilityLabel("Your Collection")
@@ -149,8 +151,11 @@ struct CelyxHomeView: View {
                      events:events.collected.count,
                      constellations:CollectionCategory.constellations(items).count)
     }
-    private func setCollection(_ value: Bool) {
-        withAnimation(reduceMotion ? nil : .spring(duration:0.35)) { showsCollection = value }
+    private func openSelectedCollection() {
+        // Wait for the system sheet to dismiss before navigating on the home stack.
+        guard let category = pendingCollectionCategory else { return }
+        pendingCollectionCategory = nil
+        path.append(.collection(category))
     }
     static func dateText(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -204,7 +209,7 @@ private struct StartCollectingBackground: View {
     }
 }
 
-/// "Your Collection" bottom panel.
+/// Content presented in the native "Your Collection" sheet.
 struct CollectionSheet: View {
     struct Counts { var stars = 0, planets = 0, events = 0, constellations = 0 }
     let counts: Counts
@@ -212,9 +217,7 @@ struct CollectionSheet: View {
     let onClose: () -> Void
 
     var body: some View {
-        ZStack(alignment:.top) {
-            CelyxBluePanel(cornerRadius:34)
-            CelyxGrabber()
+        ScrollView {
             VStack(spacing:16) {
                 HStack(spacing:0) {
                     VStack(alignment:.leading,spacing:8) {
@@ -250,9 +253,8 @@ struct CollectionSheet: View {
                     }
                 }
             }
-            .padding(.horizontal,16).padding(.top,25)
+            .padding(.horizontal,16).padding(.vertical,24)
         }
-        .frame(height:300)
     }
 }
 
@@ -285,7 +287,13 @@ private struct CollectionTile<Art: View>: View {
 #Preview { CelyxHomeView(model:AppPreviewData.collectedModel) }
 
 #Preview("Collection sheet") {
-    CollectionSheet(counts:.init(stars:12,planets:2,events:1,constellations:3),onSelect:{ _ in },onClose:{}).padding().background(.black)
+    Color.black
+        .sheet(isPresented:.constant(true)) {
+            CollectionSheet(counts:.init(stars:12,planets:2,events:1,constellations:3),onSelect:{ _ in },onClose:{})
+                .presentationDetents([.height(300),.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground { CelyxBluePanel() }
+        }
         .preferredColorScheme(.dark)
 }
 
