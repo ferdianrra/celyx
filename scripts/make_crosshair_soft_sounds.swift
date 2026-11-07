@@ -6,8 +6,8 @@
 //   Now a non-percussive "breath-in": filtered-noise riser (bandpass 500 Hz → 2.5 kHz, Q 0.8, 450 ms
 //   exponential rise, gentle 80 ms tail) plus a very soft low bloom (90 → 70 Hz, 300 ms, 40 ms attack),
 //   a little reverb, peak ≈ −24 dBFS. No transient: every attack is ≥ 25 ms.
-// crosshair_release.wav: the unlock (Enable → Default). A soft "power-down", the mirror of the lock:
-//   noise sweeping 1.8 kHz → 500 Hz + a tiny 160 → 110 Hz sine, ≥ 15 ms attacks, peak ≈ −30 dBFS.
+// crosshair_release.wav: the unlock (Enable → Default). One soft rounded tone gliding 330 → 220 Hz with an
+//   octave below for body, 18 ms raised-cosine attack, gone by 220 ms, no noise at all, peak ≈ −32 dBFS.
 // 48 kHz mono 16-bit, like the other crosshair sounds.
 
 import Foundation
@@ -83,26 +83,25 @@ func validate() -> [Double] {
     return reverb(dry, wet: 0.25)
 }
 
-/// Unlock: the mirror of the lock, a soft "power-down". Bandpassed noise 1.8 kHz → 500 Hz (Q 1.0, 180 ms,
-/// 20 ms attack, exponential decay) at ≈ −30 dBFS, plus a tiny 160 → 110 Hz sine (120 ms, 15 ms attack)
-/// about 2 dB lower, and a light 250 ms reverb tail. No attack under 15 ms, no tonal ping.
+/// Unlock: a single soft rounded tone, NO noise (on a phone speaker any short noise burst reads as a slap).
+/// 330 → 220 Hz over 150 ms, raised-cosine attack 18 ms, exponential decay to silence by 220 ms, plus an
+/// octave below (165 → 110 Hz) at −10 dB for body; gentle 2 kHz lowpass, tiny reverb (~150 ms, 15 % wet).
 func release() -> [Double] {
-    var n = Noise(state: 8), bp = Bandpass(), phase = 0.0
-    let d = 0.18, ds = 0.12
-    var noise = (0..<Int(d * sr)).map { i -> Double in
+    var p1 = 0.0, p2 = 0.0, lp1 = 0.0, lp2 = 0.0
+    let total = 0.22, attack = 0.018
+    let a = 1 - exp(-2 * .pi * 2000 / sr)
+    let dry = (0..<Int(total * sr)).map { i -> Double in
         let t = Double(i) / sr
-        return min(1, t / 0.02) * exp(-4 * t / d) * bp.run(n.white(), glide(1800, 500, t, d), 1.0)
+        let rise = t < attack ? 0.5 - 0.5 * cos(.pi * t / attack) : 1
+        let decay = t < attack ? 1 : exp(-5.5 * (t - attack) / (total - attack)) * (1 - (t - attack) / (total - attack))
+        p1 += 2 * .pi * glide(330, 220, t, 0.15) / sr
+        p2 += 2 * .pi * glide(165, 110, t, 0.15) / sr
+        let x = rise * decay * (sin(p1) + pow(10, -10.0 / 20) * sin(p2))
+        lp1 += a * (x - lp1); lp2 += a * (lp1 - lp2)
+        return lp2
     }
-    var sine = (0..<Int(d * sr)).map { i -> Double in
-        let t = Double(i) / sr
-        guard t < ds else { return 0 }
-        phase += 2 * .pi * glide(160, 110, t, ds) / sr
-        return min(1, t / 0.015) * pow(1 - t / ds, 2) * sin(phase)
-    }
-    let pn = noise.map(abs).max() ?? 1, ps = sine.map(abs).max() ?? 1
-    noise = noise.map { $0 / pn }; sine = sine.map { $0 / ps * pow(10, -2.0 / 20) }   // sine 2 dB under the noise
-    return reverb(zip(noise, sine).map(+), wet: 0.15, length: 0.25)
+    return reverb(dry, wet: 0.15, length: 0.15)
 }
 
 try write("crosshair_validate", validate(), peakDB: -24)
-try write("crosshair_release", release(), peakDB: -30)
+try write("crosshair_release", release(), peakDB: -32)
