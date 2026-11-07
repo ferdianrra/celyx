@@ -38,6 +38,8 @@ struct GardenSkyView: View {
     @State private var failed = false
     /// The collected object's sheet after a handover (springs in instead of the system sheet).
     @State private var handoverItem: GardenCollectionItem?
+    /// Debug replay: the demo object stays in the sky until its sheet closes (never saved).
+    @State private var demo: WormholeDemo?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fallbackLocation = ObserverLocation(latitude:-6.2,longitude:106.85,isManual:true)   // Jakarta
@@ -88,10 +90,11 @@ struct GardenSkyView: View {
         }
         .onDisappear(perform:stopGyro)
         .onChange(of:handover?.phase) { _, phase in
+            if phase == .landed, let next = handover?.demo { demo = next; place() }
             if phase == .reframe { prepareLanding() }
         }
         .onChange(of:sheetRequest) { _, request in
-            guard let request, let item = model.collectionItems.first(where:{ $0.id == request.itemID }) else { return }
+            guard let request, let item = model.collectionItems.first(where:{ $0.id == request.itemID }) ?? request.demoItem else { return }
             withAnimation(reduceMotion ? .easeInOut(duration:0.25) : .spring(response:0.57,dampingFraction:0.68)) { handoverItem = item }
         }
         .overlay(alignment:.bottom) {
@@ -181,6 +184,9 @@ struct GardenSkyView: View {
     private func place() {
         let scene = Self.placement(items:model.collectionItems,location:location)
         placed = scene.placed
+        if let demo, !placed.contains(where:{ $0.id == demo.item.id }) {
+            placed.append(Placed(item:demo.item,object:demo.object))
+        }
         moon = scene.moon
         equatorial = scene.equatorial
     }
@@ -217,9 +223,11 @@ struct GardenSkyView: View {
     }
 
     /// The Night Sea as the wormhole should show it.
-    static func wormholeScene(model: HomeViewModel,newID: Int?) -> WormholeScene {
+    static func wormholeScene(model: HomeViewModel,newID: Int?,demo: WormholeDemo? = nil) -> WormholeScene {
         let scene = placement(items:model.collectionItems,location:model.location ?? fallbackLocation)
-        return WormholeScene(objects:scene.placed.map(\.object),newID:newID,moon:scene.moon,equatorial:scene.equatorial)
+        var objects = scene.placed.map(\.object)
+        if let demo { objects.removeAll { $0.id == demo.object.id }; objects.append(demo.object) }
+        return WormholeScene(objects:objects,newID:newID,moon:scene.moon,equatorial:scene.equatorial)
     }
 
     // MARK: Handover
@@ -241,7 +249,10 @@ struct GardenSkyView: View {
     }
 
     private func handoverSheet(_ item: GardenCollectionItem) -> some View {
-        let close = { withAnimation(reduceMotion ? nil : .spring(response:0.4,dampingFraction:0.9)) { handoverItem = nil } }
+        let close = {
+            withAnimation(reduceMotion ? nil : .spring(response:0.4,dampingFraction:0.9)) { handoverItem = nil }
+            if demo != nil { demo = nil; place() }
+        }
         return ZStack(alignment:.top) {
             CelyxBluePanel(cornerRadius:34)
             CelyxGrabber()
@@ -331,6 +342,9 @@ struct GardenSkyView: View {
 struct GardenSheetRequest: Equatable {
     let id = UUID()
     let itemID: Int
+    /// Debug replay: an in-memory object that isn't in the collection.
+    var demoItem: GardenCollectionItem? = nil
+    static func == (a: Self,b: Self) -> Bool { a.id == b.id }
 }
 
 #Preview("Garden sky") {

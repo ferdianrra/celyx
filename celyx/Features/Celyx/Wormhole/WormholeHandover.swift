@@ -76,6 +76,8 @@ final class WormholeHandover: Identifiable {
     let itemID: Int?
     /// The Night Sea seen through the hole.
     let scene: WormholeScene
+    /// Debug replay only: an in-memory object (never saved) that lights up at landing and gets the sheet.
+    let demo: WormholeDemo?
     /// Wall clock of the collect success.
     let start: CFTimeInterval
     /// T_LAND (ms): the hole covers the whole screen. Every impact cue fires here.
@@ -92,9 +94,10 @@ final class WormholeHandover: Identifiable {
     /// The garden's own camera to land on (set by the garden at the cross).
     @ObservationIgnored var target: NightSeaCamera?
 
-    init(freeze: WormholeFreeze,star: CGPoint,itemID: Int?,scene: WormholeScene) {
+    init(freeze: WormholeFreeze,star: CGPoint,itemID: Int?,scene: WormholeScene,demo: WormholeDemo? = nil) {
         self.freeze = freeze
         self.scene = scene
+        self.demo = demo
         self.star = star
         self.itemID = itemID
         start = CACurrentMediaTime()
@@ -185,4 +188,25 @@ final class WormholeHandover: Identifiable {
 
     /// Focal length (points) that gives the kit field of view `fov` on this screen.
     func focalLength(fieldOfView fov: Double) -> Double { focal(forFieldOfView:fov) }
+}
+
+/// A demo object for the indoor debug replay: shown in the sky and the sheet, never saved.
+struct WormholeDemo {
+    let item: GardenCollectionItem
+    let object: NightSeaObject
+
+    /// Places `star` where the frozen camera looks (lifted to at least 15° up so the Night Sea shows it).
+    static func make(star: CatalogStar,freeze: WormholeFreeze,location: ObserverLocation?) -> WormholeDemo {
+        var direction = freeze.orientation.act(SIMD3<Double>(0,0,-1))
+        let minimum = sin(15 * Double.pi/180)
+        if direction.z < minimum {
+            let flat = simd_normalize(SIMD3(direction.x,direction.y,0)+SIMD3(0,1e-6,0))
+            direction = simd_normalize(flat*cos(15 * Double.pi/180)+SIMD3(0,0,minimum))
+        }
+        let record = CollectedStar(id:star.id,date:Date(),latitude:location?.latitude ?? -6.2,longitude:location?.longitude ?? 106.85,
+                                   identificationNote:"Demo star for the wormhole replay (debug build). Not saved to your collection.")
+        let radius = min(5,max(0.8,3.0-0.55*star.mag))*7
+        return WormholeDemo(item:GardenCollectionItem(star:star,record:record),
+                            object:NightSeaObject(id:star.id,direction:direction,radius:radius,color:star.rgb,kind:.star))
+    }
 }

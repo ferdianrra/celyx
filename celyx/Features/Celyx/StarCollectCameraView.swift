@@ -385,11 +385,13 @@ struct StarCollectCameraView: View {
     // MARK: Wormhole handover
 
     /// Freezes the camera frame and opens the wormhole at the collected star's screen point.
-    private func beginHandover(itemID: Int?,point: CGPoint) {
+    private func beginHandover(itemID: Int?,point: CGPoint,demoStar: CatalogStar? = nil) {
         guard handover == nil, let onCollect, viewSize != .zero else { return }
         let freeze = service.wormholeFreeze() ?? .placeholder(size:viewSize)
-        let handover = WormholeHandover(freeze:freeze,star:point,itemID:itemID,
-                                        scene:GardenSkyView.wormholeScene(model:model,newID:itemID))
+        let demo = demoStar.map { WormholeDemo.make(star:$0,freeze:freeze,location:model.location) }
+        let id = demo?.item.id ?? itemID
+        let handover = WormholeHandover(freeze:freeze,star:point,itemID:id,
+                                        scene:GardenSkyView.wormholeScene(model:model,newID:id,demo:demo),demo:demo)
         // The crosshair fades out; keep its own state-change sounds out of the score.
         CrosshairFeedback.shared.suppress(.back,for:1.2)
         CrosshairFeedback.shared.suppress(.release,for:1.2)
@@ -398,11 +400,13 @@ struct StarCollectCameraView: View {
     }
 
     #if DEBUG
-    /// Fake success on a fixed point (the screen centre), re-using the latest collected object for the sheet.
+    /// Fake success on a fixed point (the screen centre) with Rigel as an in-memory demo star (never saved),
+    /// so it lights up at landing and its sheet springs in, even with an empty collection.
     private func replayHandover() {
         guard onCollect != nil, !isChecking else { return }
         if reduceMotion { onCollect?(.fade(itemID:model.collectionItems.first?.id)); return }
-        beginHandover(itemID:model.collectionItems.first?.id,point:center)
+        let rigel = model.stars.first { $0.name == "Rigel" || $0.title == "Rigel" }
+        beginHandover(itemID:model.collectionItems.first?.id,point:center,demoStar:rigel)
     }
     #endif
 

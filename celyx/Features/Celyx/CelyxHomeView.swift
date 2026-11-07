@@ -92,7 +92,7 @@ struct CelyxHomeView: View {
                 }
             }
             .onChange(of:handover?.showsSheet == true) { _, shows in
-                if shows, let id = handover?.itemID { sheetRequest = GardenSheetRequest(itemID:id) }
+                if shows, let id = handover?.itemID { sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover?.demo?.item) }
             }
             .toolbar(.hidden,for:.navigationBar)
             .navigationDestination(for:CelyxRoute.self) { route in
