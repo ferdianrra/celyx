@@ -11,8 +11,10 @@ struct StarCameraView: View {
     @State private var tappedCapture: CameraObservationDraft?
     @State private var showsCaptureError = false
     @State private var showsInfo = false
+    @State private var showsAlignment = false
     @State private var showsNearbyStars = false
     @State private var showsUnknownInfo = false
+    @State private var unknownIssue: CameraIdentificationIssue = .stabilizing
     @State private var showsZoomRuler = false
     @State private var focusPoint: CGPoint?
     @State private var exposureStart: Double?
@@ -24,7 +26,7 @@ struct StarCameraView: View {
 
     init(model: HomeViewModel) {
         self.model = model
-        _service = State(initialValue:SkyFinderService(location:model.location,catalogue:model.stars))
+        _service = State(initialValue:SkyFinderService(location:model.location,catalogue:model.stars,alignment:model.cameraAlignment))
     }
     var body: some View {
         NavigationStack {
@@ -36,7 +38,10 @@ struct StarCameraView: View {
                             onTap:{ point in placeFocus(point) },onHold:{ point in placeFocus(point,lock:true) },
                             onExposureDrag:{ translation, point, ended in
                                 adjustExposure(translation:translation,at:point,ended:ended)
-                            })
+                            },skyMarkers:observedWorldMarkers,labeledMarkerIDs:Set(observedWorldMarkers.map(\.id)),
+                            selectedMarkerID:pinnedTargetID,onSelectMarker:{ id in
+                                if let annotation = service.annotations.first(where:{ $0.id == id }) { pin(annotation) }
+                            },markerColor:.systemGreen,markerTitlePrefix:"≈ ",zoom:service.cameraZoom)
                             .simultaneousGesture(MagnifyGesture().onChanged { value in
                                 if zoomStart == nil { zoomStart = service.cameraZoom }
                                 service.setZoom((zoomStart ?? 1)*value.magnification)
@@ -46,38 +51,16 @@ struct StarCameraView: View {
                         ForEach(service.unidentifiedLights) { light in
                             RoundedRectangle(cornerRadius:1).stroke(.white.opacity(0.9),lineWidth:1)
                                 .frame(width:light.size.width,height:light.size.height).position(light.point).allowsHitTesting(false)
-                            Button { showsUnknownInfo = true } label: {
-                                Text("A little light").font(.system(size:10,weight:.medium)).foregroundStyle(.white)
+                            Button { unknownIssue = light.issue; showsUnknownInfo = true } label: {
+                                Text(light.issue.title).font(.system(size:10,weight:.medium)).foregroundStyle(.white)
+                                    .multilineTextAlignment(.center).lineLimit(2).frame(maxWidth:170)
                                     .padding(.horizontal,5).padding(.vertical,3).background(.black.opacity(0.6),in:RoundedRectangle(cornerRadius:4))
                                     .frame(minWidth:44,minHeight:44)
                             }.buttonStyle(.plain)
-                                .position(x:min(geometry.size.width-55,max(55,light.point.x)),y:light.point.y+22)
+                                .position(x:min(geometry.size.width-90,max(90,light.point.x)),y:light.point.y+22)
                         }
-                        CameraMappedSkyOverlay(objects:service.mappedObjects,detectedIDs:Set(service.annotations.map(\.id)))
-                            .allowsHitTesting(false)
-                        ForEach(service.annotations) { annotation in
-                            Circle().stroke(.black.opacity(0.8),lineWidth:4)
-                                .overlay { Circle().stroke(.green,lineWidth:2) }
-                                .frame(width:max(18,annotation.size.width+8),height:max(18,annotation.size.height+8))
-                                .position(annotation.point).allowsHitTesting(false)
-                            Button { pin(annotation) } label: {
-                                Text("≈ "+annotation.star.title).font(.caption.weight(.semibold))
-                                    .foregroundStyle(.green).padding(.horizontal,8).padding(.vertical,5)
-                                    .background(.black.opacity(0.7),in:Capsule()).frame(minHeight:44)
-                            }.buttonStyle(.plain)
-                                .position(x:min(geometry.size.width-70,max(70,annotation.point.x)),y:annotation.point.y+27)
-                                .accessibilityLabel("Select \(annotation.star.title)")
-                            Button { pin(annotation) } label: {
-                                Color.clear.frame(width:44,height:44).contentShape(Rectangle())
-                            }.buttonStyle(.plain).position(annotation.point)
-                        }
-                        if let target = aimedTarget, target.detection == nil {
-                            Circle().stroke(.white.opacity(0.85),style:StrokeStyle(lineWidth:1.5,dash:[3,3]))
-                                .frame(width:28,height:28).position(target.object.point).allowsHitTesting(false)
-                        }
-                        aimingReticle
-                            .position(x:geometry.size.width/2,y:geometry.size.height/2)
-                            .allowsHitTesting(false)
+
+
                     }
 
                     if let point = focusPoint {
@@ -89,6 +72,7 @@ struct StarCameraView: View {
                             Text("AE/AF LOCK").font(.caption.weight(.semibold)).foregroundStyle(.yellow)
                                 .padding(7).background(.black.opacity(0.6),in:Capsule())
                         }
+                        CameraRecalibrationNotice(service:service) { showsAlignment = true }
                         if service.isCameraRunning { inlineCameraControls }
                         if let target = aimedTarget, settledTargetID == target.id {
                             aimCard(target)
@@ -111,6 +95,7 @@ struct StarCameraView: View {
                 ToolbarItemGroup(placement:.topBarTrailing) {
                     Button("Visible nearby",systemImage:"list.star") { showsNearbyStars = true }
                     Menu {
+                        Button("Align with a known object",systemImage:"scope") { showsAlignment = true }
                         Button("Reset camera",systemImage:"arrow.counterclockwise") {
                             focusTask?.cancel(); service.resetCameraControls(); focusPoint = nil
                         }
@@ -125,15 +110,18 @@ struct StarCameraView: View {
                 Text("We look for bright stars and planets near the light in your camera. Direction, expected brightness and a steady match help us pick one suggestion. A ≈ name is still a guess. If two matches are too close to call, we leave the light unnamed. Lights on the ground can still fool the camera.")
             }
             .alert("We spotted a light",isPresented:$showsUnknownInfo) {
-                Button("Recalibrate compass") { service.recalibrateCameraDirection() }
+                Button("Align with a known object") { showsAlignment = true }
                 Button("Close",role:.cancel) {}
             } message: {
-                Text("We can see a light, but we can’t give it a clear name yet. The matches may be too close to call, or the compass may need recalibrating. It could also be a light on the ground.")
+                Text(unknownIssue.message)
             }
             .alert("Couldn’t capture that",isPresented:$showsCaptureError) {
                 Button("Try Again",role:.cancel) {}
             } message: {
-                Text("Keep the light in the reticle and try again.")
+                Text("Keep the light in view and try again.")
+            }
+            .sheet(isPresented:$showsAlignment,onDismiss:{ service.scannerPaused = false }) {
+                CameraAlignmentView(service:service,stars:[.sun,.moon]+CatalogStar.planets+model.stars.filter(\.hasCommonName),initialStar:aimedTarget?.object.star)
             }
             .sheet(isPresented:$showsNearbyStars) {
                 nearbyStarsSheet.presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
@@ -153,15 +141,18 @@ struct StarCameraView: View {
         }
         .foregroundStyle(.white).tint(.white).preferredColorScheme(.dark)
         .task {
-            service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere)
+            service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere,filters:model.visibilityFilters)
             await service.start()
         }
-        .onChange(of:model.quality) { _, _ in service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere) }
-        .onChange(of:model.atmosphere) { _, _ in service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere) }
+        .onChange(of:model.visibilityFilters) { _, _ in service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere,filters:model.visibilityFilters) }
+        .onChange(of:model.quality) { _, _ in service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere,filters:model.visibilityFilters) }
+        .onChange(of:model.atmosphere) { _, _ in service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere,filters:model.visibilityFilters) }
         .onChange(of:showsNearbyStars) { _, showing in service.scannerPaused = showing }
         .onDisappear { focusTask?.cancel(); service.stop() }
         .onChange(of:phase) { _, value in
-            if value == .active { Task { await service.start() } } else { service.stop() }
+            if value == .active { Task { await service.start() } }
+            else if value == .background { service.suspendForBackground() }
+            else { service.stop() }
         }
         .task(id:aimIdentity) {
             settledTargetID = nil
@@ -179,6 +170,18 @@ struct StarCameraView: View {
         }
         .onChange(of:selectedStar?.id) { _, id in service.scannerPaused = id != nil }
         .onChange(of:service.skyDate) { _, _ in if let selectedStar { prepare(selectedStar) } }
+        .onChange(of:service.alignment.generation) { _, _ in
+            pinnedTargetID = nil; settledTargetID = nil; tappedCapture = nil
+        }
+    }
+    // Only actual optical observations become collect markers; catalog predictions never do.
+    private var observedWorldMarkers: [CameraSkyPrediction] {
+        guard service.status == .tracking, selectedStar == nil, !service.alignment.requiresCalibration else { return [] }
+        return service.annotations.compactMap { observation in
+            guard let direction = observation.sourceDirection else { return nil }
+            return CameraSkyPrediction(direction:direction,star:observation.star,
+                guide:SkyFinderProjection(point:observation.point,arrow:.zero,separation:observation.estimatedSeparation ?? 0))
+        }
     }
     private var nearbyStarsSheet: some View {
         NavigationStack {
@@ -198,6 +201,7 @@ struct StarCameraView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                VisibilityFilterSection(model:model)
                 Section("Likely visible · \(service.viewableObjects.count)") {
                     if service.viewableObjects.isEmpty {
                         ContentUnavailableView("No matches right now",systemImage:"sparkles",
@@ -228,14 +232,6 @@ struct StarCameraView: View {
     }
     private var aimedTarget: CameraAimTarget? { service.aimTarget(pinnedID:pinnedTargetID) }
     private var aimIdentity: Int? { aimedTarget?.id }
-
-    private var aimingReticle: some View {
-        ZStack {
-            Circle().stroke(.black.opacity(0.7),lineWidth:4)
-            Circle().stroke(aimedTarget?.detection == nil ? .white : .green,lineWidth:1.5)
-            Circle().fill(aimedTarget?.detection == nil ? .white : .green).frame(width:3,height:3)
-        }.frame(width:72,height:72)
-    }
 
     private func aimCard(_ target: CameraAimTarget) -> some View {
         VStack(alignment:.leading,spacing:12) {
@@ -268,7 +264,7 @@ struct StarCameraView: View {
 
     private func note(for annotation: CameraStarAnnotation) -> String? {
         annotation.estimatedSeparation.map {
-            String(format:"Our best match is %@, based on direction and brightness. Direction offset: %.1f°. This is still a guess, not a confirmed identification.",annotation.star.title,$0)
+            String(format:"This looks like %@. The light is %.1f° from its expected position, so the name is still an estimate.",annotation.star.title,$0)
         }
     }
     private func pin(_ annotation: CameraStarAnnotation) {
@@ -332,7 +328,10 @@ struct StarCameraView: View {
     }
     @ViewBuilder private func focusControl(at point: CGPoint,size: CGSize) -> some View {
         RoundedRectangle(cornerRadius:1).stroke(.yellow,lineWidth:1)
-            .frame(width:64,height:64).position(point).allowsHitTesting(false)
+            .frame(width:64,height:64)
+            .overlay(alignment:.top) {
+                Text("Focus").font(.caption2.weight(.medium)).foregroundStyle(.yellow).offset(y:-18)
+            }.position(point).allowsHitTesting(false)
         Image(systemName:"sun.max.fill")
             .font(.system(size:20)).foregroundStyle(.yellow)
             .frame(width:44,height:100).contentShape(Rectangle())
@@ -400,18 +399,20 @@ struct StarCameraView: View {
         VStack(spacing:8) {
             switch service.status {
             case .tracking:
-                if service.isAdjustingCamera {
+                if service.alignment.requiresCalibration {
+                    Text("Object identification is paused until calibration.").font(.caption)
+                } else if service.isAdjustingCamera {
                     Text("Letting the camera settle…").font(.subheadline.weight(.medium))
                     Text("Hold still for a moment after changing focus, brightness or zoom.").font(.caption).foregroundStyle(.secondary)
                 } else if service.annotations.isEmpty {
-                    Text(!service.unidentifiedLights.isEmpty ? "Light detected · name not confirmed" : service.detectedLightCount > 0 ? "Light spotted · hold still…" : "Looking for a little light…")
+                    Text(service.unidentifiedLights.first?.issue.title ?? (service.detectedLightCount > 0 ? "Light spotted · hold still…" : focusPoint != nil ? "Searching around your focus point…" : "Point at a star or planet"))
                         .font(.subheadline.weight(.medium))
-                    Text((service.cameraHeadingAccuracy ?? 0) > 25 ? "Your compass needs a moment. The light can still be marked while we find its name." : !service.unidentifiedLights.isEmpty ? "The white marker follows the light, even without a name." : service.detectedLightCount > 0 ? "Keeping it steady helps us hold the marker." : "Move a sky marker into the reticle. A green ring means the camera has spotted a light.")
+                    Text(service.unidentifiedLights.first?.issue.message ?? (service.detectedLightCount > 0 ? "Keeping it steady helps us hold the marker." : focusPoint != nil ? "The yellow box sets focus. Hold steady; slide the sun up if the light is too dim." : "Hold steady for a moment when you see a light."))
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(service.annotations.contains(where: { $0.estimatedSeparation != nil }) ? "≈ Our best guess" : "Tap a name to take a closer look").font(.caption)
                     if service.annotations.contains(where: { $0.estimatedSeparation != nil }) {
-                        Text("Bring a light into the reticle to collect it, or tap its name.").font(.caption).foregroundStyle(.secondary)
+                        Text("Tap a name to collect this light.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             case .preparing, .requestingPermission:
@@ -432,40 +433,6 @@ struct StarCameraView: View {
     }
 }
 
-
-/// One draw pass for the catalog, rather than hundreds of independently laid-out SwiftUI views.
-private struct CameraMappedSkyOverlay: View {
-    let objects: [CameraMappedObject]
-    let detectedIDs: Set<Int>
-    var body: some View {
-        Canvas { context, _ in
-            var labels: [CGRect] = []
-            var labelCount = 0
-            for object in objects where !detectedIDs.contains(object.id) {
-                let color = CameraMarkerPalette.color(for:object.star)
-                let radius: CGFloat = object.likelyVisible ? 3 : 1.7
-                let dot = CGRect(x:object.point.x-radius,y:object.point.y-radius,width:radius*2,height:radius*2)
-                context.fill(Path(ellipseIn:dot),with:.color(color.opacity(object.likelyVisible ? 1 : 0.5)))
-                if object.likelyVisible {
-                    let halo = CGRect(x:object.point.x-10,y:object.point.y-10,width:20,height:20)
-                    context.fill(Path(ellipseIn:halo),with:.color(.cyan.opacity(0.12)))
-                    context.stroke(Path(ellipseIn:halo.insetBy(dx:3,dy:3)),with:.color(.cyan.opacity(0.9)),lineWidth:1.2)
-                    // Sparse labels keep the catalog readable while panning.
-                    if labelCount < 8 {
-                        let label = context.resolve(Text(object.star.title).font(.system(size:10,weight:.medium)).foregroundColor(.cyan))
-                        let size = label.measure(in:CGSize(width:130,height:20))
-                        let rect = CGRect(x:object.point.x-size.width/2-4,y:object.point.y+12,width:size.width+8,height:size.height+4)
-                        if !labels.contains(where:{ $0.insetBy(dx:-8,dy:-8).intersects(rect) }) {
-                            context.fill(Path(roundedRect:rect,cornerRadius:4),with:.color(.black.opacity(0.6)))
-                            context.draw(label,at:CGPoint(x:rect.midX,y:rect.midY))
-                            labels.append(rect); labelCount += 1
-                        }
-                    }
-                }
-            }
-        }.accessibilityLabel("Catalog positions. Cyan rings mark objects that may be visible.")
-    }
-}
 
 private enum CameraMarkerPalette {
     // Approximate catalog B−V colors, not a color measurement from the camera.

@@ -33,3 +33,26 @@ struct SkyFinderProjection {
         return SkyFinderProjection(point:point,arrow:CGVector(dx:arrow.x,dy:arrow.y),separation:separation)
     }
 }
+
+/// One centered digital crop shared by the preview, projections, taps and saved photos.
+nonisolated enum CameraZoom {
+    static let maximum: Double = 10
+    static func clamped(_ value: Double) -> Double {
+        value.isFinite ? min(maximum,max(1,value)) : 1
+    }
+    static func normalizedTransform(_ zoom: Double) -> CGAffineTransform {
+        let z = clamped(zoom)
+        return CGAffineTransform(a:z,b:0,c:0,d:z,tx:(1-z)/2,ty:(1-z)/2)
+    }
+    static func projection(_ base: simd_float4x4,zoom: Double) -> simd_float4x4 {
+        var crop = matrix_identity_float4x4
+        crop.columns.0.x = Float(clamped(zoom)); crop.columns.1.y = Float(clamped(zoom))
+        return crop*base
+    }
+    static func imageCrop(extent: CGRect,viewport: CGSize,zoom: Double) -> CGRect {
+        let aspect = max(1,viewport.width)/max(1,viewport.height)
+        let width = min(extent.width,extent.height*aspect)/clamped(zoom)
+        let height = width/aspect
+        return CGRect(x:extent.midX-width/2,y:extent.midY-height/2,width:width,height:height)
+    }
+}

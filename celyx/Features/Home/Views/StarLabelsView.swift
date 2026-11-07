@@ -10,6 +10,7 @@ import simd
 struct StarLabelsView: View {
     let model: HomeViewModel
     let size: CGSize
+    var onSelect: ((CatalogStar) -> Void)? = nil
     private struct Label: Identifiable {
         let observation: StarObservation
         let point: CGPoint
@@ -21,14 +22,15 @@ struct StarLabelsView: View {
         let right = SIMD3(cos(az),-sin(az),0.0), up = simd_cross(right,forward)
         let focal = CameraProjection.focalLength(width:size.width,height:size.height,fieldOfView:model.scene.fieldOfView)
         var result: [Label] = []
-        let stars = model.scene.showsStars ? model.displayedObservations.filter { $0.star.hasCommonName } : []
-        let sun = [model.sunObservation,model.moonObservation].compactMap { $0 }.filter { $0.altitude > 0 }
+        let stars = model.scene.showsStars ? model.displayedObservations.filter { model.scene.collectedIDs?.contains($0.id) ?? $0.star.hasCommonName } : []
+        let sun = ([model.sunObservation,model.moonObservation].compactMap { $0 } + model.planetObservations)
+            .filter { $0.altitude > 0 && (model.scene.collectedIDs?.contains($0.id) ?? true) }
         let candidates = (sun + stars).sorted {
             simd_dot($0.direction,forward) > simd_dot($1.direction,forward)
         }
         for observation in candidates {
             let d = observation.direction
-            guard simd_dot(d,forward) > cos(22 * .pi/180),
+            guard simd_dot(d,forward) > (model.scene.collectedIDs == nil ? cos(22 * .pi/180) : -0.8),
                   let p = CameraProjection.project(direction:SIMD3(simd_dot(d,right),simd_dot(d,up),simd_dot(d,forward)),focal:focal) else { continue }
             let point = CGPoint(x:size.width*0.5+p.x,y:size.height*0.47-p.y)
             guard point.x > 55, point.x < size.width-55, point.y > 120, point.y < size.height-180,
@@ -37,6 +39,20 @@ struct StarLabelsView: View {
             if result.count == 5 { break }
         }
         return result
+    }
+    private var collectedTargets: [Label] {
+        guard let ids = model.scene.collectedIDs, model.scene.showsStars else { return [] }
+        let az = model.scene.azimuth, alt = model.scene.altitude
+        let forward = SIMD3(sin(az)*cos(alt),cos(az)*cos(alt),sin(alt))
+        let right = SIMD3(cos(az),-sin(az),0.0), up = simd_cross(right,forward)
+        let focal = CameraProjection.focalLength(width:size.width,height:size.height,fieldOfView:model.scene.fieldOfView)
+        return ([model.sunObservation,model.moonObservation].compactMap { $0 } + model.planetObservations + model.displayedObservations).compactMap { observation in
+            guard ids.contains(observation.id), observation.altitude > 0,
+                  let p = CameraProjection.project(direction:SIMD3(simd_dot(observation.direction,right),simd_dot(observation.direction,up),simd_dot(observation.direction,forward)),focal:focal) else { return nil }
+            let point = CGPoint(x:size.width/2+p.x,y:size.height*0.47-p.y)
+            guard point.x >= 0, point.x <= size.width, point.y >= 0, point.y <= size.height else { return nil }
+            return Label(observation:observation,point:point)
+        }
     }
     private var selectedPoint: CGPoint? {
         guard let direction = model.selectedObservation?.direction else { return nil }
@@ -49,8 +65,24 @@ struct StarLabelsView: View {
     }
     var body: some View {
         ZStack {
+            ForEach(collectedTargets) { target in
+                if target.observation.star.isMoon || target.observation.star.isPlanet {
+                    StarPortraitView(star:target.observation.star).frame(width:24,height:24)
+                        .position(target.point).allowsHitTesting(false)
+                }
+                // Keep the actual object tappable even when its name is hidden to avoid clutter.
+                Button {
+                    if let onSelect { onSelect(target.observation.star) } else { model.showDetail(target.observation.star) }
+                } label: { Color.clear.frame(width:44,height:44).contentShape(Circle()) }
+                    .buttonStyle(.plain).position(target.point)
+                    .accessibilityLabel("Detail \(target.observation.star.title)")
+                    .allowsHitTesting(!model.isInspectingStar && !model.isCameraTransitioning)
+                    .accessibilityHidden(model.isInspectingStar)
+            }
             ForEach(labels) { label in
-                Button { model.showDetail(label.observation.star) } label: {
+                Button {
+                    if let onSelect { onSelect(label.observation.star) } else { model.showDetail(label.observation.star) }
+                } label: {
                     VStack(spacing:5) {
                         if label.observation.star.isSolarSystemBody {
                             Color.clear.frame(width:44,height:44)
