@@ -435,11 +435,13 @@ struct StarCollectCameraView: View {
         }
         do {
             try model.saveCameraObservation(draft,note:"")
-            verification = .idle
             if onCollect != nil && !reduceMotion {
-                beginHandover(itemID:target.star.id,point:target.detection?.point ?? center)
+                // Same as the demo from here: Validating holds through the capture cue, then the wormhole.
+                captureThenHandover(itemID:target.star.id,point:target.detection?.point ?? center,
+                                    freeze:service.wormholeFreeze() ?? .placeholder(size:viewSize))
                 return
             }
+            verification = .idle
             // Celebrate: our own chime + haptic, and mute the crosshair's automatic "back" on the way to Enable.
             CrosshairFeedback.shared.suppress(.back,for:0.6)
             CrosshairFeedback.shared.play(CrosshairSound.collect)
@@ -452,6 +454,26 @@ struct StarCollectCameraView: View {
     }
 
     // MARK: Wormhole handover
+
+    /// Capture cue ("cekrek"), shared by the real flow and the demo: white flash (peak .35, 30 ms in,
+    /// 180 ms ease-out), a 1 → 0.985 → 1 shutter squeeze over 220 ms, rigid haptic + mechanical shutter click,
+    /// then the wormhole 250 ms later from the frame frozen at the click.
+    private func captureThenHandover(itemID: Int?,point: CGPoint,demoStar: CatalogStar? = nil,freeze: WormholeFreeze,
+                                     then finish: @escaping () -> Void = {}) {
+        WormholeFeedback.shared.playShutter()
+        Task { @MainActor in
+            withAnimation(.linear(duration:0.03)) { flash = 0.35 }
+            withAnimation(.easeInOut(duration:0.11)) { squeeze = 0.985 }
+            try? await Task.sleep(for:.milliseconds(30))
+            withAnimation(.easeOut(duration:0.18)) { flash = 0 }
+            try? await Task.sleep(for:.milliseconds(80))
+            withAnimation(.easeInOut(duration:0.11)) { squeeze = 1 }
+            try? await Task.sleep(for:.milliseconds(140))
+            beginHandover(itemID:itemID,point:point,demoStar:demoStar,freeze:freeze)
+            verification = .idle
+            finish()
+        }
+    }
 
     /// Freezes the camera frame and opens the wormhole at the collected star's screen point.
     private func beginHandover(itemID: Int?,point: CGPoint,demoStar: CatalogStar? = nil,freeze frozen: WormholeFreeze? = nil) {
@@ -492,17 +514,7 @@ struct StarCollectCameraView: View {
         let point = target.detection?.point ?? center
         var freeze = service.wormholeFreeze() ?? .placeholder(size:viewSize)
         freeze.image = DemoSky.composite(freeze.image,star:point,viewSize:viewSize,color:star.rgb)
-        WormholeFeedback.shared.playShutter()
-        Task { @MainActor in
-            withAnimation(.linear(duration:0.03)) { flash = 0.35 }
-            withAnimation(.easeInOut(duration:0.11)) { squeeze = 0.985 }
-            try? await Task.sleep(for:.milliseconds(30))
-            withAnimation(.easeOut(duration:0.18)) { flash = 0 }
-            try? await Task.sleep(for:.milliseconds(80))
-            withAnimation(.easeInOut(duration:0.11)) { squeeze = 1 }
-            try? await Task.sleep(for:.milliseconds(140))
-            beginHandover(itemID:star.id,point:point,demoStar:star,freeze:freeze)
-            verification = .idle
+        captureThenHandover(itemID:star.id,point:point,demoStar:star,freeze:freeze) {
             demoDirection = nil; demoPoint = nil; demoArrow = nil
         }
     }
