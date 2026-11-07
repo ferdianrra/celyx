@@ -1,6 +1,7 @@
 import CoreMotion
 import CoreLocation
 import Foundation
+import simd
 
 enum MotionCalibrationStage {
     case location, compass, settling, ready, blocked
@@ -21,6 +22,9 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
     private var blockedMessage: String?
     var onCalibration: ((Bool,Double,String,MotionCalibrationStage) -> Void)?
     var onLocation: ((ObserverLocation) -> Void)?
+    /// Full device orientation once north is found: columns are the device X (screen right), Y (screen up)
+    /// and Z (out of the screen) axes, expressed in the horizon frame [east, north, up].
+    var onAttitude: ((simd_double3x3) -> Void)?
     private(set) var referenceDescription = "Gyro isn’t ready yet"
     var isAvailable: Bool { manager.isDeviceMotionAvailable && CLLocationManager.headingAvailable() }
 
@@ -95,6 +99,8 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
             let azimuth = atan2(r.m32,-r.m31)
             let altitude = asin(min(1,max(-1,-r.m33)))
             onChange(azimuth,altitude,true)
+            // Reference frame rows are (north, west, up); convert each device axis to (east, north, up).
+            onAttitude?(simd_double3x3(columns:(SIMD3(-r.m12,r.m11,r.m13),SIMD3(-r.m22,r.m21,r.m23),SIMD3(-r.m32,r.m31,r.m33))))
         }
     }
     private func report(_ ready: Bool,_ progress: Double,_ message: String,stage: MotionCalibrationStage) {

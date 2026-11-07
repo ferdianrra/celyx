@@ -61,6 +61,35 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         detectionGeneration += 1; pendingDetection = nil; trackMatches = [:]; trackIssues = [:]; confirmedNames = [:]
     }
 
+    /// Catalog positions for the center reticle, separate from optical detection evidence.
+    /// Collect still requires a matching camera observation before saving an object.
+    var mappedObjects: [CameraMappedObject] {
+        guard status == .tracking, !alignment.requiresCalibration,
+              viewport.width > 0, viewport.height > 0, let frame = session.currentFrame else { return [] }
+        let view = frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle)
+        let projection = screenProjection(frame)
+        return scanDirections.compactMap { star,direction in
+            let guide = SkyFinderProjection.project(direction:alignedDirection(direction),
+                view:view,projection:projection,size:viewport)
+            guard let point = guide.point else { return nil }
+            return CameraMappedObject(star:star,point:point,likelyVisible:likelyVisibleIDs.contains(star.id))
+        }
+    }
+
+    /// Bright bodies (Sun, Moon, planets) that are up right now, with the angle in degrees between each
+    /// one's real direction (GPS + clock) and where the camera is pointing. Uses the angle rather than a
+    /// screen point so a few degrees of compass error doesn't stop you aiming at a big, obvious disc.
+    func brightBodiesNearAim() -> [(star: CatalogStar, separation: Double)] {
+        guard status == .tracking, let back = previousForward else { return [] }
+        let aim = simd_normalize(-back)
+        return scanDirections.compactMap { star, direction in
+            guard star.isSolarSystemBody else { return nil }
+            let world = simd_normalize(SkyFinderProjection.worldDirection(direction))
+            let separation = Double(acos(min(1,max(-1,simd_dot(aim,world))))) * 180 / .pi
+            return (star,separation)
+        }
+    }
+
     func aimTarget(pinnedID: Int? = nil) -> CameraAimTarget? {
         guard !alignment.requiresCalibration, status == .tracking, !isAdjustingCamera, !scannerPaused else { return nil }
         let center = CGPoint(x:viewport.width/2,y:viewport.height/2)
@@ -121,6 +150,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     var isCameraRunning: Bool { hasStartedSession }
     var isAdjustingCamera: Bool { lastFrameTime < controlsSettleUntil }
     private var sky: SkySnapshot?
+    /// Sun altitude (degrees) at the current GPS position and time, or nil before the first fix.
+    var sunAltitude: Double? { sky?.sunAltitude }
     private var lastSnapshot = Date.distantPast
     private let photoContext = CIContext(options:[.cacheIntermediates:false])
 
@@ -509,12 +540,14 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         if sky == nil || now.timeIntervalSince(lastSnapshot) >= 1 {
             sky = AstronomyService.snapshot(date:now,location:location); lastSnapshot = now; skyDate = now
             if star == nil, let sky {
+                // Apparent positions: what the camera sees is lifted by atmospheric refraction.
                 scanDirections = catalogue.compactMap { star in
-                    let direction = sky.direction(ra:star.ra_deg,dec:star.dec_deg)
+                    let direction = Refraction.apparent(sky.direction(ra:star.ra_deg,dec:star.dec_deg))
                     return direction.z > 0 ? (star,direction) : nil
                 }
-                scanDirections += sky.planets.filter { $0.direction.z > 0 }.map { ($0.star,$0.direction) }
-                scanDirections += [(CatalogStar.sun,sky.sunDirection),(CatalogStar.moon,sky.moonDirection)].filter { $0.1.z > 0 }
+                scanDirections += sky.planets.filter { $0.direction.z > sin(5 * .pi/180) }.map { ($0.star,Refraction.apparent($0.direction)) }
+                scanDirections += [(CatalogStar.sun,sky.sunDirection),(CatalogStar.moon,sky.moonDirection)]
+                    .map { ($0.0,Refraction.apparent($0.1)) }.filter { $0.1.z > 0 }
                 refreshVisibility(sky)
             }
         }
@@ -530,7 +563,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             scan(frame:frame,sky:sky)
             return
         }
-        let horizon = star.isSun ? sky.sunDirection : star.isMoon ? sky.moonDirection : sky.planets.first(where: { $0.star.id == star.id })?.direction ?? sky.direction(ra:star.ra_deg,dec:star.dec_deg)
+        let horizon = Refraction.apparent(star.isSun ? sky.sunDirection : star.isMoon ? sky.moonDirection : sky.planets.first(where: { $0.star.id == star.id })?.direction ?? sky.direction(ra:star.ra_deg,dec:star.dec_deg))
         altitude = asin(min(1,max(-1,horizon.z))) * 180 / .pi
         guard horizon.z > 0 else { projection = nil; return }
         projection = SkyFinderProjection.project(direction:alignedDirection(horizon),

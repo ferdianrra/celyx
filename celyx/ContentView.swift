@@ -6,8 +6,9 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var model = HomeViewModel()
+
     var body: some View {
-        HomeView(model:model)
+        CelyxHomeView(model:model)
             .environment(\.locale,Locale(identifier:"en"))
     }
 }

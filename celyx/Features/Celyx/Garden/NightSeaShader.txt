@@ -1,0 +1,237 @@
+// Night Sea environment (Metal port of night-sea-environment-kit/shader/environment.frag.glsl).
+// Directions are unit vectors [east, north, up]. Camera: pinhole, focal length in points, optical centre (cx, cy) in points.
+// Pass 1 draws the collected objects as point sprites into an offscreen texture (premultiplied).
+// Pass 2 is the full-screen environment: sky + that layer + islands, and a sea that mirrors it all.
+// The scene is always night: the Sun terms of the original shader are zero and were dropped.
+#include <metal_stdlib>
+using namespace metal;
+
+struct SeaUniforms {
+    float4 res;    // x,y drawable px; z px per point; w time (s)
+    float4 cam;    // x focal length (pt); y cx (pt); z cy (pt); w wave strength
+    float4 F;      // camera forward
+    float4 R;      // camera right
+    float4 U;      // camera up
+    float4 zen;    // sky palette
+    float4 mid;
+    float4 hor;
+    float4 moon;   // xyz Moon direction, w illuminated fraction
+    float4 flags;  // x moon up (0..1), y moon glitter strength, z islands on, w Milky Way strength
+    float4 E0;     // horizon vectors of the equatorial X, Y, Z axes (rotate the RA/Dec Milky Way map to the sky now)
+    float4 E1;
+    float4 E2;     // w: Milky Way texture mip level for the current zoom
+};
+
+struct GardenPoint {
+    float4 dirSize;  // xyz direction, w sprite radius (pt)
+    float4 color;    // rgb, w kind: 0 star, 1 planet, 2 moon, 3 sun, + 10 when selected
+};
+
+constant float PI = 3.14159265;
+
+// ---------- pass 1: collected objects ----------
+struct PointOut {
+    float4 position [[position]];
+    float size [[point_size]];
+    float4 color;
+    float kind;
+};
+
+vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u [[buffer(0)]],
+                                  const device GardenPoint *points [[buffer(1)]]) {
+    GardenPoint g = points[id];
+    float3 d = g.dirSize.xyz;
+    float z = dot(d, u.F.xyz);
+    PointOut o;
+    o.position = float4(2, 2, 0, 1); o.size = 1; o.color = float4(0); o.kind = g.color.w;
+    if (z < 0.06 || d.z < -0.01) return o;     // behind the camera or below the horizon
+    float2 q = float2(u.cam.y + dot(d, u.R.xyz) / z * u.cam.x, u.cam.z - dot(d, u.U.xyz) / z * u.cam.x);
+    float2 px = q * u.res.z;
+    o.position = float4(px.x / u.res.x * 2 - 1, 1 - px.y / u.res.y * 2, 0, 1);
+    o.size = min(g.dirSize.w * 2 * u.res.z, 500.0);
+    o.color = float4(g.color.rgb, 1);
+    return o;
+}
+
+fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_coord]], constant SeaUniforms &u [[buffer(0)]]) {
+    float2 v = pc * 2 - 1;
+    float r = length(v);
+    if (r > 1) discard_fragment();
+    float kind = fmod(in.kind, 10.0);
+    bool selected = in.kind >= 10;
+    bool disc = kind > 1.5;                          // Moon / Sun: a real disc with a halo
+    float coreR = disc ? 0.24 : (kind > 0.5 ? 0.13 : 0.085);
+    float core = 1 - smoothstep(coreR * 0.75, coreR, r);
+    float glow = exp(-r * r * (disc ? 9.0 : 16.0)) * 0.55 + exp(-r * r * 60.0) * 0.5;
+    // small diffraction spikes on stars, a slow twinkle
+    float spikes = kind < 0.5 ? (exp(-abs(v.x) * 70.0) + exp(-abs(v.y) * 70.0)) * (1 - r) * 0.35 : 0.0;
+    float twinkle = kind < 0.5 ? 0.9 + 0.1 * sin(u.res.w * 3.4 + in.color.r * 40.0) : 1.0;
+    float ring = selected ? smoothstep(0.03, 0.0, abs(r - 0.92)) * 0.9 : 0.0;
+    float3 coreColor = mix(in.color.rgb, float3(1), disc ? 0.35 : 0.6);
+    float3 c = (in.color.rgb * (glow + spikes) * twinkle + coreColor * core) + float3(ring);
+    float a = clamp(core + (glow + spikes) * twinkle + ring, 0.0, 1.0);
+    return float4(min(c, float3(a)), a);
+}
+
+// ---------- pass 2: environment ----------
+struct VOut { float4 position [[position]]; };
+vertex VOut seaVertex(uint vid [[vertex_id]]) {
+    float2 p = float2((vid << 1) & 2, vid & 2);
+    VOut o; o.position = float4(p * 2 - 1, 0, 1);
+    return o;
+}
+
+float glslMod(float x, float y) { return x - y * floor(x / y); }
+
+// Milky Way map in RA/Dec (u = RA/360, v = (90 - Dec)/180), gamma-encoded like the kit.
+// Kept subtle and slightly desaturated so the collected lights stay the brightest things in the sky.
+float3 mwCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
+    constexpr sampler mws(filter::linear, mip_filter::linear, s_address::repeat, t_address::clamp_to_edge);
+    float3 e = float3(dot(u.E0.xyz, d), dot(u.E1.xyz, d), dot(u.E2.xyz, d));
+    float ra = atan2(e.y, e.x);
+    float2 uv = float2(fract(ra / (2.0 * PI) + 1.0), acos(clamp(e.z, -1.0, 1.0)) / PI);
+    float3 m = tMW.sample(mws, uv, level(u.E2.w)).rgb;
+    m = m * m * 1.15;
+    float l = dot(m, float3(.299, .587, .114));
+    return mix(m, float3(l) * float3(.92, .95, 1.05), .4);
+}
+
+float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
+    float h = max(d.z, 0.0);
+    float3 c = mix(u.zen.rgb, u.mid.rgb, smoothstep(0.0, 0.9, pow(1.0 - h, 2.6)));
+    c = mix(c, u.hor.rgb, pow(1.0 - h, 8.0));
+    float cm = dot(d, u.moon.xyz);
+    c += float3(.7, .76, .95) * u.moon.w * u.flags.x * (pow(max(cm, 0.0), 140.0) * .25 + pow(max(cm, 0.0), 10.0) * .05);
+    c += mwCol(d, u, tMW) * u.flags.w * (.25 + .75 * smoothstep(0.0, .35, h));
+    c += u.hor.rgb * .16 * exp(-h * 70.0);
+    c = mix(c, float3(.17, .10, .36), smoothstep(.3, .85, h) * .42);                 // violet toward the zenith
+    float ag = (h - .17) / .075;
+    c += float3(.025, .085, .055) * exp(-ag * ag);                                   // airglow band ~10° up
+    float wv = pow(max(dot(normalize(d.xy + 1e-5), float2(-1.0, 0.0)), 0.0), 2.0);    // west: last light of dusk
+    c = mix(c, float3(.86, .52, .42), exp(-h * 45.0) * (.22 + .42 * wv));
+    c = mix(c, float3(.95, .70, .52), exp(-h * 140.0) * (.15 + .35 * wv));
+    c += float3(.10, .06, .18) * exp(-h * 10.0) * (1.0 - wv) * .5;
+    return c;
+}
+
+float hsh(float n) { return fract(sin(n * 127.1 + .73) * 43758.5453); }
+
+// one ring of islands around the horizon: n cells, each may hold one island (degrees)
+float isl(float az, float n, float hm, float sd) {
+    float x = (az / (2.0 * PI) + .5) * n, c = floor(x), best = 0.0;
+    for (int k = -1; k <= 1; k++) {
+        float ci = c + float(k), cc = glslMod(ci, n), q = cc * 3.17 + sd;
+        if (hsh(q) < .5) continue;
+        float w = mix(.28, .9, hsh(q + 3.1)), ctr = ci + .5 + (hsh(q + 5.7) - .5) * .5, hh = hm * mix(.3, 1.0, hsh(q + 9.3)), sk = (hsh(q + 11.0) - .5) * .9;
+        float uu = (x - ctr) / w;
+        if (abs(uu) >= 1.0) continue;
+        uu = uu + sk * (1.0 - uu * uu) * .5;
+        float sh = pow(max(1.0 - uu * uu, 0.0), .85) * (1.0 + .07 * sin(x * 37.0 + cc * 5.0) + .04 * sin(x * 97.0 + cc) + .025 * sin(x * 211.0));
+        best = max(best, hh * sh);
+    }
+    return best;
+}
+
+float4 lay(float az, float alt, float pa, float n, float hm, float sd, float3 base, float haze, constant SeaUniforms &u) {
+    float h = isl(az, n, hm, sd) * PI / 180.0;
+    float cov = clamp((h - alt) / (pa * .9), 0.0, 1.0);
+    if (cov <= 0.0) return float4(0);
+    float e = .03, sl = (isl(az + e, n, hm, sd) - isl(az - e, n, hm, sd)) * PI / 180.0 / (2.0 * e);
+    float t = clamp(alt / max(h, 1e-5), 0.0, 1.0), side = clamp(.5 + sl * 5.0, 0.0, 1.0);
+    float3 c = base * mix(.6, 1.5, side);
+    c += u.hor.rgb * .07 * t * (1.0 - haze);
+    float rim = smoothstep(2.2 * pa, 0.0, h - alt) * (.25 + .5 * side);
+    c = mix(c, u.hor.rgb * .6 + base, rim * (1.0 - haze));
+    c = mix(c, u.hor.rgb * .85, haze * (1.0 - .35 * t));
+    return float4(c, cov);
+}
+
+float4 island(float3 d, constant SeaUniforms &u) {
+    if (u.flags.z < .5) return float4(0);
+    float az = atan2(d.x, d.y), alt = asin(clamp(d.z, -1.0, 1.0)), pa = 1.0 / u.cam.x;
+    if (alt < -.003 || alt > .16) return float4(0);
+    float3 col = float3(0); float a = 0.0; float4 L;
+    L = lay(az, alt, pa, 6.0, 8.5, 19.0, float3(.022, .03, .06), .05, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a);
+    if (a < .999) { L = lay(az, alt, pa, 11.0, 4.2, 7.0, float3(.05, .07, .13), .32, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a); }
+    if (a < .999) { L = lay(az, alt, pa, 19.0, 1.9, 1.0, float3(.10, .14, .24), .62, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a); }
+    return float4(col / max(a, 1e-4), a);
+}
+
+float h2(float2 p) { float3 q = fract(float3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float road(float3 d, float3 S, float sig) {
+    float3 Hh = normalize(S - d);
+    float c = max(Hh.z, .08), t2 = (1.0 - c * c) / (c * c);
+    return exp(-t2 / (sig * sig)) * step(-.02, S.z);
+}
+float sparkle(float3 d, float p, constant SeaUniforms &u) {
+    float e = -d.z, sz = (1.6 + 70.0 * e) / u.cam.x;
+    float2 q = float2(atan2(d.x, d.y) / sz, e / sz), ce = floor(q);
+    float hc = h2(ce), tt = floor(u.res.w * 4.0 + hc * 9.0);
+    float hv = h2(ce + tt * float2(17.31, 9.73));
+    if (hv >= clamp(p * .9, 0.0, .85)) return 0.0;
+    float2 o = float2(h2(ce + 3.1), h2(ce + 7.7)) * .6 + .2;
+    float rp = length((fract(q) - o) * sz * u.cam.x);
+    return smoothstep(1.7, .2, rp) * (.6 + .4 * h2(ce + tt));
+}
+// direction -> texture uv of the object layer (top-left origin), or -1 when off screen
+float2 toScreen(float3 d, constant SeaUniforms &u) {
+    float z = dot(d, u.F.xyz);
+    if (z < .05) return float2(-1);
+    float2 q = float2(u.cam.y + dot(d, u.R.xyz) / z * u.cam.x, u.cam.z - dot(d, u.U.xyz) / z * u.cam.x);
+    return q * u.res.z / u.res.xy;
+}
+
+fragment float4 seaFragment(VOut in [[stage_in]], constant SeaUniforms &u [[buffer(0)]], texture2d<float> tStar [[texture(0)]],
+                            texture2d<float> tMW [[texture(1)]]) {
+    constexpr sampler smp(filter::linear, address::clamp_to_edge);
+    float2 fc = in.position.xy;
+    float2 px = fc / u.res.z;
+    float foc = u.cam.x;
+    float3 d = normalize(u.F.xyz + ((px.x - u.cam.y) / foc) * u.R.xyz + ((u.cam.z - px.y) / foc) * u.U.xyz);
+    float4 st = tStar.sample(smp, fc / u.res.xy);
+    float3 col;
+    if (d.z >= 0.0) {
+        col = skyCol(d, u, tMW) * (1.0 - st.a) + st.rgb;
+        float4 il = island(d, u);
+        col = mix(col, il.rgb, il.a);
+    } else {
+        float eh = 1.5, dist = min(eh / -d.z, 4000.0);
+        float2 P = d.xy * dist; float2 gr = float2(0);
+        float4 ang = float4(.3, -.8, 1.9, 2.7), L = float4(9.0, 5.5, 3.1, 1.7), A = float4(.22, .12, .07, .04);
+        for (int i = 0; i < 4; i++) {
+            float2 dir = float2(cos(ang[i]), sin(ang[i]));
+            float k = 2.0 * PI / L[i], w = sqrt(9.81 * k), ph = k * dot(dir, P) - w * u.res.w;
+            float f = 1.0 - smoothstep(L[i] * 6.0, L[i] * 45.0, dist);
+            gr -= A[i] * f * k * sin(ph) * dir;
+        }
+        float3 sea = mix(float3(.01, .018, .045), float3(.035, .06, .12), smoothstep(-.5, -.01, d.z));
+        float2 gc = gr * u.cam.w;
+        float3 N = normalize(float3(-gc, 1.0));
+        float3 R = reflect(d, N); R.z = max(R.z, .003); R = normalize(R);
+        float fr = .02 + .98 * pow(1.0 - max(-dot(d, N), 0.0), 5.0);
+        float3 refl = skyCol(R, u, tMW);
+        float3 R0 = reflect(d, normalize(float3(-gc * .3, 1.0))); R0.z = max(R0.z, .0005);
+        float4 il = island(normalize(R0), u);
+        if (il.a < .5) {
+            float2 uv = toScreen(R, u);
+            if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+                float4 s = float4(0); float stp = 2.0 * u.res.z / u.res.y;
+                for (int j = -2; j <= 2; j++) s += tStar.sample(smp, uv + float2(0.0, float(j) * stp * .5)) * .2;
+                float fd = mix(.3, 1.0, smoothstep(-.55, -.02, d.z));
+                refl = refl * (1.0 - s.a * .55 * fd) + s.rgb * .55 * fd;
+            }
+        }
+        refl = mix(refl, il.rgb * .85, il.a * .85);
+        float k = clamp(.8 + fr * .45, 0.0, 1.0);                                       // always night
+        col = mix(sea, refl * float3(.62, .70, .88), k * .85);
+        float far = smoothstep(3.0, 500.0, dist);
+        float sig = .06 + .33 * u.cam.w, pM = road(d, u.moon.xyz, sig * .9), hz = mix(.1, .75, far);
+        col += float3(.85, .88, .95) * u.flags.y * (pM * hz * .3 + sparkle(d + .001, pM * .7, u) * .6);
+        col = mix(col, skyCol(normalize(float3(d.xy, .002)), u, tMW), smoothstep(250.0, 4000.0, dist) * .6);
+        float3 up = normalize(float3(d.xy, .0015));
+        float4 iu = island(up, u);
+        float3 ab = mix(skyCol(up, u, tMW), iu.rgb, iu.a) * .82;
+        col = mix(col, ab, smoothstep(-.012, -.0005, d.z) * .9);
+    }
+    return float4(clamp(col, 0.0, 1.0), 1.0);
+}

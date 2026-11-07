@@ -314,6 +314,17 @@ final class HomeViewModel {
         collected[observation.id] = CollectedStar(id:observation.id,date:clock,latitude:location.latitude,longitude:location.longitude)
         if let data = try? JSONEncoder().encode(Array(collected.values)) { defaults.set(data,forKey:"collectedStars") }
     }
+    /// Removes a collected object and its photo from the garden.
+    func deleteCollected(id: Int) {
+        guard let record = collected[id] else { return }
+        var updated = collected
+        updated[id] = nil
+        guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
+        defaults.set(data,forKey:"collectedStars")
+        collected = updated
+        if let photo = record.photoFilename { StarPhotoStore.remove(photo) }
+    }
+
     func saveCameraObservation(_ draft: CameraObservationDraft,note: String) throws {
         // Seeing a source in the camera is enough to save it. Forecasts never gate this path.
         let filename = try StarPhotoStore.save(draft.image)
