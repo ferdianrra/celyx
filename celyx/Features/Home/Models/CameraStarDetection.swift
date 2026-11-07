@@ -29,6 +29,7 @@ struct CameraStarAnnotation: Identifiable {
     let size: CGSize
     var estimatedSeparation: Double? = nil
     var sourceDirection: SIMD3<Float>? = nil
+    var observedAt: TimeInterval? = nil
     var id: Int { star.id }
 }
 
@@ -60,7 +61,8 @@ struct CameraAimTarget {
 
 nonisolated enum CameraStarDetector {
     // Compact high-contrast sources only. Extended lights and isolated hot pixels are rejected.
-    static func detect(in image: CVPixelBuffer,zoom: Double = 1,focusRegion: CGRect? = nil) -> [CameraLightPoint] {
+    static func detect(in image: CVPixelBuffer,zoom: Double = 1,focusRegion: CGRect? = nil,
+                       isStacked: Bool = false) -> [CameraLightPoint] {
         let format = CVPixelBufferGetPixelFormatType(image)
         guard format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
               CVPixelBufferIsPlanar(image), CVPixelBufferGetPlaneCount(image) > 0 else { return [] }
@@ -122,7 +124,9 @@ nonisolated enum CameraStarDetector {
                 for dy in -1...1 { for dx in -1...1 {
                     coreSignal += Double(bytes[(py+dy)*row+px+dx])-background
                 } }
-                guard coreSignal/9 > max(3.5,contrast*0.18) else { continue }
+                // Only a motion-aligned temporal average may use the lower core-signal floor.
+                // Its caller also requires support in several independent raw frames.
+                guard coreSignal/9 > max(isStacked ? 1.2 : 3.5,contrast*0.18) else { continue }
                 let threshold = max(focused ? 1.5 : 2,max(deviation*2,contrast*0.28))
                 func backgroundAt(_ x: Int,_ y: Int) -> Double {
                     background+slopeX*Double(x-px)/Double(ringRadius)+slopeY*Double(y-py)/Double(ringRadius)

@@ -34,19 +34,46 @@ struct CameraCandidateAssessment {
     let issue: CameraIdentificationIssue
 }
 
+/// A conditional geometric reference, not a confirmed catalog identity or a saved
+/// calibration. Gravity supplies height; a second light must also fit the angular
+/// distance from this actually observed source.
+struct CameraCandidateReference {
+    let observed: SIMD3<Float>
+    let expected: SIMD3<Float>
+
+    var rotation: simd_quatf? {
+        let altitudeError = abs(asin(Double(observed.y))-asin(Double(expected.y))) * 180 / .pi
+        guard altitudeError <= 3, abs(observed.y) < 0.995, abs(expected.y) < 0.995 else { return nil }
+        let angle = atan2(observed.x,-observed.z)-atan2(expected.x,-expected.z)
+        let wrapped = atan2(sin(angle),cos(angle))
+        guard abs(wrapped) <= 15 * .pi/180 else { return nil }
+        return simd_quatf(angle:-wrapped,axis:SIMD3(0,1,0))
+    }
+}
+
 enum CameraCandidateMatcher {
     // This is a brightness prior, not a measurement of magnitude from camera pixels.
     static func preferredMagnitudeLimit(zoom: Double) -> Double {
         3.5 + min(1.5,0.5*log2(max(1,zoom)))
     }
     static func assess(direction: SIMD3<Float>,isDisc: Bool,zoom: Double,headingAccuracy: Double?,
-                     candidates: [(CatalogStar,SIMD3<Float>)],maximumSeparation: Double? = nil,minimumScoreGap: Double = 0.75) -> CameraCandidateAssessment {
+                     candidates: [(CatalogStar,SIMD3<Float>)],maximumSeparation: Double? = nil,
+                     minimumScoreGap: Double = 0.75,isCalibrated: Bool = false,
+                     reference: CameraCandidateReference? = nil) -> CameraCandidateAssessment {
         if let headingAccuracy, !headingAccuracy.isFinite || headingAccuracy < 0 || headingAccuracy > 25 { return .init(match:nil,issue:.compass) }
-        let radius = min(maximumSeparation ?? 12,min(12,max(6,(headingAccuracy ?? 10)*0.75)))
+        let referenceRotation = isCalibrated ? nil : reference?.rotation
+        let radius = isCalibrated ? min(maximumSeparation ?? 1.5,1.5) : referenceRotation != nil ? 3
+            : min(maximumSeparation ?? 12,min(12,max(6,(headingAccuracy ?? 10)*0.75)))
         let preferredLimit = preferredMagnitudeLimit(zoom:zoom)
         let minimumDot = cos(radius * .pi/180)
         let ranked = candidates.compactMap { star,expected -> CameraCandidateMatch? in
-            let dot = Double(simd_dot(direction,expected))
+            // A resolved lamp/disc cannot acquire an ordinary star's identity.
+            guard !isDisc || star.isSolarDisc else { return nil }
+            // Compass uncertainty concerns yaw, not an equally large error in height.
+            let altitudeError = abs(asin(Double(direction.y))-asin(Double(expected.y))) * 180 / .pi
+            guard isCalibrated || altitudeError <= 3 else { return nil }
+            let predicted = referenceRotation?.act(expected) ?? expected
+            let dot = Double(simd_dot(direction,predicted))
             guard dot >= minimumDot, star.mag <= 5.5 else { return nil }
             let separation = acos(min(1,max(-1,dot)))*180 / .pi
             guard separation <= radius else { return nil }
@@ -56,15 +83,25 @@ enum CameraCandidateMatcher {
             let faintnessPenalty = max(0,star.mag-preferredLimit)*1.5
             let brightnessBonus = min(1.5,max(0,-star.mag)*0.3)
             let discPenalty = isDisc && !star.isSolarDisc ? 1.5 : 0
+            var geometryPenalty = 0.0
+            if referenceRotation != nil, let reference {
+                let observedDistance = acos(Double(min(1,max(-1,simd_dot(direction,reference.observed)))))
+                let expectedDistance = acos(Double(min(1,max(-1,simd_dot(expected,reference.expected)))))
+                let residual = abs(observedDistance-expectedDistance)*180 / .pi
+                guard residual <= 2 else { return nil }
+                geometryPenalty = residual
+            }
             return CameraCandidateMatch(star:star,separation:separation,
-                score:separation+brightnessPenalty+faintnessPenalty-brightnessBonus+discPenalty)
+                score:isCalibrated ? separation+min(0.1,max(0,star.mag)*0.015)+discPenalty
+                    : separation+geometryPenalty+brightnessPenalty+faintnessPenalty-brightnessBonus+discPenalty)
         }.sorted {
             if abs($0.score-$1.score) > 0.0001 { return $0.score < $1.score }
             return $0.star.id < $1.star.id
         }
         guard let first = ranked.first else { return .init(match:nil,issue:.noCandidate) }
         // Keep a single suggestion, but don't arbitrarily break a near tie.
-        if ranked.count > 1 && ranked[1].score-first.score < minimumScoreGap { return .init(match:nil,issue:.ambiguous) }
+        let gap = isCalibrated ? max(0.2,min(0.35,minimumScoreGap)) : minimumScoreGap
+        if ranked.count > 1 && ranked[1].score-first.score < gap { return .init(match:nil,issue:.ambiguous) }
         return .init(match:first,issue:.stabilizing)
     }
 }

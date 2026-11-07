@@ -82,7 +82,9 @@ struct GardenSkyView: View {
         }
         .onDisappear(perform:stopGyro)
         .sheet(item:$selected) { item in
-            CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction) {
+            CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction,
+                onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
+                onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) }) {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }
