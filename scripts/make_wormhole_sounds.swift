@@ -2,7 +2,7 @@
 //
 //   swiftc -O scripts/make_wormhole_sounds.swift -o /tmp/make_wormhole_sounds && /tmp/make_wormhole_sounds
 //
-// Subtle and cinematic on purpose: glass, sub, air and reverb, no arcade synths.
+// Subtle and cinematic on purpose: sub, air and reverb. No bell chords (they read as a doorbell), no arcade synths.
 // Timing: ping @0, bend @120 ms (until T_LAND), pop @820 ms, swell ends exactly on T_LAND, boom @T_LAND.
 // `bendLength` / `swellLength` are sized for iPhone 15 (T_LAND ≈ 2176 ms); the app cuts the bend at landing.
 
@@ -105,26 +105,25 @@ func write(_ name: String, _ x: [Double]) throws {
 let bendLength = 2.056       // T_LAND − 120 ms on iPhone 15
 let swellLength = 0.476      // 1700 ms → T_LAND on iPhone 15
 
-/// 0 ms: glass ping + soft thump.
+/// 0 ms: the frame "snaps": a soft sub thump, a dark air click and a faint inharmonic glint (no bell chord).
 func ping() -> [Double] {
-    var n = Noise(), lp = OnePole(), phase = 0.0
-    let partials: [(Double, Double, Double)] = [(2093, 1, 0.55), (3371, 0.42, 0.34), (5268, 0.22, 0.2), (7190, 0.1, 0.12)]
-    let dry = render(1.6) { t, _ in
-        var s = 0.0
-        for (f, a, tau) in partials { s += a * sin(2 * .pi * f * t + a) * exp(-t / tau) }
-        s *= min(1, t / 0.0015) * 0.5
-        let f = 48 + 47 * exp(-t / 0.03)
+    var n = Noise(), hp = OnePole(), lp = OnePole(), bp = Biquad(), phase = 0.0
+    let dry = render(1.4) { t, _ in
+        let f = 42 + 38 * exp(-t / 0.035)
         phase += 2 * .pi * f / sr
-        s += 0.9 * sin(phase) * exp(-t / 0.085) * min(1, t / 0.002)
-        s += 0.15 * lp.lowpass(n.next(), 1800) * exp(-t / 0.012)
+        var s = 0.9 * sin(phase) * exp(-t / 0.11) * min(1, t / 0.003)
+        let raw = n.next()
+        let air = raw - hp.lowpass(raw, 2500)                          // high-passed noise
+        s += 0.35 * lp.lowpass(air, 7000) * exp(-t / 0.018)
+        s += 0.10 * bp.bandpass(n.next(), 5200, 6) * exp(-t / 0.09)   // glint: narrow noise, not a tone
         return s
     }
-    return normalize(fade(addReverb(dry, wet: 0.32, room: 0.84, damp: 0.35)), peakDB: -7)
+    return normalize(fade(addReverb(dry, wet: 0.35, room: 0.86, damp: 0.6, tone: 3500)), peakDB: -8)
 }
 
-/// 120 ms → landing: sub drone ~45 Hz + rumble + soft shimmer pad, swelling and slowly bending down.
+/// 120 ms → landing: sub drone ~45 Hz + rumble + a soft band of moving air, swelling and slowly bending down.
 func bend() -> [Double] {
-    var n = Noise(), lp1 = OnePole(), lp2 = OnePole(), phase = 0.0
+    var n = Noise(), lp1 = OnePole(), lp2 = OnePole(), bpS = Biquad(), phase = 0.0
     let total = bendLength + 0.25
     let dry = render(total) { t, _ in
         let p = min(1, t / bendLength)
@@ -134,32 +133,28 @@ func bend() -> [Double] {
         var s = 0.75 * sin(phase) + 0.18 * sin(2 * phase + 0.3)
         let brown = lp2.lowpass(lp1.lowpass(n.next(), 160), 90) * 9
         s += 0.35 * brown * (0.6 + 0.4 * sin(2 * .pi * 3.1 * t))
-        var pad = 0.0
-        for (k, f0) in [659.3, 987.8, 1318.5, 1760.0].enumerated() {
-            let detune = 1.6 * Double(k + 1)
-            pad += sin(2 * .pi * (f0 - p * 18) * t) + sin(2 * .pi * (f0 + detune - p * 18) * t + 1.1)
-        }
-        s += 0.022 * pad * smoothstep(0.1, 0.9, p) * (0.7 + 0.3 * sin(2 * .pi * 0.5 * t))
+        // Shimmer: slowly moving band of high air (wind), not a chord.
+        let shimmer = bpS.bandpass(n.next(), 2600 + 900 * sin(2 * .pi * 0.35 * t), 3)
+        s += 0.12 * shimmer * smoothstep(0.1, 0.9, p) * (0.7 + 0.3 * sin(2 * .pi * 0.5 * t))
         return s * env * (t > bendLength ? max(0, 1 - (t - bendLength) / 0.25) : 1)
     }
     return normalize(fade(addReverb(dry, wet: 0.25, room: 0.8, damp: 0.5, tone: 3000), inMs: 40, outMs: 30), peakDB: -9)
 }
 
-/// 820 ms: glass bloom (soft attack bell cluster) as the hole opens.
+/// 820 ms: the hole blooms open: a fast swell of air that falls in pitch, a sub bump and a faint glassy edge.
 func pop() -> [Double] {
-    var phase = 0.0
-    let partials: [(Double, Double, Double)] = [(1567.98, 1, 0.7), (2349.3, 0.6, 0.55), (3136, 0.38, 0.4), (4698.6, 0.2, 0.28), (6271.9, 0.08, 0.18)]
-    let dry = render(2.2) { t, _ in
-        let bloom = 1 - exp(-t / 0.022)
-        var s = 0.0
-        for (f, a, tau) in partials { s += a * sin(2 * .pi * f * t * (1 + 0.002 * exp(-t / 0.2))) * exp(-t / tau) }
-        s *= bloom * 0.45
-        let f = 85 + 110 * exp(-t / 0.02)
+    var n = Noise(), bp1 = Biquad(), bp2 = Biquad(), bpG = Biquad(), phase = 0.0
+    let dry = render(1.8) { t, _ in
+        let env = (1 - exp(-t / 0.03)) * exp(-t / 0.28)
+        let centre = 600 + 1400 * exp(-t / 0.18)
+        var s = env * (bp1.bandpass(n.next(), centre, 1.2) + 0.6 * bp2.bandpass(n.next(), centre * 0.5, 0.9))
+        let f = 55 + 45 * exp(-t / 0.05)
         phase += 2 * .pi * f / sr
-        s += 0.45 * sin(phase) * exp(-t / 0.05) * min(1, t / 0.003)
+        s += 0.55 * sin(phase) * exp(-t / 0.16) * min(1, t / 0.01)
+        s += 0.05 * bpG.bandpass(n.next(), 4100, 12) * env               // faint glassy edge, still noise-based
         return s
     }
-    return normalize(fade(addReverb(dry, wet: 0.45, room: 0.88, damp: 0.3)), peakDB: -9)
+    return normalize(fade(addReverb(dry, wet: 0.5, room: 0.88, damp: 0.5, tone: 4000), inMs: 3), peakDB: -9)
 }
 
 /// Reverse whoosh that ends exactly on the landing.
