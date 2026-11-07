@@ -67,6 +67,7 @@ struct StarDetailView: View {
     var onCameraCollect: (() -> Void)? = nil
     var cameraCollectTitle = "Collect"
     var cameraCollectEnabled = true
+    @State private var savedNote: GardenCollectionItem?
     var body: some View {
         ScrollView {
             if let star = model.selectedStar {
@@ -96,13 +97,14 @@ struct StarDetailView: View {
                     }
                     Button {
                         if let onCameraCollect { onCameraCollect() }
+                        else if let record = model.collected[star.id] { savedNote = GardenCollectionItem(star:star,record:record) }
                         else { model.collectInCamera() }
                     } label: {
-                        Text(onCameraCollect != nil ? cameraCollectTitle : "Capture in Camera").fontWeight(.semibold).frame(maxWidth:.infinity).padding(.vertical,14)
+                        Text(onCameraCollect != nil ? cameraCollectTitle : isCollected ? "View Your Note" : "Capture in Camera").fontWeight(.semibold).frame(maxWidth:.infinity).padding(.vertical,14)
                     }
                     .buttonStyle(.plain).foregroundStyle(Color(red:0.04,green:0.06,blue:0.18))
-                    .background(.white.opacity((onCameraCollect != nil || model.location != nil) ? 1:0.45),in:Capsule())
-                    .disabled(onCameraCollect != nil ? !cameraCollectEnabled : model.location == nil)
+                    .background(.white.opacity((onCameraCollect != nil || isCollected || model.location != nil) ? 1:0.45),in:Capsule())
+                    .disabled(onCameraCollect != nil ? !cameraCollectEnabled : (!isCollected && model.location == nil))
                     .opacity(onCameraCollect != nil && !cameraCollectEnabled ? 0.45 : 1)
                     .accessibilityIdentifier("collect-star")
                     Text(onCameraCollect != nil ? (cameraCollectEnabled ? "Your photo is ready. Add a note and keep this moment." : "Go back to the camera and keep this spot in view to collect it.") : isCollected ? "Saved to your collection." : "Open the camera to capture and save what you see.")
@@ -161,6 +163,7 @@ struct StarDetailView: View {
         }
         .foregroundStyle(.white)
         .background(LinearGradient(colors:[Color(red:0.12,green:0.25,blue:0.68),Color(red:0.025,green:0.035,blue:0.12)],startPoint:.top,endPoint:.bottom))
+        .sheet(item:$savedNote) { item in SavedStarNoteView(item:item) }
         .preferredColorScheme(.dark)
     }
     private func fact(_ name: String,_ value: String) -> some View {

@@ -17,7 +17,7 @@ struct GardenCollectionView: View {
         ScrollView {
             LazyVStack(alignment:.leading,spacing:14) {
                 if model.collectionItems.isEmpty && query.isEmpty {
-                    ContentUnavailableView("Your galaxy is waiting",systemImage:"sparkles",description:Text("Find something in the sky and make it part of your galaxy."))
+                    ContentUnavailableView("Your sky is waiting",systemImage:"sparkles",description:Text("Collect a star to keep its photo and note here."))
                 } else if !items.isEmpty {
                     Text("Collected · \(items.count)").font(.subheadline).foregroundStyle(.secondary).padding(.vertical,4)
                     ForEach(items) { item in

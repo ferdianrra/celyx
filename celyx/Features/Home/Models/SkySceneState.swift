@@ -17,6 +17,8 @@ struct SkySceneState {
     }
     var renderedExtinction: Double { extinction*(1-spaceBlend) }
     var renderedCloudCover: Double { cloudCover*(1-spaceBlend) }
+    // nil is the full catalog; a set renders only the user's saved objects.
+    var collectedIDs: Set<Int>? = nil
     var azimuth: Double = 0
     var altitude: Double = 18 * .pi / 180
     var fieldOfView: Double = 72
@@ -37,6 +39,7 @@ struct SkySceneState {
     var starExtinction: Double { min(0.12,renderedExtinction) }
     // Reveal fainter catalogue stars progressively between the default view and full zoom.
     var starLimitingMagnitude: Double {
+        if collectedIDs != nil { return 20 }
         let progress = min(1,max(0,(72-fieldOfView)/(72-35)))
         let eased = progress*progress*(3-2*progress)
         let base = min(4.2,max(3.8,limitingMagnitude))
@@ -66,10 +69,13 @@ struct CatalogStar: Decodable, Identifiable {
     static let sun = CatalogStar(id:-1,ra_deg:0,dec_deg:0,mag:-26.74,bv:0.65,name:"Sun",designation:"Sun",distance_ly:nil,con:nil,collectible_candidate:true)
     static let moon = CatalogStar(id:-2,ra_deg:0,dec_deg:0,mag:-12.7,bv:nil,name:"Moon",designation:"Moon",distance_ly:nil,con:nil,collectible_candidate:true)
     var isMoon: Bool { id == Self.moon.id }
+    // Mean apparent visual magnitudes used only as fallbacks before Astronomy_Illumination
+    // supplies time-specific values. Source: Mallama & Hilton (2018), Astronomy and
+    // Computing 25, 10–24. https://doi.org/10.1016/j.ascom.2018.08.002
     static let planets: [CatalogStar] = [
-        planet(id:-3,name:"Mercury",magnitude:0),planet(id:-4,name:"Venus",magnitude:-4),
-        planet(id:-5,name:"Mars",magnitude:1),planet(id:-6,name:"Jupiter",magnitude:-2),
-        planet(id:-7,name:"Saturn",magnitude:1)
+        planet(id:-3,name:"Mercury",magnitude:0.23),planet(id:-4,name:"Venus",magnitude:-4.14),
+        planet(id:-5,name:"Mars",magnitude:0.71),planet(id:-6,name:"Jupiter",magnitude:-2.20),
+        planet(id:-7,name:"Saturn",magnitude:0.46)
     ]
     static func planet(id: Int,name: String,magnitude: Double) -> CatalogStar {
         CatalogStar(id:id,ra_deg:0,dec_deg:0,mag:magnitude,bv:nil,name:name,designation:name,

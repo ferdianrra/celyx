@@ -11,7 +11,7 @@ import simd
 // Rotations include precession/nutation. Catalogue proper motion is not in this asset pack.
 enum AstronomyService {
     static func snapshot(date: Date, location: ObserverLocation) -> SkySnapshot {
-        var time = Astronomy_TimeFromDays((date.timeIntervalSince1970-946728000)/86400)
+        var time = Astronomy_TimeFromDays((date.timeIntervalSince1970-946728000)/86400) // menggeser waktu di swift ke waktu astronomy enine (berpatokan ke epoch J2000)
         let observer = Astronomy_MakeObserver(location.latitude,location.longitude,max(0,location.elevation))
         let rotation = Astronomy_Rotation_EQJ_HOR(&time,observer)
         func rotate(_ x: Double, _ y: Double, _ z: Double) -> SIMD3<Double> {

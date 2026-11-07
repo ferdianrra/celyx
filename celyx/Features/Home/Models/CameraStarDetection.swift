@@ -13,6 +13,7 @@ struct CameraLightAnnotation: Identifiable {
     let id: Int
     let point: CGPoint
     let size: CGSize
+    var issue: CameraIdentificationIssue = .stabilizing
 }
 struct CameraOpticalTrack {
     let id: Int
@@ -44,6 +45,13 @@ nonisolated struct CameraAnalysisBuffer: @unchecked Sendable {
     let value: CVPixelBuffer
 }
 
+struct CameraSkyPrediction: Identifiable {
+    let direction: SIMD3<Float>
+    let star: CatalogStar
+    let guide: SkyFinderProjection
+    var id: Int { star.id }
+}
+
 struct CameraAimTarget {
     let object: CameraMappedObject
     let detection: CameraStarAnnotation?
@@ -52,7 +60,7 @@ struct CameraAimTarget {
 
 nonisolated enum CameraStarDetector {
     // Compact high-contrast sources only. Extended lights and isolated hot pixels are rejected.
-    static func detect(in image: CVPixelBuffer,zoom: Double = 1) -> [CameraLightPoint] {
+    static func detect(in image: CVPixelBuffer,zoom: Double = 1,focusRegion: CGRect? = nil) -> [CameraLightPoint] {
         let format = CVPixelBufferGetPixelFormatType(image)
         guard format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
               CVPixelBufferIsPlanar(image), CVPixelBufferGetPlaneCount(image) > 0 else { return [] }
@@ -68,63 +76,80 @@ nonisolated enum CameraStarDetector {
         let maxArea = Int(45*min(5,max(1,zoom)))
         let maxDiameter = Int(12*sqrt(max(1,zoom)))
         guard width > margin*2, height > margin*2 else { return [] }
-        // Reject ordinary sensor grain cheaply before doing per-source component analysis.
-        var histogram = [Int](repeating:0,count:256)
-        var samples = 0
-        for y in stride(from:0,to:height,by:16) {
-            for x in stride(from:0,to:width,by:16) { histogram[Int(bytes[y*row+x])] += 1; samples += 1 }
-        }
-        func medianBin(_ bins: [Int]) -> Int {
-            var total = 0
-            for value in 0..<256 { total += bins[value]; if total >= max(1,samples/2) { return value } }
-            return 0
-        }
-        let globalBackground = medianBin(histogram)
-        var noiseHistogram = [Int](repeating:0,count:256)
-        for value in 0..<256 { noiseHistogram[abs(value-globalBackground)] += histogram[value] }
-        let globalNoise = max(0.8,Double(medianBin(noiseHistogram))*1.4826)
-        let minimumPeak = max(10,globalBackground+Int(max(4,globalNoise*3)))
+        // Use local contrast: a bright horizon elsewhere must not hide a faint source.
+        let search = (focusRegion ?? CGRect(x:0,y:0,width:1,height:1))
+            .intersection(CGRect(x:0,y:0,width:1,height:1))
+        guard !search.isNull, !search.isEmpty else { return [] }
+        let minSearchX = max(margin,Int(floor(search.minX*Double(width))))
+        let minSearchY = max(margin,Int(floor(search.minY*Double(height))))
+        let maxSearchX = min(width-margin,Int(ceil(search.maxX*Double(width))))
+        let maxSearchY = min(height-margin,Int(ceil(search.maxY*Double(height))))
         var result: [CameraLightPoint] = []
-        for y in stride(from:margin,to:height-margin,by:3) {
-            for x in stride(from:margin,to:width-margin,by:3) {
+        for y in stride(from:minSearchY,to:maxSearchY,by:3) {
+            for x in stride(from:minSearchX,to:maxSearchX,by:3) {
                 var px = x, py = y, peak = 0
                 for dy in 0..<3 { for dx in 0..<3 {
                     let value = Int(bytes[(y+dy)*row+x+dx])
                     if value > peak { peak = value; px = x+dx; py = y+dy }
                 } }
-                guard peak >= minimumPeak else { continue }
+                guard peak >= 4 else { continue }
+                // Four symmetric samples cancel a smooth illumination gradient cheaply.
+                let coarseBackground = (Double(bytes[(py-ringRadius)*row+px-ringRadius])
+                    + Double(bytes[(py-ringRadius)*row+px+ringRadius])
+                    + Double(bytes[(py+ringRadius)*row+px-ringRadius])
+                    + Double(bytes[(py+ringRadius)*row+px+ringRadius]))/4
+                guard Double(peak)-coarseBackground >= 2.5 else { continue }
                 let normalized = CGPoint(x:Double(px)/Double(width),y:Double(py)/Double(height))
                 guard !result.contains(where:{ hypot(($0.point.x-normalized.x)*Double(width),($0.point.y-normalized.y)*Double(height)) < 10 }) else { continue }
+                let focused = focusRegion?.contains(normalized) ?? false
                 var ring: [Double] = []
                 for dy in [-ringRadius,0,ringRadius] { for dx in [-ringRadius,0,ringRadius] where dx != 0 || dy != 0 {
                     ring.append(Double(bytes[(py+dy)*row+px+dx]))
                 } }
                 let sorted = ring.sorted()
                 let background = (sorted[3]+sorted[4])/2
-                let deviations = ring.map { abs($0-background) }.sorted()
+                // Fit a local background plane so haze/sky gradients aren't mistaken for noise.
+                let slopeX = (-ring[0]+ring[2]-ring[3]+ring[4]-ring[5]+ring[7])/6
+                let slopeY = (-ring[0]-ring[1]-ring[2]+ring[5]+ring[6]+ring[7])/6
+                let offsets: [(Double,Double)] = [(-1,-1),(0,-1),(1,-1),(-1,0),(1,0),(-1,1),(0,1),(1,1)]
+                let deviations = zip(ring,offsets).map { abs($0.0-background-slopeX*$0.1.0-slopeY*$0.1.1) }.sorted()
                 let deviation = max(0.8,(deviations[3]+deviations[4])/2*1.4826)
                 let contrast = Double(peak)-background
-                guard background < 185, contrast > max(4,deviation*4) else { continue }
-                let threshold = background+max(2,max(deviation*2,contrast*0.28))
+                guard background < 185, contrast > max(focused ? 3 : 4,deviation*(focused ? 3 : 4)) else { continue }
+                // A real soft point has spatial support around its peak. Averaging the
+                // signed 3x3 signal rejects grain riding on a broad glow, even in focus mode.
+                var coreSignal = 0.0
+                for dy in -1...1 { for dx in -1...1 {
+                    coreSignal += Double(bytes[(py+dy)*row+px+dx])-background
+                } }
+                guard coreSignal/9 > max(3.5,contrast*0.18) else { continue }
+                let threshold = max(focused ? 1.5 : 2,max(deviation*2,contrast*0.28))
+                func backgroundAt(_ x: Int,_ y: Int) -> Double {
+                    background+slopeX*Double(x-px)/Double(ringRadius)+slopeY*Double(y-py)/Double(ringRadius)
+                }
                 var queue = [(px,py)], visited: Set<Int> = [py*width+px]
                 var cursor = 0, count = 0, sum = 0.0, sx = 0.0, sy = 0.0
                 var minX = px, maxX = px, minY = py, maxY = py
-                while cursor < queue.count && queue.count <= maxArea+10 {
+                let areaLimit = focused ? maxArea*2 : maxArea
+                let diameterLimit = focused ? Int(Double(maxDiameter)*1.5) : maxDiameter
+                while cursor < queue.count && queue.count <= areaLimit+10 {
                     let (cx,cy) = queue[cursor]; cursor += 1
-                    let weight = Double(bytes[cy*row+cx])-background
+                    let weight = Double(bytes[cy*row+cx])-backgroundAt(cx,cy)
                     count += 1; sum += weight; sx += Double(cx)*weight; sy += Double(cy)*weight
                     minX = min(minX,cx); maxX = max(maxX,cx); minY = min(minY,cy); maxY = max(maxY,cy)
                     for dy in -1...1 { for dx in -1...1 where dx != 0 || dy != 0 {
                         let nx = cx+dx, ny = cy+dy
                         guard abs(nx-px) <= radius, abs(ny-py) <= radius else { continue }
                         let key = ny*width+nx
-                        guard !visited.contains(key), Double(bytes[ny*row+nx]) >= threshold else { continue }
+                        guard !visited.contains(key), Double(bytes[ny*row+nx])-backgroundAt(nx,ny) >= threshold else { continue }
                         visited.insert(key); queue.append((nx,ny))
                     } }
                 }
                 let bw = maxX-minX+1, bh = maxY-minY+1
-                guard count >= 2, count <= maxArea, bw < maxDiameter, bh < maxDiameter,
-                      Double(max(bw,bh))/Double(max(1,min(bw,bh))) <= 2.5, sum > 0 else { continue }
+                guard count >= 2, count <= areaLimit, bw < diameterLimit, bh < diameterLimit,
+                      minX > px-radius, maxX < px+radius, minY > py-radius, maxY < py+radius,
+                      Double(max(bw,bh))/Double(max(1,min(bw,bh))) <= 2.5,
+                      sum/(deviation*sqrt(Double(count))) >= (focused ? 5 : 6) else { continue }
                 result.append(CameraLightPoint(point:CGPoint(x:sx/sum/Double(width),y:sy/sum/Double(height)),
                     bounds:CGRect(x:Double(minX)/Double(width),y:Double(minY)/Double(height),width:Double(bw)/Double(width),height:Double(bh)/Double(height)),
                     contrast:Double(peak)-background))

@@ -11,6 +11,7 @@ import simd
 @MainActor @Observable
 final class HomeViewModel {
     var scene = SkySceneState()
+    let cameraAlignment: CameraSkyAlignment
     var mode: LookMode = .touch
     var activeSheet: HomeSheet?
     var query = ""
@@ -18,6 +19,8 @@ final class HomeViewModel {
     var selectedStar: CatalogStar?
     var finderTarget: CatalogStar?
     var showsStarCamera = false
+    var showsVisibleSkyAR = false
+    private var pendingVisibleSkyAR = false
     private(set) var showsGarden = false
     private(set) var gardenProgress: Double = 0
     private(set) var isGardenTransitioning = false
@@ -32,6 +35,7 @@ final class HomeViewModel {
     private(set) var detailVisualProgress: Double = 0
     private(set) var isCameraTransitioning = false
     var isInspectingStar: Bool { returnCameraPose != nil }
+    var visibilityFilters = VisibilityFilters() { didSet { refreshVisibleObjects() } }
     var quality: SkyQuality = .city { didSet { refreshSky() } }
     var onlineConditions = false {
         didSet {
@@ -51,7 +55,9 @@ final class HomeViewModel {
     private(set) var snapshot: SkySnapshot?
     private(set) var atmosphere = Atmosphere()
     private(set) var isLoadingAtmosphere = false
-    private(set) var collected: [Int:CollectedStar] = [:]
+    private(set) var collected: [Int:CollectedStar] = [:] {
+        didSet { scene.collectedIDs = Set(collected.keys) }
+    }
     private(set) var clock = Date()
     private(set) var motionStatus = "Touch"
     private(set) var isMotionCalibrating = false
@@ -69,6 +75,7 @@ final class HomeViewModel {
     private var zoomOrigin: Double?
 
     init(location: ObserverLocation? = nil, date: Date? = nil, defaults: UserDefaults = .standard) {
+        cameraAlignment = CameraSkyAlignment(defaults:defaults)
         self.defaults = defaults; fixedDate = date ?? (ProcessInfo.processInfo.arguments.contains("-ui-testing") ? Date(timeIntervalSince1970:1793633400 - (ProcessInfo.processInfo.arguments.contains("-ui-testing-daytime") ? 10*3600 : 0)) : nil)
         self.location = location
         onlineConditions = defaults.bool(forKey:"onlineConditions")
@@ -76,6 +83,10 @@ final class HomeViewModel {
         if let data = defaults.data(forKey:"collectedStars"), let values = try? JSONDecoder().decode([CollectedStar].self,from:data) {
             collected = Dictionary(values.map { ($0.id,$0) },uniquingKeysWith: { first,_ in first })
         }
+        scene.collectedIDs = Set(collected.keys)
+        scene.showsMilkyWay = false
+        scene.showsConstellations = false
+        scene.showsConstellationFigures = false
         do {
             stars = try SkyAssets.stars()
             constellationFigures = try ConstellationFigure.load()
@@ -118,6 +129,19 @@ final class HomeViewModel {
     }
     var results: [CatalogStar] { ([CatalogStar.sun,CatalogStar.moon]+(snapshot?.planets.map(\.star) ?? CatalogStar.planets)+stars).filter { $0.hasCommonName && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || ($0.isSun && "Sun".localizedCaseInsensitiveContains(query))) } }
     var nearby: [StarObservation] { (observations + planetObservations + [sunObservation,moonObservation].compactMap { $0 }).filter { $0.altitude > 0 }.sorted { $0.star.mag < $1.star.mag } }
+    // Cached with the sky snapshot so gyro/UI updates don't sort the catalog every frame.
+    private(set) var predictedVisibleObjects: [StarObservation] = []
+    private func refreshVisibleObjects() {
+        guard let snapshot else { predictedVisibleObjects = []; return }
+        predictedVisibleObjects = VisibilityEstimator.visibleObjects(stars:stars,sky:snapshot,quality:quality,atmosphere:atmosphere,filters:visibilityFilters)
+    }
+
+    var visibleObjectsEmptyMessage: String {
+        guard location != nil else { return "Turn on location to see which stars might be visible around you." }
+        if visibilityFilters.daylight && (snapshot?.sunAltitude ?? 0) >= -6 { return "It’s still too bright for this list. Check again after dark." }
+        if visibilityFilters.clouds && (atmosphere.cloudCover ?? 0) >= 75 { return "The cloud forecast doesn’t suggest a clear view right now. If you spot a star anyway, you can still collect it." }
+        return "No stars or planets match your current conditions. Nearby lights, moonlight and stars low on the horizon can make the list shorter."
+    }
     var namedObservations: [StarObservation] { observations.filter { $0.star.hasCommonName && $0.altitude > 0 } }
     // Map visibility is independent of naked-eye observing conditions.
     var displayedObservations: [StarObservation] {
@@ -159,7 +183,7 @@ final class HomeViewModel {
 
     func refreshSky() {
         clock = fixedDate ?? Date()
-        guard let location else { scene.hasLocation = false; observations = []; return }
+        guard let location else { scene.hasLocation = false; observations = []; predictedVisibleObjects = []; return }
         let sky = AstronomyService.snapshot(date:clock,location:location)
         snapshot = sky
         let moonAlt = asin(sky.moonDirection.z)*180 / .pi
@@ -167,6 +191,7 @@ final class HomeViewModel {
         observations = stars.map {
             VisibilityEstimator.observation(star:$0,direction:sky.direction(ra:$0.ra_deg,dec:$0.dec_deg),limit:limit,sunAltitude:sky.sunAltitude,atmosphere:atmosphere)
         }
+        refreshVisibleObjects()
         scene.equatorialX = sky.basis.columns.0; scene.equatorialY = sky.basis.columns.1; scene.equatorialZ = sky.basis.columns.2
         scene.sunDirection = sky.sunDirection; scene.moonDirection = sky.moonDirection
         scene.moonIllumination = sky.moonIllumination; scene.hasLocation = true
@@ -197,6 +222,11 @@ final class HomeViewModel {
         locationStatus = "Custom coordinates"; atmosphere = Atmosphere()
         refreshSky(); refreshAtmosphere(force:true)
         if mode == .motion { restartMotion() }
+    }
+    func openVisibleSkyAR() {
+        guard location != nil, !predictedVisibleObjects.isEmpty else { return }
+        pendingVisibleSkyAR = true
+        activeSheet = nil
     }
     func openStarCamera() {
         guard !showsGarden, !isCameraTransitioning, activeSheet == nil, finderTarget == nil else { return }
@@ -254,7 +284,10 @@ final class HomeViewModel {
         activeSheet = nil
     }
     func handleSheetDismissal() {
-        if pendingCollectionCamera {
+        if pendingVisibleSkyAR {
+            pendingVisibleSkyAR = false
+            suspend(); showsVisibleSkyAR = true
+        } else if pendingCollectionCamera {
             pendingCollectionCamera = false
             cameraFlight.cancel()
             if let pose = returnCameraPose { applyCameraPose(pose) }
@@ -416,7 +449,7 @@ final class HomeViewModel {
         }
     }
     func resume() {
-        guard !showsStarCamera, !showsGarden, finderTarget == nil, !isRunning else { return }; isRunning = true
+        guard !showsStarCamera, !showsVisibleSkyAR, !showsGarden, finderTarget == nil, !isRunning else { return }; isRunning = true
         refreshSky()
         let isPreview = ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
         let isTest = ProcessInfo.processInfo.arguments.contains("-ui-testing")

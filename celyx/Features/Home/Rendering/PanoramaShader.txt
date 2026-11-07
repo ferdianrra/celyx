@@ -17,7 +17,6 @@ struct Uniforms {
     float4 forward;
     float4 right;
     float4 up;
-    float4 boatRotation; // cos pitch, sin pitch, cos roll, sin roll
     float4 conditions; // limiting magnitude, extinction, cloud cover, location ready
     float4 sun;
     float4 moon;
@@ -86,7 +85,7 @@ fragment float4 panoramaFragment(VertexOut in [[stage_in]], constant Uniforms &u
     float sunAngle = atan2(length(cross(d,u.sun.xyz)),clamp(dot(d,u.sun.xyz),-1.0f,1.0f));
     float solarRadius = .266f*M_PI_F/180;
     float pixelAngle = max(fwidth(sunAngle),.00001f);
-    if(u.conditions.w > .5 && sunAltitude > -.833f && d.z >= 0) {
+    if(u.starVisibility.w > .5 && u.conditions.w > .5 && sunAltitude > -.833f && d.z >= 0) {
         float disc = 1-smoothstep(solarRadius-pixelAngle,solarRadius+pixelAngle,sunAngle);
         float highSun = mix(smoothstep(0.0f,18.0f,sunAltitude),1.0f,space);
         float3 sunlight = mix(float3(1.0,.30,.055),float3(1.0,.97,.84),highSun);
@@ -144,25 +143,17 @@ fragment float4 starFragment(StarOut in [[stage_in]], float2 point [[point_coord
     return float4(in.color.rgb*(core+halo)*in.color.a,0);
 }
 
-// Foreground is composited after stars, so islands, sea and boat occlude them.
+// The sea is composited after stars to occlude objects below the horizon.
 // Input textures use premultiplied RGBA8; preserve that convention throughout.
 float4 over(float4 base, float4 layer) { return layer+base*(1-layer.a); }
 fragment float4 foregroundFragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
-    texture2d<float> islands [[texture(3)]], texture2d<float> sea [[texture(4)]],
-    texture2d<float> boat [[texture(5)]], texture2d<float> dayBoat [[texture(6)]]) {
+    texture2d<float> sea [[texture(3)]]) {
     float3 d = viewRay(in.uv*u.viewport.xy,u);
     float2 uv = environmentUV(d);
     // Calculate derivatives before divergent visibility branches. Implicit LOD
     // inside them produces small stripes at the sea/island horizon on GPU quads.
     gradient2d environmentGradient = wrappedGradient(uv);
     float4 col = float4(0);
-    if(d.z < .18 && d.z > -.02) {
-        // The source RGB contains vertical bands. Use its coastline mask only;
-        // fill the land with a continuous tint instead of amplifying those bands in daylight.
-        float mask = smoothstep(0.0f,.25f,islands.sample(panoramaSampler,uv,environmentGradient).a);
-        float3 land = mix(float3(.018,.028,.045),float3(.025,.038,.055),smoothstep(0.0f,.12f,d.z));
-        col = float4(land*mask,mask);
-    }
     if(d.z < .003) col = over(col,sea.sample(panoramaSampler,uv,environmentGradient));
     float4 rot = u.boatRotation;
     float3 b = float3(d.x,d.y*rot.x-d.z*rot.y,d.y*rot.y+d.z*rot.x);
@@ -171,9 +162,5 @@ fragment float4 foregroundFragment(VertexOut in [[stage_in]], constant Uniforms 
     gradient2d boatGradient = wrappedGradient(boatUV);
     float day = smoothstep(-18.0f,3.0f,asin(clamp(u.sun.z,-1.0f,1.0f))*180/M_PI_F);
     col.rgb = mix(col.rgb,min(col.rgb*3+float3(.08,.16,.21)*col.a,float3(1)),day);
-    if(b.z < .02) {
-        float4 boatColor = mix(boat.sample(panoramaSampler,boatUV,boatGradient),dayBoat.sample(panoramaSampler,boatUV,boatGradient),day);
-        col = over(col,boatColor);
-    }
     return col*(1-u.starVisibility.y);
 }

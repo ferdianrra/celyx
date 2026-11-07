@@ -76,7 +76,6 @@ private struct PanoramaUniforms {
     var forward: SIMD4<Float>
     var right: SIMD4<Float>
     var up: SIMD4<Float>
-    var boatRotation: SIMD4<Float>
     var conditions: SIMD4<Float>
     var sun: SIMD4<Float>
     var moon: SIMD4<Float>
@@ -160,13 +159,11 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
         else { throw CocoaError(.coderInvalidValue) }
         starBuffer = buffer
         starCount = stars.count
+        catalogGPU = zip(catalogue.map(\.id),stars).map { ($0.0,$0.1) }
         textures = try [load("sky-gradient-360", "jpg", width: 1024),
                         load("milky-way-radec-4096", "jpg", width: 4096),
                         loader.newTexture(cgImage: Self.constellationImage(stars: catalogue), options: options),
-                        load("islands-360", "png", width: 2048),
-                        load("sea-360", "png", width: 4096),
-                        load("boat-360-night", "png", width: 2048),
-                        load("boat-360", "png", width: 2048)]
+                        load("sea-360", "png", width: 4096)]
         textureByteCount = textures.reduce(0) { $0+$1.allocatedSize }
         super.init()
     }
@@ -205,7 +202,18 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+    private func updateCollectionBuffer() {
+        guard !appliedCollectionFilter || appliedIDs != scene.collectedIDs else { return }
+        let values = catalogGPU.filter { scene.collectedIDs?.contains($0.0) ?? true }.map(\.1)
+        if !values.isEmpty {
+            guard let buffer = queue.device.makeBuffer(bytes:values,length:values.count*MemoryLayout<GPUStar>.stride,options:.storageModeShared) else { return }
+            starBuffer = buffer
+        }
+        starCount = values.count
+        appliedIDs = scene.collectedIDs; appliedCollectionFilter = true
+    }
     func draw(in view: MTKView) {
+        updateCollectionBuffer()
         guard inFlight.wait(timeout: .now()) == .success else { return }
         guard let drawable = view.currentDrawable, let pass = view.currentRenderPassDescriptor,
               let command = queue.makeCommandBuffer(), let encoder = command.makeRenderCommandEncoder(descriptor: pass) else {
@@ -216,19 +224,17 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
         let right = SIMD3(cos(az),-sin(az),Float(0))
         let up = simd_cross(right,forward)
         let t = Float(CACurrentMediaTime()-start)
-        let roll: Float = scene.reduceMotion ? 0 : 0.7*(1.6*sin(2 * .pi*t/8)+0.5*sin(2 * .pi*t/3.7+1.3)) * .pi/180
-        let pitch: Float = scene.reduceMotion ? 0 : 0.7*(0.7*sin(2 * .pi*t/6.3+0.6)+0.25*sin(2 * .pi*t/2.9)) * .pi/180
         let focal = Float(CameraProjection.focalLength(width: view.drawableSize.width, height: view.drawableSize.height, fieldOfView: scene.fieldOfView))
         func vector(_ p: SIMD3<Float>) -> SIMD4<Float> { SIMD4(p.x,p.y,p.z,0) }
         func doubleVector(_ p: SIMD3<Double>, w: Double = 0) -> SIMD4<Float> { SIMD4(Float(p.x),Float(p.y),Float(p.z),Float(w)) }
         var uniforms = PanoramaUniforms(camera: SIMD4(az,alt,Float(scene.fieldOfView),t),
             viewport: SIMD4(Float(view.drawableSize.width),Float(view.drawableSize.height),focal,Float(view.drawableSize.width/max(view.bounds.width,1))),
-            layers: SIMD4(scene.showsMilkyWay ? 1:0,scene.showsStars ? 1:0,scene.showsGrid ? 1:0,scene.showsConstellations ? 1:0),
+            layers: SIMD4(scene.showsMilkyWay && scene.collectedIDs == nil ? 1:0,scene.showsStars ? 1:0,scene.showsGrid ? 1:0,scene.showsConstellations && scene.collectedIDs == nil ? 1:0),
             eqX: doubleVector(scene.equatorialX),eqY: doubleVector(scene.equatorialY),eqZ: doubleVector(scene.equatorialZ),
-            forward: vector(forward),right: vector(right),up: vector(up),boatRotation: SIMD4(cos(pitch),sin(pitch),cos(roll),sin(roll)),
+            forward: vector(forward),right: vector(right),up: vector(up),
             conditions: SIMD4(Float(scene.limitingMagnitude),Float(scene.renderedExtinction),Float(scene.renderedCloudCover),scene.hasLocation ? 1:0),
             sun: doubleVector(scene.sunDirection),moon: doubleVector(scene.moonDirection,w:scene.moonIllumination),
-            starVisibility: SIMD4(Float(scene.starLimitingMagnitude),Float(scene.spaceBlend),Float(scene.starExtinction),0))
+            starVisibility: SIMD4(Float(scene.starLimitingMagnitude),Float(scene.spaceBlend),Float(scene.starExtinction),(scene.collectedIDs?.contains(CatalogStar.sun.id) ?? true) ? 1:0))
         encoder.setVertexBytes(&uniforms,length: MemoryLayout<PanoramaUniforms>.stride,index: 0)
         encoder.setFragmentBytes(&uniforms,length: MemoryLayout<PanoramaUniforms>.stride,index: 0)
         for (index,texture) in textures.enumerated() { encoder.setFragmentTexture(texture,index: index) }
