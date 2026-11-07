@@ -8,7 +8,6 @@ struct SkyCalendarView: View {
     @State private var month = Calendar.current.dateInterval(of:.month,for:Date())?.start ?? Date()
     @State private var selectedDay: Date?
     @State private var filters: Set<SkyEvent.Kind> = []
-    @Environment(\.dismiss) private var dismiss
     private let calendar = Calendar.current
 
     private var upcoming: [SkyEvent] {
@@ -20,7 +19,6 @@ struct SkyCalendarView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment:.leading,spacing:0) {
-                    navigationBar
                     VStack(alignment:.leading,spacing:12) {
                         monthHeader
                         monthGrid(proxy:proxy)
@@ -45,19 +43,10 @@ struct SkyCalendarView: View {
             .scrollIndicators(.hidden)
         }
         .background(CelyxScreenWash())
-        .toolbar(.hidden,for:.navigationBar)
+        .navigationTitle("Sky Calendar")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible,for:.navigationBar)
         .preferredColorScheme(.dark)
-    }
-
-    private var navigationBar: some View {
-        HStack {
-            CelyxBackButton { dismiss() }
-            Spacer()
-            Text("Sky Calender").font(.system(size:20)).tracking(-0.45).foregroundStyle(.white)
-            Spacer()
-            Color.clear.frame(width:48,height:48)
-        }
-        .padding(.horizontal,20).padding(.vertical,12)
     }
 
     private var monthHeader: some View {

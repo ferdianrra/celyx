@@ -5,44 +5,36 @@ struct SkyEventDetailView: View {
     let event: SkyEvent
     let store: SkyEventStore
     let onCollect: () -> Void
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         TimelineView(.everyMinute) { context in
             ScrollView {
-                VStack(spacing:0) {
-                    navigationBar
-                    VStack(spacing:12) {
-                        header
-                        infoRow(symbol:"calendar",label:"Date",value:event.detailDate)
-                        infoRow(symbol:"eye",label:"Best Viewing",value:event.viewingTime)
-                        infoRow(symbol:"safari",label:"Direction",value:event.direction)
-                        aboutBox
-                        tipsBox
-                        actionButton(isOpen:event.isOpen(at:context.date))
-                    }
-                    .padding(.horizontal,20).padding(.top,10).padding(.bottom,49)
+                VStack(spacing:12) {
+                    header
+                    infoRow(symbol:"calendar",label:"Date",value:event.detailDate)
+                    infoRow(symbol:"eye",label:"Best Viewing",value:event.viewingTime)
+                    infoRow(symbol:"safari",label:"Direction",value:event.direction)
+                    aboutBox
+                    tipsBox
+                    actionButton(isOpen:event.isOpen(at:context.date))
                 }
+                .padding(.horizontal,20).padding(.top,10).padding(.bottom,49)
             }
             .scrollIndicators(.hidden)
         }
         .background(CelyxScreenWash())
-        .toolbar(.hidden,for:.navigationBar)
-        .preferredColorScheme(.dark)
-    }
-
-    private var navigationBar: some View {
-        HStack {
-            CelyxBackButton { dismiss() }
-            Spacer()
-            Text("Events").font(.system(size:20)).tracking(-0.45).foregroundStyle(.white)
-            Spacer()
-            CelyxGlassButton(action:{ store.toggleReminder(event) }) {
-                Image(systemName:store.reminders.contains(event.id) ? "bell.fill" : "bell").font(.system(size:20)).foregroundStyle(.white)
+        .navigationTitle("Events")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible,for:.navigationBar)
+        .toolbar {
+            ToolbarItem(placement:.topBarTrailing) {
+                Button(store.reminders.contains(event.id) ? "Turn off reminder" : "Remind me",
+                       systemImage:store.reminders.contains(event.id) ? "bell.fill" : "bell") {
+                    store.toggleReminder(event)
+                }
             }
-            .accessibilityLabel(store.reminders.contains(event.id) ? "Turn off reminder" : "Remind me")
         }
-        .padding(.horizontal,20).padding(.vertical,12)
+        .preferredColorScheme(.dark)
     }
 
     private var header: some View {
@@ -126,5 +118,7 @@ struct SkyEventDetailView: View {
 }
 
 #Preview("Not open yet") {
-    SkyEventDetailView(event:SkyEvent.catalogue[0],store:SkyEventStore()) {}
+    NavigationStack {
+        SkyEventDetailView(event:SkyEvent.catalogue[0],store:SkyEventStore()) {}
+    }
 }
