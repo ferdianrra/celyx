@@ -213,7 +213,9 @@ struct StarCollectCameraView: View {
 
     /// Figma "Crosshair" component (node 922:1567) with its own motion, sound and haptics.
     private var reticle: some View {
-        CrosshairView(state:crosshairState,label:(shownTarget ?? (isLocking ? centerTarget : nil))?.star.title ?? "")
+        // During the wormhole the handover owns the audio and haptics: the crosshair stays silent.
+        CrosshairView(state:crosshairState,label:(shownTarget ?? (isLocking ? centerTarget : nil))?.star.title ?? "",
+                      soundEnabled:handover == nil,hapticsEnabled:handover == nil)
         #if DEBUG
             // Debug: long-press the crosshair to replay the wormhole indoors (fake success at the centre).
             .contentShape(Rectangle())
@@ -392,9 +394,8 @@ struct StarCollectCameraView: View {
         let id = demo?.item.id ?? itemID
         let handover = WormholeHandover(freeze:freeze,star:point,itemID:id,
                                         scene:GardenSkyView.wormholeScene(model:model,newID:id,demo:demo),demo:demo)
-        // The crosshair fades out; keep its own state-change sounds out of the score.
-        CrosshairFeedback.shared.suppress(.back,for:1.2)
-        CrosshairFeedback.shared.suppress(.release,for:1.2)
+        // The wormhole owns the audio from success onward: silence every crosshair cue already scheduled.
+        for sound in CrosshairSound.allCases { CrosshairFeedback.shared.suppress(sound,for:4) }
         WormholeFeedback.shared.play(landing:handover.landing)
         onCollect(.wormhole(handover))
     }

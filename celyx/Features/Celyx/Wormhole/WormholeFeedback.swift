@@ -9,7 +9,9 @@ import UIKit
 final class WormholeFeedback {
     static let shared = WormholeFeedback()
 
-    enum Cue: String, CaseIterable { case ping, bend, pop, swell, boom }
+    enum Cue: String, CaseIterable { case ping, bend, pop, swell, boom, sheet }
+    /// The swell's hard stop sits this far into its file (a reverb tail follows); it must land on T_LAND.
+    static let swellCut = 0.476
 
     var volume: Float = 0.9
     private var players: [Cue: AVAudioPlayer] = [:]
@@ -72,15 +74,11 @@ final class WormholeFeedback {
             player.play(atTime:now+max(0,t))
         }
         start(.ping,at:0)
-        start(.bend,at:0.12)
+        start(.bend,at:0.12)            // fades itself out at T_LAND (iPhone 15 timing)
         start(.pop,at:0.82)
-        // The reverse whoosh must END exactly on the landing.
-        start(.swell,at:TL-(players[.swell]?.duration ?? 0.48))
+        start(.swell,at:TL-Self.swellCut)   // its hard stop lands exactly on T_LAND
         start(.boom,at:TL)
-        // The bend drone is cut by the boom.
-        DispatchQueue.main.asyncAfter(deadline:.now()+max(0,TL-0.04)) { [weak self] in
-            self?.players[.bend]?.setVolume(0,fadeDuration:0.08)
-        }
+        start(.sheet,at:TL+(WormholeTimeline.crossDelay+WormholeTimeline.sheetDelay)/1000)
     }
 
     // MARK: Haptics
