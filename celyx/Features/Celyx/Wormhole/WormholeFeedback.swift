@@ -23,9 +23,16 @@ final class WormholeFeedback {
         guard !prepared else { return }
         prepared = true
         CrosshairFeedback.shared.prepare()   // shares its .ambient audio session
+        // Same app-wide session as the crosshair (.ambient: follows the Silent switch on purpose); make sure it's active.
+        try? AVAudioSession.sharedInstance().setActive(true)
         for cue in Cue.allCases {
             guard let url = Bundle.main.url(forResource:"wormhole_\(cue.rawValue)",withExtension:"wav"),
-                  let player = try? AVAudioPlayer(contentsOf:url) else { continue }
+                  let player = try? AVAudioPlayer(contentsOf:url) else {
+                #if DEBUG
+                print("[Wormhole] missing or unreadable sound: wormhole_\(cue.rawValue).wav")
+                #endif
+                continue
+            }
             player.prepareToPlay()
             players[cue] = player
         }
