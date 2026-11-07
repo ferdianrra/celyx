@@ -43,6 +43,7 @@ struct FilteredSkyARView: View {
             CelyxColor.night.ignoresSafeArea()
             if service.isCameraRunning {
                 SkyCameraPreview(session:service.session,onViewport:service.updateViewport,
+                    onExposureDrag:{ translation,_,ended in service.dragExposure(translation:translation,ended:ended) },
                     skyMarkers:markers,labeledMarkerIDs:labels,selectedMarkerID:selectedID,
                     onSelectMarker:{ selectedID = $0 },zoom:service.cameraZoom)
                     .ignoresSafeArea()
@@ -65,6 +66,15 @@ struct FilteredSkyARView: View {
                 Spacer()
             }
             statusPanel.padding(.horizontal,6).padding(.bottom,6)
+        }
+        .overlay(alignment:.trailing) {
+            if service.exposureControlVisible {
+                CameraExposureControl(minimum:service.minimumExposure,maximum:service.maximumExposure,
+                    value:Binding(get:{ service.exposureBias },set:{ service.setExposure($0) }),
+                    message:service.cameraControlMessage,onReset:{ service.setExposure(0) },
+                    onEditingChanged:service.setExposureEditing)
+                    .padding(.trailing,12).transition(.opacity)
+            }
         }
         .foregroundStyle(CelyxColor.primaryLabel).preferredColorScheme(.dark)
         .task { await start() }

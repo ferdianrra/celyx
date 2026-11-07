@@ -9,6 +9,59 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testAlbumShowsCityAndSavesStoryPNGToPhotos() throws {
+        continueAfterFailure = false
+        let permissions = addUIInterruptionMonitor(withDescription:"Allow adding album photos") { alert in
+            let allow = alert.buttons.matching(identifier:"Allow").firstMatch
+            guard allow.exists else { return false }
+            allow.tap(); return true
+        }
+        defer { removeUIInterruptionMonitor(permissions) }
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing","-ui-testing-album"]
+        app.launch()
+        let export = app.buttons["export-star-story"]
+        XCTAssertTrue(export.waitForExistence(timeout:20))
+        XCTAssertTrue(app.staticTexts["Jakarta Pusat, Jakarta"].exists)
+        let album = XCTAttachment(screenshot:app.screenshot())
+        album.name = "Star album — framed photo and native toolbar"; album.lifetime = .keepAlways; add(album)
+        export.tap()
+        let save = app.buttons["save-story-png"]
+        XCTAssertTrue(save.waitForExistence(timeout:10))
+        let story = XCTAttachment(screenshot:app.screenshot())
+        story.name = "Story template — PNG preview"; story.lifetime = .keepAlways; add(story)
+        save.tap()
+        let allow = XCUIApplication(bundleIdentifier:"com.apple.springboard").buttons.matching(identifier:"kTCCServicePhotosAdd-allow-button").firstMatch
+        if allow.waitForExistence(timeout:5) { allow.tap() }
+        else if !app.alerts["Saved to Photos"].exists { app.tap() }
+        XCTAssertTrue(app.alerts["Saved to Photos"].waitForExistence(timeout:20))
+    }
+    @MainActor
+    func testCameraExposureIsHiddenAtRestInCollectAndFilteredAR() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+        let collect = app.buttons["start-collecting"]
+        XCTAssertTrue(collect.waitForExistence(timeout:30))
+        collect.tap()
+        XCTAssertTrue(app.buttons["Calibrate direction"].waitForExistence(timeout:10))
+        let brightness = app.descendants(matching:.any)["camera-brightness-control"]
+        XCTAssertFalse(brightness.exists)
+        XCTAssertFalse(app.buttons["Brightness"].exists)
+        let screenshot = XCTAttachment(screenshot:app.screenshot())
+        screenshot.name = "Collect camera — exposure hidden at rest"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["open-filtered-stars"].tap()
+        app.buttons["View filtered stars in AR"].tap()
+        XCTAssertTrue(app.staticTexts["Filtered Stars AR"].waitForExistence(timeout:10))
+        XCTAssertFalse(brightness.exists)
+        XCTAssertFalse(app.buttons["Brightness"].exists)
+    }
+
+    @MainActor
     func testFilteredStarsCanBeOpenedFromHome() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

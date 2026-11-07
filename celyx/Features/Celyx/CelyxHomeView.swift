@@ -136,6 +136,7 @@ struct CelyxHomeView: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("start-collecting")
             CelyxGlassButton(action:{ path.append(.calendar) }) {
                 Image(systemName:"calendar").font(.system(size:24,weight:.medium)).foregroundStyle(.white)
             }
