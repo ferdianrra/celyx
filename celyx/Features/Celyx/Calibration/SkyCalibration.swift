@@ -24,6 +24,7 @@ nonisolated enum SkyCalibration {
     static var isCalibrated: Bool { date != nil }
 
     static func save(arOffset: Double,motionOffset: Double?,target: String) {
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
         setAR(arOffset)
         if let motionOffset {
             motionHeadingOffset = motionOffset
@@ -34,6 +35,7 @@ nonisolated enum SkyCalibration {
         UserDefaults.standard.set(target,forKey:targetKey)
     }
     static func reset() {
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
         setAR(0)
         motionHeadingOffset = 0
         for key in [arKey,motionKey,dateKey,targetKey] { UserDefaults.standard.removeObject(forKey:key) }

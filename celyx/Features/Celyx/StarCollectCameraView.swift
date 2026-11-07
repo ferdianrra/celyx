@@ -29,6 +29,7 @@ struct StarCollectCameraView: View {
     @State private var zoomStart: Double?
     @State private var verification: Verification = .idle
     @State private var showsCalibration = false
+    @State private var showsFilteredStars = false
     /// True while something sits in the circle and we're locking on to it.
     @State private var isLocking = false
     @Environment(\.scenePhase) private var phase
@@ -42,7 +43,7 @@ struct StarCollectCameraView: View {
     init(model: HomeViewModel, onClose: @escaping () -> Void) {
         self.model = model
         self.onClose = onClose
-        _service = State(initialValue:SkyFinderService(location:model.location,catalogue:model.stars))
+        _service = State(initialValue:SkyFinderService(location:model.location,catalogue:model.stars,alignment:model.cameraAlignment))
     }
 
     private var center: CGPoint { CGPoint(x:viewSize.width/2,y:viewSize.height/2) }
@@ -111,6 +112,10 @@ struct StarCollectCameraView: View {
                 HStack {
                     CelyxBackButton { service.stop(); onClose() }
                     Spacer()
+                    CelyxGlassButton(width:148,action:{ service.stop(); showsFilteredStars = true }) {
+                        Label("Filtered Stars",systemImage:"list.star")
+                            .font(.system(size:14,weight:.semibold)).foregroundStyle(CelyxColor.primaryLabel)
+                    }
                     CelyxGlassButton(action:{ service.stop(); showsCalibration = true }) {
                         Image(systemName:"scope").font(.system(size:20)).foregroundStyle(.white)
                     }
@@ -138,7 +143,7 @@ struct StarCollectCameraView: View {
         }
         .onDisappear { service.stop() }
         .onChange(of:phase) { _, value in
-            if value == .active { Task { await service.start() } } else { service.stop() }
+            if value == .active, !showsCalibration, !showsFilteredStars { Task { await service.start() } } else { service.stop() }
         }
         .onChange(of:centerTarget?.detection != nil) { _, _ in
             if let target = centerTarget, target.id == settledID { lastShown = target }
@@ -161,7 +166,10 @@ struct StarCollectCameraView: View {
             lastShown = target
         }
         .fullScreenCover(isPresented:$showsCalibration,onDismiss:{ Task { await service.start() } }) {
-            SkyCalibrationView(catalogue:model.stars) { showsCalibration = false }
+            SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
+        }
+        .fullScreenCover(isPresented:$showsFilteredStars,onDismiss:{ Task { await service.start() } }) {
+            FilteredStarsView(model:model)
         }
         .alert("Couldn’t collect that",isPresented:Binding(get:{ errorMessage != nil },set:{ if !$0 { errorMessage = nil } })) {
             Button("Try Again",role:.cancel) {}
@@ -420,4 +428,14 @@ enum ConstellationNames {
         return entries.compactMapValues { $0.name ?? $0.english }
     }()
     static func name(for code: String) -> String? { names[code] }
+}
+
+#Preview("Collect stars") {
+    StarCollectCameraView(model:AppPreviewData.model,onClose:{})
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Camera hint") {
+    CelyxHintPill(text:"Hold steady while we compare the stars").padding().background(.black)
+        .preferredColorScheme(.dark)
 }

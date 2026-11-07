@@ -164,3 +164,43 @@ extension View {
         .preferredColorScheme(.dark)
     }
 }
+
+#Preview("Blue panel") {
+    CelyxBluePanel(cornerRadius:34).frame(height:240).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Info box") {
+    CelyxInfoBox().frame(height:120).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Glass button") {
+    CelyxGlassButton(action:{}) { Image(systemName:"scope").foregroundStyle(.white) }.padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Pill buttons") {
+    VStack { CelyxPillButton(title:"Continue",style:.primary) {}; CelyxPillButton(title:"Collected",style:.collected) {}; CelyxPillButton(title:"Waiting",style:.disabled) {} }.padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Grabber") {
+    CelyxGrabber().padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Close button") {
+    CelyxCloseButton {}.padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Back button") {
+    CelyxBackButton {}.padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Screen wash") {
+    CelyxScreenWash()
+        .preferredColorScheme(.dark)
+}

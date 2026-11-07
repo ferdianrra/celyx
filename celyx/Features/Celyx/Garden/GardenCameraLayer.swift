@@ -87,6 +87,7 @@ struct GardenCameraLayer: View {
     // MARK: Session
 
     private func start() async {
+        guard !AppPreviewData.isRunning else { return }
         let granted: Bool
         switch AVCaptureDevice.authorizationStatus(for:.video) {
         case .authorized: granted = true
@@ -154,4 +155,9 @@ struct GardenCameraLayer: View {
             context.stroke(Path(ellipseIn:CGRect(x:p.x-ring,y:p.y-ring,width:ring*2,height:ring*2)),with:.color(.white.opacity(0.9)),lineWidth:1.5)
         }
     }
+}
+
+#Preview("Garden camera") {
+    GardenCameraLayer(placed:[],selectedID:nil,isActive:false,onSelect:{ _ in })
+        .preferredColorScheme(.dark)
 }
