@@ -57,6 +57,15 @@ fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_
     float2 v = pc * 2 - 1;
     float r = length(v);
     if (r > 1) discard_fragment();
+    // Celyx background star (kind 4 + alpha): a tiny, dim, desaturated dot. No glow, no spikes, no ring,
+    // so it never reads like one of the stars the user collected.
+    if (in.kind >= 4.0 && in.kind < 5.0) {
+        float alpha = in.kind - 4.0;
+        float twinkle = 0.94 + 0.06 * sin(u.res.w * 1.7 + in.color.g * 57.0 + in.color.b * 31.0);
+        float a = (1.0 - smoothstep(0.35, 1.0, r)) * alpha * twinkle;
+        float3 c = mix(in.color.rgb, float3(dot(in.color.rgb, float3(.299, .587, .114))), 0.35);
+        return float4(c * a, a);
+    }
     float kind = fmod(in.kind, 10.0);
     bool selected = in.kind >= 10;
     bool disc = kind > 1.5;                          // Moon / Sun: a real disc with a halo
@@ -67,6 +76,10 @@ fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_
     float spikes = kind < 0.5 ? (exp(-abs(v.x) * 70.0) + exp(-abs(v.y) * 70.0)) * (1 - r) * 0.35 : 0.0;
     float twinkle = kind < 0.5 ? 0.9 + 0.1 * sin(u.res.w * 3.4 + in.color.r * 40.0) : 1.0;
     float ring = selected ? smoothstep(0.03, 0.0, abs(r - 0.92)) * 0.9 : 0.0;
+    // Celyx: collected stars and planets breathe slowly and carry a faint ring, so they read as "yours".
+    float breathe = disc ? 1.0 : 0.92 + 0.08 * sin(u.res.w * 1.1 + in.color.g * 23.0);
+    glow *= breathe;
+    if (!disc && !selected) ring += smoothstep(0.035, 0.0, abs(r - 0.62)) * 0.16;
     float3 coreColor = mix(in.color.rgb, float3(1), disc ? 0.35 : 0.6);
     float3 c = (in.color.rgb * (glow + spikes) * twinkle + coreColor * core) + float3(ring);
     float a = clamp(core + (glow + spikes) * twinkle + ring, 0.0, 1.0);
@@ -84,7 +97,8 @@ vertex VOut seaVertex(uint vid [[vertex_id]]) {
 float glslMod(float x, float y) { return x - y * floor(x / y); }
 
 // Milky Way map in RA/Dec (u = RA/360, v = (90 - Dec)/180), gamma-encoded like the kit.
-// Kept subtle and slightly desaturated so the collected lights stay the brightest things in the sky.
+// Kept soft and only lightly desaturated (the kit's gold core, dust lanes and pink nebulae show), so the
+// collected lights stay the brightest things in the sky.
 float3 mwCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     constexpr sampler mws(filter::linear, mip_filter::linear, s_address::repeat, t_address::clamp_to_edge);
     float3 e = float3(dot(u.E0.xyz, d), dot(u.E1.xyz, d), dot(u.E2.xyz, d));
@@ -93,7 +107,7 @@ float3 mwCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     float3 m = tMW.sample(mws, uv, level(u.E2.w)).rgb;
     m = m * m * 1.15;
     float l = dot(m, float3(.299, .587, .114));
-    return mix(m, float3(l) * float3(.92, .95, 1.05), .4);
+    return mix(m, float3(l) * float3(.92, .95, 1.05), .15);   // Celyx: keep the kit's gold core / pink nebulae
 }
 
 float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {

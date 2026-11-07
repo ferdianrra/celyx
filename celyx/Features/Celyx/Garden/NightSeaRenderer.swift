@@ -67,14 +67,18 @@ struct NightSeaCamera: Equatable {
 
 /// One collected object placed in the sky.
 struct NightSeaObject: Identifiable, Equatable {
-    enum Kind: Float { case star = 0, planet = 1, moon = 2, sun = 3 }
+    enum Kind: Float { case star = 0, planet = 1, moon = 2, sun = 3, background = 4 }
     let id: Int
     let direction: SIMD3<Double>
     /// Sprite radius in points (glow included).
     let radius: Double
     let color: SIMD3<Double>
     let kind: Kind
+    /// Background stars only: alpha 0…1 (they are drawn as tiny, dim, glow-less dots).
+    var brightness: Double = 1
     var isAboveHorizon: Bool { direction.z > 0.002 }
+    /// What the point shader reads as "kind" (background stars carry their alpha: 4 + alpha).
+    var gpuKind: Float { kind == .background ? 4+Float(min(0.99,max(0,brightness))) : kind.rawValue }
 }
 
 struct NightSeaView: UIViewRepresentable {
@@ -153,7 +157,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     var moon: (direction: SIMD3<Double>, illumination: Double)?
     var equatorial: simd_double3x3?
     /// Subtle on purpose: the collected objects must stay the brightest things in the sky.
-    private let milkyWayStrength: Float = 0.26
+    private let milkyWayStrength: Float = 0.55
     private let milkyWay: MTLTexture
     private let queue: MTLCommandQueue
     private let seaPipeline: MTLRenderPipelineState
@@ -218,7 +222,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         lastObjects = objects; lastSelected = selectedID
         let gpu = objects.map { object in
             GPUPoint(dirSize:SIMD4(Float(object.direction.x),Float(object.direction.y),Float(object.direction.z),Float(object.radius)),
-                     color:SIMD4(Float(object.color.x),Float(object.color.y),Float(object.color.z),object.kind.rawValue+(object.id == selectedID ? 10 : 0)))
+                     color:SIMD4(Float(object.color.x),Float(object.color.y),Float(object.color.z),object.gpuKind+(object.id == selectedID && object.kind != .background ? 10 : 0)))
         }
         pointCount = gpu.count
         pointBuffer = gpu.isEmpty ? nil : queue.device.makeBuffer(bytes:gpu,length:gpu.count*MemoryLayout<GPUPoint>.stride,options:.storageModeShared)

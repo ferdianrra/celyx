@@ -40,6 +40,8 @@ struct GardenSkyView: View {
     @State private var failed = false
     /// Debug replay: the demo object stays in the sky until its sheet closes (never saved).
     @State private var demo: WormholeDemo?
+    /// Decorative background star field (not tappable, no labels).
+    @State private var background: [NightSeaObject] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fallbackLocation = ObserverLocation(latitude:-6.2,longitude:106.85,isManual:true)   // Jakarta
@@ -128,7 +130,7 @@ struct GardenSkyView: View {
                         .frame(width:geometry.size.width,height:geometry.size.height,alignment:.trailing)
                         .clipped()
                 } else {
-                    NightSeaView(camera:shown,objects:placed.map(\.object),selectedID:selected?.id,moon:moon,
+                    NightSeaView(camera:shown,objects:background+placed.map(\.object),selectedID:selected?.id,moon:moon,
                                  equatorial:equatorial,isActive:isActive) { _ in failed = true }
                 }
                 labels(in:geometry.size,camera:shown)
@@ -176,7 +178,9 @@ struct GardenSkyView: View {
     // MARK: Placement
 
     private func place() {
-        let scene = Self.placement(items:model.collectionItems,location:location)
+        let scene = Self.placement(items:model.collectionItems,location:location,catalogue:model.stars,
+                                   excluding:demo.map { [$0.item.id] } ?? [])
+        background = scene.background
         placed = scene.placed
         if let demo, !placed.contains(where:{ $0.id == demo.item.id }) {
             placed.append(Placed(item:demo.item,object:demo.object))
@@ -186,8 +190,10 @@ struct GardenSkyView: View {
     }
 
     /// Every collected object at its real (refracted) position for this place and time.
-    static func placement(items: [GardenCollectionItem],location: ObserverLocation,date: Date = Date())
-        -> (placed: [Placed], moon: (direction: SIMD3<Double>, illumination: Double)?, equatorial: simd_double3x3) {
+    static func placement(items: [GardenCollectionItem],location: ObserverLocation,date: Date = Date(),
+                          catalogue: [CatalogStar] = [],excluding extra: Set<Int> = [])
+        -> (placed: [Placed], moon: (direction: SIMD3<Double>, illumination: Double)?, equatorial: simd_double3x3,
+            background: [NightSeaObject]) {
         let sky = AstronomyService.snapshot(date:date,location:location)
         var result: [Placed] = []
         var moonState: (direction: SIMD3<Double>, illumination: Double)?
@@ -213,13 +219,25 @@ struct GardenSkyView: View {
             result.append(Placed(item:item,object:NightSeaObject(id:star.id,direction:Refraction.apparent(geometric),
                                                                  radius:radius,color:color,kind:kind)))
         }
-        return (result,moonState,sky.basis)
+        // Decorative star field (the kit's HYG layer), kept subtle: mag ≤ 5, tiny, dim, never a collected star.
+        let collected = Set(items.map(\.star.id)).union(extra)
+        let background = catalogue.lazy.filter { $0.mag <= Self.backgroundLimit && !collected.contains($0.id) && !$0.isSolarSystemBody }
+            .compactMap { star -> NightSeaObject? in
+                let direction = Refraction.apparent(sky.direction(ra:star.ra_deg,dec:star.dec_deg))
+                guard direction.z > -0.01 else { return nil }
+                // alpha ≈ .6 at mag 1 → .25 at mag 5; core ≤ 1.2 pt (sprite radius 1.6 pt, core at 75 %).
+                let alpha = min(0.6,max(0.25,0.6-(star.mag-1)*0.0875))
+                return NightSeaObject(id:-star.id-1,direction:direction,radius:1.6,color:star.rgb,kind:.background,brightness:alpha)
+            }
+        return (result,moonState,sky.basis,Array(background))
     }
+    static let backgroundLimit = 5.0
 
     /// The Night Sea as the wormhole should show it.
     static func wormholeScene(model: HomeViewModel,newID: Int?,demo: WormholeDemo? = nil) -> WormholeScene {
-        let scene = placement(items:model.collectionItems,location:model.location ?? fallbackLocation)
-        var objects = scene.placed.map(\.object)
+        let scene = placement(items:model.collectionItems,location:model.location ?? fallbackLocation,catalogue:model.stars,
+                              excluding:demo.map { [$0.object.id] } ?? [])
+        var objects = scene.background+scene.placed.map(\.object)
         if let demo { objects.removeAll { $0.id == demo.object.id }; objects.append(demo.object) }
         return WormholeScene(objects:objects,newID:newID,moon:scene.moon,equatorial:scene.equatorial)
     }

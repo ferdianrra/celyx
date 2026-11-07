@@ -91,7 +91,7 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
     private var fresh: (buffer: MTLBuffer?, count: Int) = (nil,0)
     private var layers: (MTLTexture,MTLTexture)?
     private let inFlight = DispatchSemaphore(value:2)
-    private let milkyWayStrength: Float = 0.26
+    private let milkyWayStrength: Float = 0.55
     private let zenith = SIMD4<Float>(3/255,5/255,26/255,0)
     private let mid = SIMD4<Float>(13/255,24/255,68/255,0)
     private let horizon = SIMD4<Float>(58/255,93/255,147/255,0)
@@ -137,7 +137,7 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
         func gpu(_ list: [NightSeaObject]) -> (MTLBuffer?,Int) {
             let points = list.map { o in
                 WormPoint(dirSize:SIMD4(Float(o.direction.x),Float(o.direction.y),Float(o.direction.z),Float(o.radius)),
-                          color:SIMD4(Float(o.color.x),Float(o.color.y),Float(o.color.z),o.kind.rawValue))
+                          color:SIMD4(Float(o.color.x),Float(o.color.y),Float(o.color.z),o.gpuKind))
             }
             guard !points.isEmpty else { return (nil,0) }
             return (device.makeBuffer(bytes:points,length:points.count*MemoryLayout<WormPoint>.stride,options:.storageModeShared),points.count)
