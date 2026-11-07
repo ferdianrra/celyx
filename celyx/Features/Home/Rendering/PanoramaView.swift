@@ -95,8 +95,11 @@ final class PanoramaRenderer: NSObject, MTKViewDelegate {
     private let starPipeline: MTLRenderPipelineState
     private let foregroundPipeline: MTLRenderPipelineState
     private let textures: [MTLTexture]
-    private let starBuffer: MTLBuffer
-    let starCount: Int
+    private var starBuffer: MTLBuffer
+    private(set) var starCount: Int
+    private var catalogGPU: [(Int,GPUStar)] = []
+    private var appliedIDs: Set<Int>?
+    private var appliedCollectionFilter = false
     private var gardenStars: [GardenSkyStar]?
     private var gardenBuffer: MTLBuffer?
     let textureByteCount: Int

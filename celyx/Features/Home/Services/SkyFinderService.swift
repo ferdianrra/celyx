@@ -61,6 +61,21 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         detectionGeneration += 1; pendingDetection = nil; trackMatches = [:]; trackIssues = [:]; confirmedNames = [:]
     }
 
+    /// Catalog positions for the center reticle, separate from optical detection evidence.
+    /// Collect still requires a matching camera observation before saving an object.
+    var mappedObjects: [CameraMappedObject] {
+        guard status == .tracking, !alignment.requiresCalibration,
+              viewport.width > 0, viewport.height > 0, let frame = session.currentFrame else { return [] }
+        let view = frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle)
+        let projection = screenProjection(frame)
+        return scanDirections.compactMap { star,direction in
+            let guide = SkyFinderProjection.project(direction:alignedDirection(direction),
+                view:view,projection:projection,size:viewport)
+            guard let point = guide.point else { return nil }
+            return CameraMappedObject(star:star,point:point,likelyVisible:likelyVisibleIDs.contains(star.id))
+        }
+    }
+
     /// Bright bodies (Sun, Moon, planets) that are up right now, with the angle in degrees between each
     /// one's real direction (GPS + clock) and where the camera is pointing. Uses the angle rather than a
     /// screen point so a few degrees of compass error doesn't stop you aiming at a big, obvious disc.

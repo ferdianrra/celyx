@@ -613,6 +613,22 @@ struct celyxTests {
         }
     }
 
+    @Test func rendererCanChangeCollectionAfterLoadingTheCatalog() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let view = MTKView(frame:.zero,device:device)
+        let renderer = try PanoramaRenderer(view:view)
+        let first = try #require(SkyAssets.stars().first)
+        renderer.scene.collectedIDs = []
+        renderer.draw(in:view)
+        #expect(renderer.starCount == 0)
+        renderer.scene.collectedIDs = [first.id]
+        renderer.draw(in:view)
+        #expect(renderer.starCount == 1)
+        renderer.scene.collectedIDs = nil
+        renderer.draw(in:view)
+        #expect(renderer.starCount == 3248)
+    }
+
     @Test func rendererCompilesGPUStarsAndFitsTextureBudget() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let view = MTKView(frame: CGRect(x: 0,y: 0,width: 402,height: 874),device: device)

@@ -155,11 +155,6 @@ fragment float4 foregroundFragment(VertexOut in [[stage_in]], constant Uniforms 
     gradient2d environmentGradient = wrappedGradient(uv);
     float4 col = float4(0);
     if(d.z < .003) col = over(col,sea.sample(panoramaSampler,uv,environmentGradient));
-    float4 rot = u.boatRotation;
-    float3 b = float3(d.x,d.y*rot.x-d.z*rot.y,d.y*rot.y+d.z*rot.x);
-    b = float3(b.x*rot.z-b.z*rot.w,b.y,b.x*rot.w+b.z*rot.z);
-    float2 boatUV = environmentUV(b);
-    gradient2d boatGradient = wrappedGradient(boatUV);
     float day = smoothstep(-18.0f,3.0f,asin(clamp(u.sun.z,-1.0f,1.0f))*180/M_PI_F);
     col.rgb = mix(col.rgb,min(col.rgb*3+float3(.08,.16,.21)*col.a,float3(1)),day);
     return col*(1-u.starVisibility.y);

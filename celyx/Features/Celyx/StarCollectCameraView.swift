@@ -89,7 +89,7 @@ struct StarCollectCameraView: View {
             GeometryReader { geometry in
                 ZStack {
                     if service.isCameraRunning {
-                        SkyCameraPreview(session:service.session,onViewport:service.updateViewport)
+                        SkyCameraPreview(session:service.session,onViewport:service.updateViewport,zoom:service.cameraZoom)
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { value in
                                     if zoomStart == nil { zoomStart = service.cameraZoom }
