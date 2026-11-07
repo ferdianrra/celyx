@@ -1,0 +1,140 @@
+// Wormhole handover (camera -> Night Sea). Compiled together with NightSeaShader.txt, appended after it,
+// so it reuses SeaUniforms, skyCol, island, road, sparkle, toScreen and h2 exactly as the garden renders them.
+// Units: points (px = fragment / res.z). Centre C, radius R; u = d/R.
+//  - outside (u >= 1): the frozen camera frame, gravitationally lensed, with a travelling ripple, twist,
+//    radial blur, chromatic taps, a dark contact meniscus at the rim and grain;
+//  - inside (u < 1): the Night Sea seen BY DIRECTION, bent around the ray through C.
+
+struct WormUniforms {
+    float4 wh;    // C.x, C.y (pt), R (pt), on
+    float4 ew;    // E, W, swirl, blur
+    float4 wave;  // ripple radius, amplitude, width; glow
+    float4 fx;    // grain, new star (0..1), exposure, -
+    float4 camT;  // frozen image shift x, y (pt), scale, -
+    float4 scr;   // screen W, H (pt), image centre x, y (pt)
+};
+
+float2 wormCamUV(float2 p, constant WormUniforms &w) {
+    float2 q = w.scr.zw + (p - w.scr.zw) * w.camT.z + w.camT.xy;
+    return clamp(q / w.scr.xy, 0.0, 1.0);
+}
+
+// The collected objects, looked up by direction in the pinhole layers (others + the new star fading in).
+float4 wormLayer(float2 uv, texture2d<float> tA, texture2d<float> tB, float starAmt) {
+    constexpr sampler smp(filter::linear, address::clamp_to_edge);
+    return min(tA.sample(smp, uv) + tB.sample(smp, uv) * starAmt, float4(1.0));
+}
+
+// Same colour as seaFragment for direction d, with the object layer sampled where d projects.
+float3 wormEnv(float3 d, constant SeaUniforms &u, texture2d<float> tA, texture2d<float> tB, float starAmt, texture2d<float> tMW) {
+    float3 col;
+    if (d.z >= 0.0) {
+        float2 uv = toScreen(d, u);
+        float4 st = (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ? wormLayer(uv, tA, tB, starAmt) : float4(0);
+        col = skyCol(d, u, tMW) * (1.0 - st.a) + st.rgb;
+        float4 il = island(d, u);
+        col = mix(col, il.rgb, il.a);
+    } else {
+        float eh = 1.5, dist = min(eh / -d.z, 4000.0);
+        float2 P = d.xy * dist; float2 gr = float2(0);
+        float4 ang = float4(.3, -.8, 1.9, 2.7), L = float4(9.0, 5.5, 3.1, 1.7), A = float4(.22, .12, .07, .04);
+        for (int i = 0; i < 4; i++) {
+            float2 dir = float2(cos(ang[i]), sin(ang[i]));
+            float k = 2.0 * PI / L[i], wq = sqrt(9.81 * k), ph = k * dot(dir, P) - wq * u.res.w;
+            float f = 1.0 - smoothstep(L[i] * 6.0, L[i] * 45.0, dist);
+            gr -= A[i] * f * k * sin(ph) * dir;
+        }
+        float3 sea = mix(float3(.01, .018, .045), float3(.035, .06, .12), smoothstep(-.5, -.01, d.z));
+        float2 gc = gr * u.cam.w;
+        float3 N = normalize(float3(-gc, 1.0));
+        float3 R = reflect(d, N); R.z = max(R.z, .003); R = normalize(R);
+        float fr = .02 + .98 * pow(1.0 - max(-dot(d, N), 0.0), 5.0);
+        float3 refl = skyCol(R, u, tMW);
+        float3 R0 = reflect(d, normalize(float3(-gc * .3, 1.0))); R0.z = max(R0.z, .0005);
+        float4 il = island(normalize(R0), u);
+        if (il.a < .5) {
+            float2 uv = toScreen(R, u);
+            if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+                float4 s = float4(0); float stp = 2.0 * u.res.z / u.res.y;
+                for (int j = -2; j <= 2; j++) s += wormLayer(uv + float2(0.0, float(j) * stp * .5), tA, tB, starAmt) * .2;
+                float fd = mix(.3, 1.0, smoothstep(-.55, -.02, d.z));
+                refl = refl * (1.0 - s.a * .55 * fd) + s.rgb * .55 * fd;
+            }
+        }
+        refl = mix(refl, il.rgb * .85, il.a * .85);
+        float k = clamp(.8 + fr * .45, 0.0, 1.0);
+        col = mix(sea, refl * float3(.62, .70, .88), k * .85);
+        float far = smoothstep(3.0, 500.0, dist);
+        float sig = .06 + .33 * u.cam.w, pM = road(d, u.moon.xyz, sig * .9), hz = mix(.1, .75, far);
+        col += float3(.85, .88, .95) * u.flags.y * (pM * hz * .3 + sparkle(d + .001, pM * .7, u) * .6);
+        col = mix(col, skyCol(normalize(float3(d.xy, .002)), u, tMW), smoothstep(250.0, 4000.0, dist) * .6);
+        float3 up = normalize(float3(d.xy, .0015));
+        float4 iu = island(up, u);
+        float3 ab = mix(skyCol(up, u, tMW), iu.rgb, iu.a) * .82;
+        col = mix(col, ab, smoothstep(-.012, -.0005, d.z) * .9);
+    }
+    return clamp(col, 0.0, 1.0);
+}
+
+fragment float4 wormholeFragment(VOut in [[stage_in]], constant SeaUniforms &u [[buffer(0)]], constant WormUniforms &w [[buffer(1)]],
+                                 texture2d<float> tA [[texture(0)]], texture2d<float> tMW [[texture(1)]],
+                                 texture2d<float> tCam [[texture(2)]], texture2d<float> tB [[texture(3)]]) {
+    constexpr sampler cs(filter::linear, address::clamp_to_edge);
+    float2 fc = in.position.xy;
+    float2 px = fc / u.res.z;
+    float foc = u.cam.x, uCx = u.cam.y, uCy = u.cam.z;
+    float3 F = u.F.xyz, Rv = u.R.xyz, Uv = u.U.xyz;
+    float3 d = normalize(F + ((px.x - uCx) / foc) * Rv + ((uCy - px.y) / foc) * Uv);
+    float T = u.res.w;
+    float noise = (h2(fc + fract(T * 7.0) * 91.0) - .5) * .045;
+    float2 C = w.wh.xy;
+    float Rw = max(w.wh.z, 1e-3);
+    float2 q = px - C;
+    float dd = length(q);
+    float wu = dd / Rw;
+    float ang = atan2(q.y, q.x);
+    float swirl = w.ew.z, W = w.ew.y;
+
+    if (wu >= 1.0) {
+        float E = w.ew.x * (1.0 + .012 * sin(ang * 3.0 + T * 1.1) * exp(-(wu - 1.0) * 1.2));
+        float ds = dd - E * E * dd / (dd * dd + 30.0);
+        float xw = (dd - w.wave.x) / max(w.wave.z, 1.0);
+        ds += w.wave.y * sin(xw * 2.6) * exp(-xw * xw);
+        float tw = swirl * E * E / (dd * dd + E * E * .35 + 1.0);
+        float3 cc = float3(0);
+        for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float dsi = ds - w.ew.w * fi * .5;
+            float ai = ang + tw + (fi - 1.0) * (.006 + .05 * exp(-(wu - 1.0) * 6.0)) * min(1.0, E / max(dd, 1.0));
+            for (int k = 0; k < 3; k++) {
+                float dk = dsi * (1.0 + .006 * (float(k) - 1.0) * min(1.0, E / max(dd, 1.0) * 2.0));
+                float3 c3 = tCam.sample(cs, wormCamUV(C + float2(cos(ai), sin(ai)) * dk, w)).rgb;
+                if (k == 0) cc.r += c3.r; else if (k == 1) cc.g += c3.g; else cc.b += c3.b;
+            }
+        }
+        cc /= 3.0;
+        float ed = dd - Rw;
+        cc *= mix(.25, 1.0, smoothstep(0.0, 3.5, ed));
+        cc += float3(.20, .28, .62) * .16 * exp(-max(wu - 1.0, 0.0) * 4.0) * w.wave.w;
+        cc += noise * w.fx.x;
+        return float4(clamp(cc, 0.0, 1.0), 1.0);
+    }
+
+    float3 aF = normalize(F + ((C.x - uCx) / foc) * Rv + ((uCy - C.y) / foc) * Uv);
+    float ap = acos(clamp(dot(d, aF), -1.0, 1.0));
+    float3 pp = d - aF * dot(d, aF);
+    pp = length(pp) > 1e-5 ? normalize(pp) : Rv;
+    float3 p2 = cross(aF, pp);
+    float tw = swirl * .15 * (1.0 - wu * wu) * W;
+    pp = cos(tw) * pp + sin(tw) * p2;
+    float aw = 2.75 * pow(wu, 1.18), al = mix(ap, aw, W);
+    d = normalize(cos(al) * aF + sin(al) * pp);
+
+    float3 col = wormEnv(d, u, tA, tB, w.fx.y, tMW);
+    float rim = smoothstep(.82, 1.0, wu);
+    col = mix(col, col * 1.35 + float3(.06, .08, .16), rim * W * .8);
+    col *= mix(1.0, .2, smoothstep(.985, 1.0, wu));
+    col *= mix(1.0, w.fx.z, w.wh.w);
+    col += noise * w.fx.x * w.wh.w;
+    return float4(clamp(col, 0.0, 1.0), 1.0);
+}

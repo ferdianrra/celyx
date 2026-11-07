@@ -5,6 +5,8 @@ struct CollectedObjectSheet: View {
     let item: GardenCollectionItem
     /// Where it is in the sky right now (horizon frame), if it could be placed.
     let direction: SIMD3<Double>?
+    /// Close action when shown outside a system sheet (the wormhole handover).
+    var onClose: (() -> Void)? = nil
     let onDelete: () -> Void
     @State private var confirmsDelete = false
     @Environment(\.dismiss) private var dismiss
@@ -26,7 +28,7 @@ struct CollectedObjectSheet: View {
                         Text(subtitle).font(.system(size:15,weight:.medium)).foregroundStyle(CelyxColor.subtitle)
                     }
                     Spacer(minLength:0)
-                    CelyxCloseButton { dismiss() }
+                    CelyxCloseButton { if let onClose { onClose() } else { dismiss() } }
                 }
 
                 if let photo {

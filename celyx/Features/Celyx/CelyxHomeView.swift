@@ -10,6 +10,11 @@ struct CelyxHomeView: View {
     @State private var gardenCamera = NightSeaCamera()
     @State private var gardenReset = 0
     @State private var showsCalibration = false
+    /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
+    @State private var showsStarCamera = false
+    @State private var cameraFades = false
+    @State private var handover: WormholeHandover?
+    @State private var sheetRequest: GardenSheetRequest?
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @Environment(\.scenePhase) private var phase
     @AppStorage("galaxyOwnerName") private var ownerName = "Ferdiansyah"
@@ -19,8 +24,10 @@ struct CelyxHomeView: View {
         NavigationStack(path:$path) {
             ZStack(alignment:.bottom) {
                 GardenSkyView(model:model,camera:$gardenCamera,
-                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration,
-                              resetRequest:gardenReset,usesCamera:gardenUsesCamera)
+                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
+                                && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
+                              resetRequest:gardenReset,usesCamera:gardenUsesCamera,
+                              handover:handover,sheetRequest:sheetRequest)
                     .ignoresSafeArea()
 
                 if model.collectionItems.isEmpty && !showsCollection {
@@ -32,25 +39,55 @@ struct CelyxHomeView: View {
                     .frame(maxWidth:.infinity,maxHeight:.infinity).allowsHitTesting(false)
                 }
 
-                VStack(spacing:0) {
-                    topBar
-                    HStack {
-                        Spacer()
-                        backgroundToggle
+                if showsStarCamera {
+                    StarCollectCameraView(model:model,handover:handover,onCollect:collected) {
+                        withAnimation(reduceMotion ? nil : .spring(duration:0.4)) { showsStarCamera = false }
                     }
-                    .padding(.horizontal,20)
-                    Spacer(minLength:0)
-                    if !showsCollection { bottomBar.transition(.opacity) }
+                    .transition(cameraFades ? .opacity : .move(edge:.bottom))
+                    .zIndex(1)
                 }
+
+                // Home UI: hidden under the camera, fading in over the wormhole after landing.
+                TimelineView(.animation(paused:handover == nil)) { _ in
+                    VStack(spacing:0) {
+                        topBar
+                        HStack {
+                            Spacer()
+                            backgroundToggle
+                        }
+                        .padding(.horizontal,20)
+                        Spacer(minLength:0)
+                        if !showsCollection { bottomBar.transition(.opacity) }
+                    }
+                    .opacity(homeUIOpacity)
+                }
+                .allowsHitTesting(!showsStarCamera && handover == nil)
+                .zIndex(2)
 
                 if showsCollection {
                     CollectionSheet(counts:counts,onSelect:{ path.append(.collection($0)) }) { setCollection(false) }
                         .padding(.horizontal,6).padding(.bottom,8)
                         .ignoresSafeArea(edges:.bottom)
                         .transition(.move(edge:.bottom).combined(with:.opacity))
+                        .zIndex(3)
                 }
             }
             .background(CelyxColor.night)
+            .onChange(of:handover?.phase) { _, phase in
+                guard let phase else { return }
+                switch phase {
+                case .reframe:
+                    // The Night Sea now matches the wormhole pixel for pixel: drop the camera without a transition.
+                    var transaction = Transaction(); transaction.disablesAnimations = true
+                    withTransaction(transaction) { showsStarCamera = false }
+                case .done:
+                    self.handover = nil
+                default: break
+                }
+            }
+            .onChange(of:handover?.showsSheet == true) { _, shows in
+                if shows, let id = handover?.itemID { sheetRequest = GardenSheetRequest(itemID:id) }
+            }
             .toolbar(.hidden,for:.navigationBar)
             .navigationDestination(for:CelyxRoute.self) { route in
                 switch route {
@@ -115,7 +152,7 @@ struct CelyxHomeView: View {
 
     private var bottomBar: some View {
         HStack(spacing:12) {
-            Button { camera = .star } label: {
+            Button(action:openStarCamera) {
                 HStack(spacing:12) {
                     Image("celyx-icon-telescope").resizable().frame(width:28,height:28)
                     Text("Start Collecting").font(.system(size:17,weight:.semibold)).tracking(-0.43).foregroundStyle(CelyxColor.primaryLabel)
@@ -131,6 +168,35 @@ struct CelyxHomeView: View {
             .accessibilityLabel("Sky Calendar")
         }
         .padding(.horizontal,28).padding(.bottom,4)
+    }
+
+    // MARK: Star camera + wormhole handover
+
+    private var homeUIOpacity: Double {
+        if let handover { return handover.frame(handover.tt()).envUI }
+        return showsStarCamera ? 0 : 1
+    }
+
+    private func openStarCamera() {
+        cameraFades = false
+        withAnimation(reduceMotion ? nil : .spring(duration:0.45)) { showsStarCamera = true }
+    }
+
+    private func collected(_ result: StarCollectCameraView.CollectResult) {
+        switch result {
+        case .wormhole(let handover):
+            self.handover = handover
+            Task { await handover.run() }
+        case .fade(let itemID):
+            // Reduce Motion: 400 ms cross-fade to the garden, then the sheet.
+            cameraFades = true
+            withAnimation(.easeInOut(duration:0.4)) { showsStarCamera = false }
+            guard let itemID else { return }
+            Task {
+                try? await Task.sleep(for:.milliseconds(400))
+                sheetRequest = GardenSheetRequest(itemID:itemID)
+            }
+        }
     }
 
     private var counts: CollectionSheet.Counts {

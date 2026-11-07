@@ -22,6 +22,10 @@ struct NightSeaCamera: Equatable {
     var cameraFieldOfView: Double = 69
     /// Pinch zoom on top of the real field of view.
     var zoom: Double = 1
+    /// Exact focal length in points (wormhole handover), overriding the two modes above.
+    var focalOverride: Double?
+    /// Optical centre height as a fraction of the screen (wormhole handover).
+    var centerYFraction: Double?
 
     var forward: SIMD3<Double> {
         if let orientation { return -orientation.act(SIMD3(0,0,1)) }
@@ -39,6 +43,7 @@ struct NightSeaCamera: Equatable {
     var heading: Double { let f = forward; return atan2(f.x,f.y) }
 
     func focalLength(in size: CGSize) -> Double {
+        if let focalOverride { return focalOverride }
         guard orientation != nil else { return Double(min(size.width,size.height))*0.62/tan(fieldOfView * .pi/360) }
         // Aspect-fill a 4:3 sensor onto the screen, like the camera preview does.
         let long = Double(max(size.width,size.height)), short = Double(min(size.width,size.height))
@@ -47,7 +52,7 @@ struct NightSeaCamera: Equatable {
         return focal*zoom
     }
     func center(in size: CGSize) -> CGPoint {
-        CGPoint(x:size.width/2,y:size.height*(orientation == nil ? 0.47 : 0.5))
+        CGPoint(x:size.width/2,y:size.height*(centerYFraction ?? (orientation == nil ? 0.47 : 0.5)))
     }
 
     /// Screen point (in points) of a horizon direction [east, north, up], or nil when behind the camera.
@@ -159,7 +164,9 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     private var lastObjects: [NightSeaObject] = []
     private var lastSelected: Int?
     private let inFlight = DispatchSemaphore(value:2)
-    private let start = CACurrentMediaTime()
+    /// Shared by every Night Sea view (and the wormhole), so waves and twinkle never jump between them.
+    static let clockOrigin = CACurrentMediaTime()
+    private let start = NightSeaRenderer.clockOrigin
     private let reduceMotion = UIAccessibility.isReduceMotionEnabled
     // Kit palette: zenith #03051a, mid #0d1844, horizon #3a5d93.
     private let zenith = SIMD4<Float>(3/255,5/255,26/255,0)
@@ -194,7 +201,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     }
 
     /// RA/Dec Milky Way map from the Night Sea kit, downsampled to 2048 px wide with mipmaps.
-    private static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
+    static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
         let url = try SkyAssets.url("garden-milky-way-radec",extension:"jpg")
         guard let source = CGImageSourceCreateWithURL(url as CFURL,nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source,0,[

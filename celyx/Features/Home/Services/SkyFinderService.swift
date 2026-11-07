@@ -207,6 +207,22 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         invalidateCameraMatches(); projection = nil
         return true
     }
+    /// Wormhole handover: the current frame oriented and cropped like the screen, plus the camera pose
+    /// in the horizon frame. No tracking guards, so it also works for the indoor debug replay.
+    func wormholeFreeze() -> WormholeFreeze? {
+        guard let frame = session.currentFrame, viewport.width > 0, viewport.height > 0 else { return nil }
+        let imageOrientation: CGImagePropertyOrientation = switch orientation {
+        case .landscapeRight: .up
+        case .landscapeLeft: .down
+        case .portraitUpsideDown: .left
+        default: .right
+        }
+        let source = CIImage(cvPixelBuffer:frame.capturedImage).oriented(imageOrientation)
+        let crop = CameraZoom.imageCrop(extent:source.extent,viewport:viewport,zoom:cameraZoom)
+        let image = photoContext.createCGImage(source,from:crop)
+        return WormholeFreeze.make(image:image,size:viewport,view:frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle),
+                                   projection:screenProjection(frame),alignment:alignment.rotation)
+    }
     func clearAlignment() { resetTrackingForCalibration() }
     func resetTrackingForCalibration() {
         alignment.clear()

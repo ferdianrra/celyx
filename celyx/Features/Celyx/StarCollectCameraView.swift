@@ -18,8 +18,20 @@ struct StarCollectCameraView: View {
         var id: Int { star.id }
     }
 
+    /// How a successful collect hands over to the garden.
+    enum CollectResult {
+        /// The wormhole into the Night Sea (Home owns it from here).
+        case wormhole(WormholeHandover)
+        /// Reduce Motion: a plain cross-fade, then the sheet.
+        case fade(itemID: Int?)
+    }
+
     let model: HomeViewModel
     let onClose: () -> Void
+    /// The running handover, if any (fades this screen's UI on its clock).
+    var handover: WormholeHandover? = nil
+    /// When set, a successful collect hands over to the garden instead of staying here.
+    var onCollect: ((CollectResult) -> Void)? = nil
     @State private var service: SkyFinderService
     @State private var viewSize: CGSize = .zero
     @State private var settledID: Int?
@@ -39,8 +51,10 @@ struct StarCollectCameraView: View {
     private let captureRadius: CGFloat = 28
     private var isChecking: Bool { if case .checking = verification { true } else { false } }
 
-    init(model: HomeViewModel, onClose: @escaping () -> Void) {
+    init(model: HomeViewModel,handover: WormholeHandover? = nil,onCollect: ((CollectResult) -> Void)? = nil,onClose: @escaping () -> Void) {
         self.model = model
+        self.handover = handover
+        self.onCollect = onCollect
         self.onClose = onClose
         _service = State(initialValue:SkyFinderService(location:model.location,catalogue:model.stars))
     }
@@ -85,6 +99,13 @@ struct StarCollectCameraView: View {
     }
 
     var body: some View {
+        TimelineView(.animation(paused:handover == nil)) { _ in
+            let frame = handover.map { $0.frame($0.tt()) }
+            content(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1)
+        }
+    }
+
+    private func content(cameraUI: Double,crosshair: Double) -> some View {
         ZStack(alignment:.bottom) {
             GeometryReader { geometry in
                 ZStack {
@@ -99,8 +120,10 @@ struct StarCollectCameraView: View {
                     } else {
                         CelyxColor.night
                     }
+                    if let handover { WormholeHandoverView(handover:handover) }
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
                     reticle.position(x:geometry.size.width/2,y:geometry.size.height/2+10)
+                        .opacity(crosshair)
                 }
                 .onAppear { viewSize = geometry.size }
                 .onChange(of:geometry.size) { _, size in viewSize = size }
@@ -119,20 +142,25 @@ struct StarCollectCameraView: View {
                 .padding(.horizontal,20)
                 Spacer()
             }
+            .opacity(cameraUI)
 
             if let target = shownTarget {
                 sheet(for:target)
                     .padding(.horizontal,6).padding(.bottom,6)
                     .ignoresSafeArea(edges:.bottom)
                     .transition(.move(edge:.bottom).combined(with:.opacity))
+                    .opacity(cameraUI)
             } else {
                 CelyxHintPill(text:hintText).padding(.bottom,59).transition(.opacity)
+                    .opacity(cameraUI)
             }
         }
+        .allowsHitTesting(handover == nil)
         .background(CelyxColor.night)
         .preferredColorScheme(.dark)
         .animation(reduceMotion ? nil : .spring(duration:0.35),value:shownTarget?.id)
         .task {
+            if onCollect != nil { WormholeFeedback.shared.prepare() }
             service.updateVisibility(quality:model.quality,atmosphere:model.atmosphere)
             await service.start()
         }
@@ -178,6 +206,11 @@ struct StarCollectCameraView: View {
     /// Figma "Crosshair" component (node 922:1567) with its own motion, sound and haptics.
     private var reticle: some View {
         CrosshairView(state:crosshairState,label:(shownTarget ?? (isLocking ? centerTarget : nil))?.star.title ?? "")
+        #if DEBUG
+            // Debug: long-press the crosshair to replay the wormhole indoors (fake success at the centre).
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration:0.6) { replayHandover() }
+        #endif
     }
     private var crosshairState: CrosshairState {
         if isChecking { return .validating }
@@ -325,16 +358,45 @@ struct StarCollectCameraView: View {
         }
         do {
             try model.saveCameraObservation(draft,note:"")
+            verification = .idle
+            if onCollect != nil && !reduceMotion {
+                beginHandover(itemID:target.star.id,point:target.detection?.point ?? center)
+                return
+            }
             // Celebrate: our own chime + haptic, and mute the crosshair's automatic "back" on the way to Enable.
             CrosshairFeedback.shared.suppress(.back,for:0.6)
             CrosshairFeedback.shared.play(CrosshairSound.collect)
             CrosshairFeedback.shared.play(CrosshairHaptic.collect)
-            verification = .idle
+            onCollect?(.fade(itemID:target.star.id))
         } catch {
             verification = .idle
             errorMessage = error.localizedDescription
         }
     }
+
+    // MARK: Wormhole handover
+
+    /// Freezes the camera frame and opens the wormhole at the collected star's screen point.
+    private func beginHandover(itemID: Int?,point: CGPoint) {
+        guard handover == nil, let onCollect, viewSize != .zero else { return }
+        let freeze = service.wormholeFreeze() ?? .placeholder(size:viewSize)
+        let handover = WormholeHandover(freeze:freeze,star:point,itemID:itemID,
+                                        scene:GardenSkyView.wormholeScene(model:model,newID:itemID))
+        // The crosshair fades out; keep its own state-change sounds out of the score.
+        CrosshairFeedback.shared.suppress(.back,for:1.2)
+        CrosshairFeedback.shared.suppress(.release,for:1.2)
+        WormholeFeedback.shared.play(landing:handover.landing)
+        onCollect(.wormhole(handover))
+    }
+
+    #if DEBUG
+    /// Fake success on a fixed point (the screen centre), re-using the latest collected object for the sheet.
+    private func replayHandover() {
+        guard onCollect != nil, !isChecking else { return }
+        if reduceMotion { onCollect?(.fade(itemID:model.collectionItems.first?.id)); return }
+        beginHandover(itemID:model.collectionItems.first?.id,point:center)
+    }
+    #endif
 
     /// Reads the live camera frame: is there really a light inside the circle?
     private func lightIsInCircle(for star: CatalogStar) -> Bool {

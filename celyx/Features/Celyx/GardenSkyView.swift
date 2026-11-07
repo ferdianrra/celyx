@@ -12,6 +12,10 @@ struct GardenSkyView: View {
     var resetRequest = 0
     /// Live camera behind the collected objects instead of the virtual Night Sea.
     var usesCamera = false
+    /// Wormhole handover from the collect camera: drives the view during landing + reframe.
+    var handover: WormholeHandover?
+    /// Shows a collected object's sheet with a spring (after a handover or the Reduce Motion fade).
+    var sheetRequest: GardenSheetRequest?
 
     struct Placed: Identifiable {
         let item: GardenCollectionItem
@@ -32,6 +36,8 @@ struct GardenSkyView: View {
     @State private var zoomStart: Double?
     @State private var selected: GardenCollectionItem?
     @State private var failed = false
+    /// The collected object's sheet after a handover (springs in instead of the system sheet).
+    @State private var handoverItem: GardenCollectionItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fallbackLocation = ObserverLocation(latitude:-6.2,longitude:106.85,isManual:true)   // Jakarta
@@ -81,6 +87,18 @@ struct GardenSkyView: View {
             camera.zoom = 1
         }
         .onDisappear(perform:stopGyro)
+        .onChange(of:handover?.phase) { _, phase in
+            if phase == .reframe { prepareLanding() }
+        }
+        .onChange(of:sheetRequest) { _, request in
+            guard let request, let item = model.collectionItems.first(where:{ $0.id == request.itemID }) else { return }
+            withAnimation(reduceMotion ? .easeInOut(duration:0.25) : .spring(response:0.57,dampingFraction:0.68)) { handoverItem = item }
+        }
+        .overlay(alignment:.bottom) {
+            if let item = handoverItem {
+                handoverSheet(item).transition(.move(edge:.bottom))
+            }
+        }
         .sheet(item:$selected) { item in
             CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction) {
                 model.deleteCollected(id:item.id)
@@ -92,7 +110,20 @@ struct GardenSkyView: View {
         .accessibilityLabel("Your garden sky")
     }
 
+    /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
+    private func viewCamera(_ now: Date) -> NightSeaCamera {
+        guard let handover, handover.phase >= .landed, handover.phase < .done else { return camera }
+        handover.target = handover.phase >= .reframe ? camera : nil
+        return handover.camera(handover.tt())
+    }
+
     private var virtualGarden: some View {
+        TimelineView(.animation(paused:handover == nil || handover?.phase == .done)) { context in
+            virtualGarden(shown:viewCamera(context.date))
+        }
+    }
+
+    private func virtualGarden(shown: NightSeaCamera) -> some View {
         GeometryReader { geometry in
             ZStack {
                 if failed {
@@ -100,10 +131,10 @@ struct GardenSkyView: View {
                         .frame(width:geometry.size.width,height:geometry.size.height,alignment:.trailing)
                         .clipped()
                 } else {
-                    NightSeaView(camera:camera,objects:placed.map(\.object),selectedID:selected?.id,moon:moon,
+                    NightSeaView(camera:shown,objects:placed.map(\.object),selectedID:selected?.id,moon:moon,
                                  equatorial:equatorial,isActive:isActive) { _ in failed = true }
                 }
-                labels(in:geometry.size)
+                labels(in:geometry.size,camera:shown)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance:2)
@@ -126,7 +157,7 @@ struct GardenSkyView: View {
 
     // MARK: Labels
 
-    @ViewBuilder private func labels(in size: CGSize) -> some View {
+    @ViewBuilder private func labels(in size: CGSize,camera: NightSeaCamera) -> some View {
         ForEach(placed.filter(\.object.isAboveHorizon)) { entry in
             if let point = camera.project(entry.object.direction,in:size),
                point.x > -40, point.x < size.width+40, point.y > -40, point.y < size.height+40 {
@@ -148,10 +179,19 @@ struct GardenSkyView: View {
     // MARK: Placement
 
     private func place() {
-        let sky = AstronomyService.snapshot(date:Date(),location:location)
+        let scene = Self.placement(items:model.collectionItems,location:location)
+        placed = scene.placed
+        moon = scene.moon
+        equatorial = scene.equatorial
+    }
+
+    /// Every collected object at its real (refracted) position for this place and time.
+    static func placement(items: [GardenCollectionItem],location: ObserverLocation,date: Date = Date())
+        -> (placed: [Placed], moon: (direction: SIMD3<Double>, illumination: Double)?, equatorial: simd_double3x3) {
+        let sky = AstronomyService.snapshot(date:date,location:location)
         var result: [Placed] = []
         var moonState: (direction: SIMD3<Double>, illumination: Double)?
-        for item in model.collectionItems {
+        for item in items {
             let star = item.star
             let geometric: SIMD3<Double>
             let kind: NightSeaObject.Kind
@@ -173,9 +213,48 @@ struct GardenSkyView: View {
             result.append(Placed(item:item,object:NightSeaObject(id:star.id,direction:Refraction.apparent(geometric),
                                                                  radius:radius,color:color,kind:kind)))
         }
-        placed = result
-        moon = moonState
-        equatorial = sky.basis
+        return (result,moonState,sky.basis)
+    }
+
+    /// The Night Sea as the wormhole should show it.
+    static func wormholeScene(model: HomeViewModel,newID: Int?) -> WormholeScene {
+        let scene = placement(items:model.collectionItems,location:model.location ?? fallbackLocation)
+        return WormholeScene(objects:scene.placed.map(\.object),newID:newID,moon:scene.moon,equatorial:scene.equatorial)
+    }
+
+    // MARK: Handover
+
+    /// At the cross: point the garden's own camera where the reframe should end (fov 84°, 45° down),
+    /// so releasing the handover camera afterwards is seamless.
+    private func prepareLanding() {
+        guard let handover else { return }
+        if camera.orientation != nil {
+            offset = (0,WormholeTimeline.reframeAltitude * .pi/180)
+            var base = camera; base.zoom = 1; base.focalOverride = nil; base.centerYFraction = nil
+            camera.zoom = handover.focalLength(fieldOfView:WormholeTimeline.reframeFieldOfView)/base.focalLength(in:handover.freeze.size)
+        } else {
+            let forward = handover.freeze.orientation.act(SIMD3(0,0,-1))
+            camera.azimuth = atan2(forward.x,forward.y)
+            camera.altitude = max(-35 * .pi/180,asin(min(1,max(-1,forward.z)))+WormholeTimeline.reframeAltitude * .pi/180)
+            camera.fieldOfView = WormholeTimeline.reframeFieldOfView
+        }
+    }
+
+    private func handoverSheet(_ item: GardenCollectionItem) -> some View {
+        let close = { withAnimation(reduceMotion ? nil : .spring(response:0.4,dampingFraction:0.9)) { handoverItem = nil } }
+        return ZStack(alignment:.top) {
+            CelyxBluePanel(cornerRadius:34)
+            CelyxGrabber()
+            CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction,onClose:close) {
+                model.deleteCollected(id:item.id)
+                close()
+            }
+            .padding(.top,24)
+        }
+        .frame(height:UIScreen.main.bounds.height*0.52)
+        .padding(.horizontal,6).padding(.bottom,6)
+        .ignoresSafeArea(edges:.bottom)
+        .gesture(DragGesture().onEnded { value in if value.translation.height > 80 { close() } })
     }
 
     // MARK: Gyro
@@ -246,4 +325,10 @@ struct GardenSkyView: View {
         }
         if let hit = hits.min(by:{ $0.1 < $1.1 }) { selected = hit.0.item }
     }
+}
+
+/// One request to spring in the collected object's sheet (a new value every time).
+struct GardenSheetRequest: Equatable {
+    let id = UUID()
+    let itemID: Int
 }
