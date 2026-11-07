@@ -250,3 +250,18 @@ private extension Array {
 #Preview {
     NavigationStack { SkyCalendarView(store:SkyEventStore()) { _ in } }
 }
+
+#Preview("Sky event card") {
+    SkyEventCard(event:SkyEvent.catalogue[0],isReminderOn:false,toggleReminder:{}).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Event kind label") {
+    SkyEventKindLabel(kind:SkyEvent.catalogue[0].kind).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Reminder bell") {
+    HStack { ReminderBell(isOn:false,action:{}); ReminderBell(isOn:true,action:{}) }.padding().background(.black)
+        .preferredColorScheme(.dark)
+}

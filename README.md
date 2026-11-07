@@ -3,6 +3,20 @@
 SwiftUI + MVVM. Buka `celyx.xcodeproj`, pilih scheme **celyx**, lalu Run.
 Project saat ini mengikuti deployment target bawaan iOS 27.2. Shader Metal dibundel sebagai `PanoramaShader.txt` dan dikompilasi sekali saat renderer dibuat; tidak memerlukan download komponen Metal Toolchain tambahan pada Xcode.
 
+## Alur aplikasi aktif
+
+Entry point: `ContentView` → `CelyxHomeView`. UI aktif berada di `Features/Celyx`: `GardenSkyView`, koleksi, kalender, kamera koleksi, dan kalibrasi. Layar Home/Garden prototipe lama telah dihapus; bagian di bawah yang membahas kontrol panorama mencatat implementasi sebelumnya.
+
+Alur event lama di `Features/Events` (feed API, detail, dan peta) juga sudah dihapus karena tidak memiliki pemanggil. Kalender aktif tetap memakai `SkyCalendarView` dan `SkyEvent`.
+
+- `Features/Celyx/CelyxStyle.swift`: warna, panel, kartu, tombol, dan modifier sheet bersama. Daftar Calibration Stars menggunakan komponen ini juga.
+- `Features/Celyx/Calibration`: katalog/filter kalibrasi, daftar kandidat, proyeksi AR, pencocokan pola, dan penyimpanan koreksi arah. Satu referensi yang dikonfirmasi bisa dipakai; pencocokan identitas otomatis memerlukan pola yang tidak ambigu.
+- `Features/Celyx/Sky`: tombol **Filtered Stars** di Home dan kamera koleksi membuka daftar Visible Now, toggle parameter, pencarian, serta **View filtered stars in AR**. Ada pintasan ke Calibration Stars, yang tetap menggunakan katalog/filter kalibrasi tersendiri.
+- `Features/Home/Views/SkyCameraPreview.swift`: komponen kamera AR bersama untuk koleksi, kalibrasi, dan latar kamera Garden. Zoom diterapkan ke gambar kamera dan marker secara bersamaan.
+- `Features/Celyx/Garden/StarPortraitView.swift`: ilustrasi objek bersama untuk daftar dan detail koleksi.
+- `Features/Home/Models`, `Services`, `ViewModels`, dan `Rendering`: model, astronomi, sensor, deteksi kamera, serta renderer yang masih digunakan UI dan tes.
+- `PreviewSupport/AppPreviewData.swift`: data preview terisolasi; tidak memakai koleksi pengguna.
+
 ## Pembagian kerja tim
 
 - `Features/Home/Models`: state kamera, model katalog, dan resolver asset.
@@ -54,7 +68,7 @@ Credits tersedia pada sheet Layers. Metadata lisensi asli dan pemberitahuan BSD 
 
 `ConstellationFiguresView` menampilkan maksimal dua rasi dengan pusat dalam radius 22° pandangan, opacity penuh sampai 12°, lalu memudar. Rasi harus punya bintang yang berpotensi terlihat, berada di atas horizon, dan tidak dalam detail sheet. Ilustrasi dipotong di ketinggian 9° agar tidak menutupi silhouette pulau dekoratif; mendekati batas itu opacity juga turun. Tampil mengikuti rotasi/zoom. Toggle **Ilustrasi rasi bintang** di Layers terpisah dari garis rasi dan aktif secara default.
 
-PNG dibaca hanya untuk rasi yang terpilih dan cache dibatasi enam gambar (~6 MiB RGBA). Ilustrasi adalah overlay 2D affine berbasis tiga anchor, bukan mesh sferis penuh: ketiga anchor presisi, area lain adalah pendekatan proyeksi. Preview tersedia di ConstellationFiguresView.swift. Kredit Stellarium/Johan Meuris dan Free Art License 1.3 tetap disertakan.
+Implementasi panorama sebelumnya membaca PNG hanya untuk rasi yang terpilih dan membatasi cache enam gambar (~6 MiB RGBA). Ilustrasi berupa overlay 2D affine berbasis tiga anchor, bukan mesh sferis penuh. Model proyeksi dan asset rasi tetap tersedia; view prototipe lamanya telah dihapus. Kredit Stellarium/Johan Meuris dan Free Art License 1.3 tetap disertakan.
 
 ## Temukan di Langit (kamera)
 

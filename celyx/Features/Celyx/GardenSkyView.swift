@@ -247,3 +247,8 @@ struct GardenSkyView: View {
         if let hit = hits.min(by:{ $0.1 < $1.1 }) { selected = hit.0.item }
     }
 }
+
+#Preview("Garden sky") {
+    GardenSkyView(model:AppPreviewData.collectedModel,camera:.constant(NightSeaCamera()))
+        .preferredColorScheme(.dark)
+}

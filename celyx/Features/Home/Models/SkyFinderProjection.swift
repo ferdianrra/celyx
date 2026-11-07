@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 import simd
 
-struct SkyFinderProjection {
+nonisolated struct SkyFinderProjection: Sendable {
     let point: CGPoint?
     let arrow: CGVector
     let separation: Double

@@ -31,6 +31,7 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
     override init() { super.init(); compass.delegate = self }
 
     func start(onChange: @escaping (Double,Double,Bool) -> Void) {
+        guard !AppPreviewData.isRunning else { return }
         stop()
         running = true
         report(false,0,"Finding your location…",stage:.location)
