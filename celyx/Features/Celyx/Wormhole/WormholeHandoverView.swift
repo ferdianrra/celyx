@@ -91,7 +91,7 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
     private var fresh: (buffer: MTLBuffer?, count: Int) = (nil,0)
     private var layers: (MTLTexture,MTLTexture)?
     private let inFlight = DispatchSemaphore(value:2)
-    private let milkyWayStrength: Float = 0.55
+    private let milkyWayStrength = NightSeaRenderer.milkyWayStrength
     private let zenith = SIMD4<Float>(3/255,5/255,26/255,0)
     private let mid = SIMD4<Float>(13/255,24/255,68/255,0)
     private let horizon = SIMD4<Float>(58/255,93/255,147/255,0)
@@ -184,7 +184,7 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
         }
         let basis = scene.equatorial ?? matrix_identity_double3x3
         let texelsPerRadian = Double(milkyWay.width)/(2 * .pi)
-        let lod = Float(max(0,log2(texelsPerRadian/max(1,pin.focal*Double(scale))))+1.2)
+        let lod = Float(max(0,log2(texelsPerRadian/max(1,pin.focal*Double(scale))))+NightSeaRenderer.milkyWayLodBias)
         var e2 = v(basis.columns.2); e2.w = lod
         let time = Float(CACurrentMediaTime()-NightSeaRenderer.clockOrigin)
         var sea = WormSeaUniforms(res:SIMD4(Float(size.width),Float(size.height),scale,time),

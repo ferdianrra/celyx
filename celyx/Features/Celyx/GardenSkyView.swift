@@ -214,24 +214,23 @@ struct GardenSkyView: View {
                 radius = min(5.2,max(2,3.4-0.5*planet.star.mag))*6; color = star.rgb
             } else {
                 geometric = sky.direction(ra:star.ra_deg,dec:star.dec_deg); kind = .star
-                radius = min(5,max(0.8,3.0-0.55*star.mag))*7; color = star.rgb
+                radius = NightSeaObject.starRadius(magnitude:star.mag)*1.3; color = star.rgb
             }
             result.append(Placed(item:item,object:NightSeaObject(id:star.id,direction:Refraction.apparent(geometric),
                                                                  radius:radius,color:color,kind:kind)))
         }
-        // Decorative star field (the kit's HYG layer), kept subtle: mag ≤ 5, tiny, dim, never a collected star.
+        // Decorative star field (the kit's HYG layer to mag 6.2), toned down in the shader so it never reads as a
+        // collected star: smaller, dimmer, no spikes, glow only for the very brightest, faint dust beyond mag 5.
         let collected = Set(items.map(\.star.id)).union(extra)
         let background = catalogue.lazy.filter { $0.mag <= Self.backgroundLimit && !collected.contains($0.id) && !$0.isSolarSystemBody }
             .compactMap { star -> NightSeaObject? in
                 let direction = Refraction.apparent(sky.direction(ra:star.ra_deg,dec:star.dec_deg))
                 guard direction.z > -0.01 else { return nil }
-                // alpha ≈ .6 at mag 1 → .25 at mag 5; core ≤ 1.2 pt (sprite radius 1.6 pt, core at 75 %).
-                let alpha = min(0.6,max(0.25,0.6-(star.mag-1)*0.0875))
-                return NightSeaObject(id:-star.id-1,direction:direction,radius:1.6,color:star.rgb,kind:.background,brightness:alpha)
+                return NightSeaObject(id:-star.id-1,direction:direction,radius:star.mag,color:star.rgb,kind:.background)
             }
         return (result,moonState,sky.basis,Array(background))
     }
-    static let backgroundLimit = 5.0
+    static let backgroundLimit = 6.2
 
     /// The Night Sea as the wormhole should show it.
     static func wormholeScene(model: HomeViewModel,newID: Int?,demo: WormholeDemo? = nil) -> WormholeScene {

@@ -47,7 +47,7 @@ struct GardenCameraLayer: View {
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .position(x:sprite.point.x,y:sprite.point.y+sprite.entry.object.radius*0.45+16)
+                            .position(x:sprite.point.x,y:sprite.point.y+sprite.entry.object.radius*(sprite.entry.object.kind == .star ? 7/1.3 : 1)*0.45+16)
                             .accessibilityLabel("\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
                         }
                     if let message = statusMessage {
@@ -66,7 +66,7 @@ struct GardenCameraLayer: View {
             .simultaneousGesture(SpatialTapGesture().onEnded { value in
                 let size = viewport == .zero ? geometry.size : viewport
                 let hits = project(in:size).map { ($0,hypot($0.point.x-value.location.x,$0.point.y-value.location.y)) }
-                    .filter { $0.1 <= max(36,$0.0.entry.object.radius*0.6) }
+                    .filter { $0.1 <= max(36,$0.0.entry.object.radius*($0.0.entry.object.kind == .star ? 7/1.3 : 1)*0.6) }
                 if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.item) }
             })
         }
@@ -128,7 +128,8 @@ struct GardenCameraLayer: View {
     private func draw(_ sprite: Sprite,in context: inout GraphicsContext) {
         let object = sprite.entry.object
         let color = Color(red:object.color.x,green:object.color.y,blue:object.color.z)
-        let radius = object.radius*1.15
+        // Stars now carry the kit's core radius (x1.3); keep this camera overlay's original sprite size (x7).
+        let radius = object.radius*(object.kind == .star ? 7/1.3 : 1)*1.15
         let p = sprite.point
         let disc = object.kind == .sun || object.kind == .moon
         // Soft halo

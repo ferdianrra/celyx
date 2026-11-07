@@ -240,7 +240,7 @@ struct WormholeDemo {
         }
         let record = CollectedStar(id:star.id,date:Date(),latitude:location?.latitude ?? -6.2,longitude:location?.longitude ?? 106.85,
                                    identificationNote:"Demo star for the wormhole replay (debug build). Not saved to your collection.")
-        let radius = min(5,max(0.8,3.0-0.55*star.mag))*7
+        let radius = NightSeaObject.starRadius(magnitude:star.mag)*1.3
         return WormholeDemo(item:GardenCollectionItem(star:star,record:record),
                             object:NightSeaObject(id:star.id,direction:direction,radius:radius,color:star.rgb,kind:.star))
     }

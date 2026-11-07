@@ -70,15 +70,15 @@ struct NightSeaObject: Identifiable, Equatable {
     enum Kind: Float { case star = 0, planet = 1, moon = 2, sun = 3, background = 4 }
     let id: Int
     let direction: SIMD3<Double>
-    /// Sprite radius in points (glow included).
+    /// Stars: core radius in points (the kit's starR, x1.3 for collected). Background stars: their magnitude.
+    /// Planets, Moon, Sun: sprite radius in points (glow included).
     let radius: Double
     let color: SIMD3<Double>
     let kind: Kind
-    /// Background stars only: alpha 0…1 (they are drawn as tiny, dim, glow-less dots).
-    var brightness: Double = 1
     var isAboveHorizon: Bool { direction.z > 0.002 }
-    /// What the point shader reads as "kind" (background stars carry their alpha: 4 + alpha).
-    var gpuKind: Float { kind == .background ? 4+Float(min(0.99,max(0,brightness))) : kind.rawValue }
+    var gpuKind: Float { kind.rawValue }
+    /// The kit's star radius (points) for a magnitude; collected stars use it x1.3.
+    static func starRadius(magnitude: Double) -> Double { min(5,max(0.8,3.0-0.55*magnitude)) }
 }
 
 struct NightSeaView: UIViewRepresentable {
@@ -96,6 +96,8 @@ struct NightSeaView: UIViewRepresentable {
     func makeUIView(context: Context) -> MTKView {
         let view = NightSeaMetalView(frame:.zero,device:MTLCreateSystemDefaultDevice())
         view.colorPixelFormat = .bgra8Unorm
+        // The shader writes sRGB-encoded values (like the kit's WebGL canvas): say so, so iOS doesn't re-match them.
+        (view.layer as? CAMetalLayer)?.colorspace = CGColorSpace(name:CGColorSpace.sRGB)
         view.clearColor = MTLClearColorMake(0.01,0.02,0.07,1)
         view.preferredFramesPerSecond = 60
         view.framebufferOnly = true
@@ -157,7 +159,11 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     var moon: (direction: SIMD3<Double>, illumination: Double)?
     var equatorial: simd_double3x3?
     /// Subtle on purpose: the collected objects must stay the brightest things in the sky.
-    private let milkyWayStrength: Float = 0.55
+    /// Kit value: the full Milky Way (colour graded in the map itself).
+    static let milkyWayStrength: Float = 1
+    /// Kit look: crisp (a hair of softening only, to keep the map from shimmering).
+    static let milkyWayLodBias = 0.3
+    private let milkyWayStrength = NightSeaRenderer.milkyWayStrength
     private let milkyWay: MTLTexture
     private let queue: MTLCommandQueue
     private let seaPipeline: MTLRenderPipelineState
@@ -205,16 +211,32 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     }
 
     /// RA/Dec Milky Way map from the Night Sea kit, downsampled to 2048 px wide with mipmaps.
+    /// The kit's 4096×2048 map at full size, decoded into explicit RGBA bytes.
+    /// (The old path went through an XRGB thumbnail: MTKTextureLoader then read the padding byte as BLUE,
+    /// so every sample had blue = 1 and the whole sky and sea got a flat blue haze.)
     static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
         let url = try SkyAssets.url("garden-milky-way-radec",extension:"jpg")
         guard let source = CGImageSourceCreateWithURL(url as CFURL,nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source,0,[
-                kCGImageSourceCreateThumbnailFromImageAlways:true,
-                kCGImageSourceThumbnailMaxPixelSize:2048] as CFDictionary)
-        else { throw CocoaError(.fileReadCorruptFile) }
-        let loader = MTKTextureLoader(device:device)
-        return try loader.newTexture(cgImage:image,options:[.SRGB:false,.generateMipmaps:true,
-            .textureStorageMode:MTLStorageMode.private.rawValue])
+              let image = CGImageSourceCreateImageAtIndex(source,0,nil) else { throw CocoaError(.fileReadCorruptFile) }
+        let width = image.width, height = image.height, rowBytes = width*4
+        var bytes = [UInt8](repeating:0,count:rowBytes*height)
+        let drawn: Bool = bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data:buffer.baseAddress,width:width,height:height,bitsPerComponent:8,bytesPerRow:rowBytes,
+                                          space:CGColorSpace(name:CGColorSpace.sRGB)!,
+                                          bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue)
+            else { return false }
+            context.draw(image,in:CGRect(x:0,y:0,width:width,height:height))
+            return true
+        }
+        guard drawn else { throw CocoaError(.fileReadCorruptFile) }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat:.rgba8Unorm,width:width,height:height,mipmapped:true)
+        descriptor.usage = [.shaderRead]
+        guard let texture = device.makeTexture(descriptor:descriptor), let queue = device.makeCommandQueue(),
+              let command = queue.makeCommandBuffer() else { throw CocoaError(.featureUnsupported) }
+        texture.replace(region:MTLRegionMake2D(0,0,width,height),mipmapLevel:0,withBytes:bytes,bytesPerRow:rowBytes)
+        if let blit = command.makeBlitCommandEncoder() { blit.generateMipmaps(for:texture); blit.endEncoding() }
+        command.commit(); command.waitUntilCompleted()
+        return texture
     }
 
     func setObjects(_ objects: [NightSeaObject],selectedID: Int?) {
@@ -265,7 +287,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         // Mip level: texels per radian of the map vs. pixels per radian on screen.
         let texelsPerRadian = Double(milkyWay.width)/(2 * .pi)
         // +1.2 blurs the map's tiny background dots so they never read as collected stars.
-        let lod = Float(max(0,log2(texelsPerRadian/max(1,focal*Double(scale))))+1.2)
+        let lod = Float(max(0,log2(texelsPerRadian/max(1,focal*Double(scale))))+NightSeaRenderer.milkyWayLodBias)
         var e2 = v(basis.columns.2); e2.w = lod
         var uniforms = SeaUniforms(res:res,cam:cam,forward:v(camera.forward),right:v(camera.right),up:v(camera.up),
                                    zenith:zenith,mid:mid,horizon:horizon,moon:moonVector,flags:flags,

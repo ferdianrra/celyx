@@ -29,12 +29,20 @@ struct GardenPoint {
 
 constant float PI = 3.14159265;
 
-// ---------- pass 1: collected objects ----------
+// ---------- pass 1: objects (collected + the kit's background star field) ----------
+// Stars follow the Night Sea kit's 2D star layer (drawStars): r = clamp(3 - .55 mag, .8, 5) * fz, fz = sqrt(72 / fov).
+//  - Background stars (kind 4, dirSize.w = magnitude) are the kit's, toned down: radius x0.8, alpha x0.7, a glow only
+//    below mag 2 at half alpha, NO diffraction spikes, faint dust (mag > 5) at alpha .15.
+//  - Collected stars (kind 0, dirSize.w = core radius in pt, already x1.3) get the kit's brightest-star treatment:
+//    coloured glow, 4-point spikes, white-hot core, true colour, plus a gold ring (255,222,160 @ .8, 1 pt,
+//    radius 5 + r) and a slow breathing, so they always read as "yours".
+//  - Planets, Moon, Sun: unchanged (dirSize.w = sprite radius in pt).
 struct PointOut {
     float4 position [[position]];
     float size [[point_size]];
     float4 color;
     float kind;
+    float4 p;   // stars: x core radius (pt), y sprite radius (pt), z alpha, w glow alpha
 };
 
 vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u [[buffer(0)]],
@@ -43,46 +51,95 @@ vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u
     float3 d = g.dirSize.xyz;
     float z = dot(d, u.F.xyz);
     PointOut o;
-    o.position = float4(2, 2, 0, 1); o.size = 1; o.color = float4(0); o.kind = g.color.w;
+    o.position = float4(2, 2, 0, 1); o.size = 1; o.color = float4(0); o.kind = g.color.w; o.p = float4(0);
     if (z < 0.06 || d.z < -0.01) return o;     // behind the camera or below the horizon
     float2 q = float2(u.cam.y + dot(d, u.R.xyz) / z * u.cam.x, u.cam.z - dot(d, u.U.xyz) / z * u.cam.x);
     float2 px = q * u.res.z;
     o.position = float4(px.x / u.res.x * 2 - 1, 1 - px.y / u.res.y * 2, 0, 1);
-    o.size = min(g.dirSize.w * 2 * u.res.z, 500.0);
     o.color = float4(g.color.rgb, 1);
+    float kind = fmod(g.color.w, 10.0);
+    float minSide = min(u.res.x, u.res.y) / u.res.z;
+    float fov = 2.0 * atan(0.62 * minSide / u.cam.x) * 180.0 / PI;
+    float fz = sqrt(72.0 / max(fov, 5.0));
+    float R;
+    if (kind > 3.5 && kind < 5.0) {                       // background star
+        float mag = g.dirSize.w;
+        float r = clamp(3.0 - 0.55 * mag, 0.8, 5.0) * fz * 0.8;
+        float a = clamp((6.2 - mag) / 1.1 + 0.35, 0.35, 1.0) * 0.7;
+        if (mag > 5.0) { r = 0.45; a = 0.15; }            // faint dust
+        float ga = mag < 1.0 ? 0.9 * a * 0.5 : (mag < 2.0 ? 0.6 * a * 0.5 : 0.0);
+        float gr = mag < 1.0 ? r * 8.0 : r * 6.0;
+        R = ga > 0.0 ? gr : r + 1.0;
+        o.p = float4(r, R, a, ga);
+    } else if (kind < 0.5) {                              // collected star
+        float r = g.dirSize.w * fz;
+        R = max(r * 8.0, 5.0 + r + 2.0);
+        o.p = float4(r, R, 1.0, 0.9);
+    } else {
+        R = g.dirSize.w;
+    }
+    o.size = min(R * 2 * u.res.z, 500.0);
     return o;
+}
+
+// The kit's glow sprite: white 0, colour .85 @ .07, .24 @ .22, .05 @ .55, 0 @ 1.
+float4 kitGlow(float x, float3 col) {
+    float a = x < 0.07 ? mix(1.0, 0.85, x / 0.07) : x < 0.22 ? mix(0.85, 0.24, (x - 0.07) / 0.15)
+            : x < 0.55 ? mix(0.24, 0.05, (x - 0.22) / 0.33) : mix(0.05, 0.0, (x - 0.55) / 0.45);
+    float3 c = x < 0.07 ? mix(float3(1), col, x / 0.07) : col;
+    return float4(c * a, a);
 }
 
 fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_coord]], constant SeaUniforms &u [[buffer(0)]]) {
     float2 v = pc * 2 - 1;
     float r = length(v);
     if (r > 1) discard_fragment();
-    // Celyx background star (kind 4 + alpha): a tiny, dim, desaturated dot. No glow, no spikes, no ring,
-    // so it never reads like one of the stars the user collected.
-    if (in.kind >= 4.0 && in.kind < 5.0) {
-        float alpha = in.kind - 4.0;
-        float twinkle = 0.94 + 0.06 * sin(u.res.w * 1.7 + in.color.g * 57.0 + in.color.b * 31.0);
-        float a = (1.0 - smoothstep(0.35, 1.0, r)) * alpha * twinkle;
-        float3 c = mix(in.color.rgb, float3(dot(in.color.rgb, float3(.299, .587, .114))), 0.35);
-        return float4(c * a, a);
-    }
     float kind = fmod(in.kind, 10.0);
     bool selected = in.kind >= 10;
+    float3 col = in.color.rgb;
+
+    if (kind < 0.5 || (kind > 3.5 && kind < 5.0)) {
+        bool collected = kind < 0.5;
+        float core = in.p.x, R = in.p.y, alpha = in.p.z, ga = in.p.w;
+        float2 vp = v * R;                                 // points from the centre
+        float d = length(vp);
+        float seed = col.r * 40.0 + col.g * 57.0 + col.b * 31.0;
+        float tw = collected ? 0.92 + 0.08 * sin(u.res.w * 1.1 + seed)        // slow breathing
+                             : 0.9 + 0.1 * sin(u.res.w * 3.4 + seed);         // the kit's gentle twinkle
+        float4 o = float4(0);
+        if (ga > 0.0) o += kitGlow(d / R, col) * ga * tw;
+        if (collected) {
+            float L = core * 6.0;                          // 4-point diffraction spikes, 0.6 pt wide
+            float sx = smoothstep(0.45, 0.15, abs(vp.y)) * max(0.0, 1.0 - abs(vp.x) / L);
+            float sy = smoothstep(0.45, 0.15, abs(vp.x)) * max(0.0, 1.0 - abs(vp.y) / L);
+            float sp = max(sx, sy) * 0.28 * tw;
+            o += float4(col * sp, sp);
+            float ring = smoothstep(0.7, 0.2, abs(d - (5.0 + core))) * 0.8;   // gold ring, 1 pt
+            o += float4(float3(1.0, 0.87, 0.63) * ring, ring);
+            if (selected) { float s2 = smoothstep(0.7, 0.2, abs(d - (8.0 + core))) * 0.9; o += float4(float3(s2), s2); }
+        }
+        float disc = smoothstep(core + 0.5, core - 0.5, d) * alpha * (collected ? 1.0 : tw);
+        o = o * (1.0 - disc) + float4(col * disc, disc);
+        if (core > 1.7) {                                  // white-hot core
+            float hot = smoothstep(core * 0.45 + 0.4, core * 0.45 - 0.4, d) * 0.9 * alpha;
+            o = o * (1.0 - hot) + float4(float3(hot), hot);
+        }
+        o.a = clamp(o.a, 0.0, 1.0);
+        return float4(min(o.rgb, float3(o.a)), o.a);
+    }
+
+    // Planets, Moon, Sun (unchanged).
     bool disc = kind > 1.5;                          // Moon / Sun: a real disc with a halo
-    float coreR = disc ? 0.24 : (kind > 0.5 ? 0.13 : 0.085);
-    float core = 1 - smoothstep(coreR * 0.75, coreR, r);
+    float coreR = disc ? 0.24 : 0.13;
+    float coreA = 1 - smoothstep(coreR * 0.75, coreR, r);
     float glow = exp(-r * r * (disc ? 9.0 : 16.0)) * 0.55 + exp(-r * r * 60.0) * 0.5;
-    // small diffraction spikes on stars, a slow twinkle
-    float spikes = kind < 0.5 ? (exp(-abs(v.x) * 70.0) + exp(-abs(v.y) * 70.0)) * (1 - r) * 0.35 : 0.0;
-    float twinkle = kind < 0.5 ? 0.9 + 0.1 * sin(u.res.w * 3.4 + in.color.r * 40.0) : 1.0;
     float ring = selected ? smoothstep(0.03, 0.0, abs(r - 0.92)) * 0.9 : 0.0;
-    // Celyx: collected stars and planets breathe slowly and carry a faint ring, so they read as "yours".
-    float breathe = disc ? 1.0 : 0.92 + 0.08 * sin(u.res.w * 1.1 + in.color.g * 23.0);
+    float breathe = disc ? 1.0 : 0.92 + 0.08 * sin(u.res.w * 1.1 + col.g * 23.0);
     glow *= breathe;
     if (!disc && !selected) ring += smoothstep(0.035, 0.0, abs(r - 0.62)) * 0.16;
-    float3 coreColor = mix(in.color.rgb, float3(1), disc ? 0.35 : 0.6);
-    float3 c = (in.color.rgb * (glow + spikes) * twinkle + coreColor * core) + float3(ring);
-    float a = clamp(core + (glow + spikes) * twinkle + ring, 0.0, 1.0);
+    float3 coreColor = mix(col, float3(1), disc ? 0.35 : 0.6);
+    float3 c = col * glow + coreColor * coreA + float3(ring);
+    float a = clamp(coreA + glow + ring, 0.0, 1.0);
     return float4(min(c, float3(a)), a);
 }
 
@@ -96,18 +153,14 @@ vertex VOut seaVertex(uint vid [[vertex_id]]) {
 
 float glslMod(float x, float y) { return x - y * floor(x / y); }
 
-// Milky Way map in RA/Dec (u = RA/360, v = (90 - Dec)/180), gamma-encoded like the kit.
-// Kept soft and only lightly desaturated (the kit's gold core, dust lanes and pink nebulae show), so the
-// collected lights stay the brightest things in the sky.
+// Milky Way map in RA/Dec (u = RA/360, v = (90 - Dec)/180), gamma-encoded, exactly as in the kit.
 float3 mwCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     constexpr sampler mws(filter::linear, mip_filter::linear, s_address::repeat, t_address::clamp_to_edge);
     float3 e = float3(dot(u.E0.xyz, d), dot(u.E1.xyz, d), dot(u.E2.xyz, d));
     float ra = atan2(e.y, e.x);
     float2 uv = float2(fract(ra / (2.0 * PI) + 1.0), acos(clamp(e.z, -1.0, 1.0)) / PI);
     float3 m = tMW.sample(mws, uv, level(u.E2.w)).rgb;
-    m = m * m * 1.15;
-    float l = dot(m, float3(.299, .587, .114));
-    return mix(m, float3(l) * float3(.92, .95, 1.05), .15);   // Celyx: keep the kit's gold core / pink nebulae
+    return m * m * 1.15;   // like the kit: no desaturation (gold core, dust lanes, pink nebulae)
 }
 
 float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
