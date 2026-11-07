@@ -44,9 +44,9 @@ struct StarCollectCameraView: View {
     @State private var showsFilteredStars = false
     /// True while something sits in the circle and we're locking on to it.
     @State private var isLocking = false
-    /// Capture cue ("cekrek"): white flash and a tiny shutter squeeze of the frame.
-    @State private var flash = 0.0
-    @State private var squeeze = 1.0
+    /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
+    @State private var captureStart: CFTimeInterval?
+    @State private var captureImage: CGImage?
     #if DEBUG
     /// Demo sky: a fake Rigel fixed in the AR world (nil = off). Never saved.
     @State private var demoDirection: SIMD3<Float>?
@@ -121,13 +121,14 @@ struct StarCollectCameraView: View {
     }
 
     var body: some View {
-        TimelineView(.animation(paused:handover == nil)) { _ in
+        TimelineView(.animation(paused:handover == nil && captureStart == nil)) { _ in
             let frame = handover.map { $0.frame($0.tt()) }
-            content(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1)
+            let shutter = captureStart.map { (CACurrentMediaTime()-$0)*1000 }
+            content(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1,shutter:shutter)
         }
     }
 
-    private func content(cameraUI: Double,crosshair: Double) -> some View {
+    private func content(cameraUI: Double,crosshair: Double,shutter: Double?) -> some View {
         ZStack(alignment:.bottom) {
             GeometryReader { geometry in
                 ZStack {
@@ -156,13 +157,15 @@ struct StarCollectCameraView: View {
                         DemoStarView(color:star.rgb).position(point)
                     }
                     #endif
+                    // Cekrek: the frame freezes at the click and over-exposes until the wormhole takes it.
+                    if let shutter, shutter < CaptureFlash.duration { CaptureFlashView(image:captureImage,t:shutter) }
                     if let handover { WormholeHandoverView(handover:handover) }
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
                     reticle.position(x:geometry.size.width/2,y:geometry.size.height/2+10)
                         .opacity(crosshair)
                 }
-                .scaleEffect(squeeze)
-                .overlay { Color.white.opacity(flash).allowsHitTesting(false) }
+                .scaleEffect(shutter.map(CaptureFlash.squeeze) ?? 1)
+                .overlay { Color.white.opacity(shutter.map(CaptureFlash.white) ?? 0).allowsHitTesting(false) }
                 .onAppear { viewSize = geometry.size }
                 .onChange(of:geometry.size) { _, size in viewSize = size }
             }
@@ -469,23 +472,21 @@ struct StarCollectCameraView: View {
 
     // MARK: Wormhole handover
 
-    /// Capture cue ("cekrek"), shared by the real flow and the demo: white flash (peak .35, 30 ms in,
-    /// 180 ms ease-out), a 1 → 0.985 → 1 shutter squeeze over 220 ms, rigid haptic + mechanical shutter click,
-    /// then the wormhole 250 ms later from the frame frozen at the click.
+    /// Capture cue ("cekrek"), shared by the real flow and the demo: the frame freezes at the click and
+    /// over-exposes (+1.5 stops, bloom, vignette pulse, chromatic edges), a white flash (.65, held 60 ms),
+    /// a 1 → 0.98 → 1 shutter squeeze, rigid haptic + mechanical shutter click; the wormhole opens 350 ms later.
     private func captureThenHandover(itemID: Int?,point: CGPoint,demoStar: CatalogStar? = nil,freeze: WormholeFreeze,
                                      then finish: @escaping () -> Void = {}) {
         WormholeFeedback.shared.playShutter()
+        captureImage = freeze.image
+        captureStart = CACurrentMediaTime()
         Task { @MainActor in
-            withAnimation(.linear(duration:0.03)) { flash = 0.35 }
-            withAnimation(.easeInOut(duration:0.11)) { squeeze = 0.985 }
-            try? await Task.sleep(for:.milliseconds(30))
-            withAnimation(.easeOut(duration:0.18)) { flash = 0 }
-            try? await Task.sleep(for:.milliseconds(80))
-            withAnimation(.easeInOut(duration:0.11)) { squeeze = 1 }
-            try? await Task.sleep(for:.milliseconds(140))
+            try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.handoverDelay)))
             beginHandover(itemID:itemID,point:point,demoStar:demoStar,freeze:freeze)
             verification = .idle
             finish()
+            try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.duration-CaptureFlash.handoverDelay)+20))
+            captureStart = nil; captureImage = nil
         }
     }
 

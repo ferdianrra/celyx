@@ -91,13 +91,13 @@ struct GardenSkyView: View {
         .onDisappear(perform:stopGyro)
         .onChange(of:handover?.phase) { _, phase in
             if phase == .landed, let next = handover?.demo { demo = next; place() }
-            if phase == .reframe { prepareLanding() }
+            if phase == .releasing { prepareRelease() }
         }
         .onChange(of:sheetRequest) { _, request in
             guard let request, let item = model.collectionItems.first(where:{ $0.id == request.itemID }) ?? request.demoItem else { return }
             selected = item   // Sendi's native card (springs in with the system sheet)
         }
-        .sheet(item:$selected,onDismiss:endDemo) { item in
+        .sheet(item:$selected,onDismiss:{ endDemo(); handover?.beginRelease() }) { item in
             CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction) {
                 model.deleteCollected(id:item.id)
                 selected = nil
@@ -110,7 +110,7 @@ struct GardenSkyView: View {
     /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
     private func viewCamera(_ now: Date) -> NightSeaCamera {
         guard let handover, handover.phase >= .landed, handover.phase < .done else { return camera }
-        handover.target = handover.phase >= .reframe ? camera : nil
+        handover.target = handover.phase >= .releasing ? camera : nil
         return handover.camera(handover.tt())
     }
 
@@ -226,19 +226,19 @@ struct GardenSkyView: View {
 
     // MARK: Handover
 
-    /// At the cross: point the garden's own camera where the reframe should end (fov 84°, 45° down),
-    /// so releasing the handover camera afterwards is seamless.
-    private func prepareLanding() {
+    /// The card closed: line the garden's own camera up with the star view (no gyro offset, no zoom), so the
+    /// 600 ms blend back to gyro/drag has no jump.
+    private func prepareRelease() {
         guard let handover else { return }
         if camera.orientation != nil {
-            offset = (0,WormholeTimeline.reframeAltitude * .pi/180)
-            var base = camera; base.zoom = 1; base.focalOverride = nil; base.centerYFraction = nil
-            camera.zoom = handover.focalLength(fieldOfView:WormholeTimeline.reframeFieldOfView)/base.focalLength(in:handover.freeze.size)
+            offset = (0,0)
+            camera.zoom = 1
         } else {
-            let forward = handover.freeze.orientation.act(SIMD3(0,0,-1))
+            let resting = handover.restingCamera
+            let forward = resting.forward
             camera.azimuth = atan2(forward.x,forward.y)
-            camera.altitude = max(-35 * .pi/180,asin(min(1,max(-1,forward.z)))+WormholeTimeline.reframeAltitude * .pi/180)
-            camera.fieldOfView = WormholeTimeline.reframeFieldOfView
+            camera.altitude = min(88 * .pi/180,max(-35 * .pi/180,asin(min(1,max(-1,forward.z)))))
+            camera.fieldOfView = WormholeTimeline.landingFieldOfView
         }
     }
 

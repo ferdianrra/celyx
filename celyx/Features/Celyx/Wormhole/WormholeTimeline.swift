@@ -33,7 +33,7 @@ nonisolated enum WormholeTimeline {
     static let flow = Bezier(0.65,0,0.15,1)
     static let out = Bezier(0.16,1,0.3,1)
     static let grow = Bezier(0.62,0,0.18,1)
-    /// Night Sea reframe after landing.
+    /// Landing / release easing.
     static let reframe = Bezier(0.42,0,0.12,1)
 
     static func clamp(_ x: Double,_ a: Double = 0,_ b: Double = 1) -> Double { min(b,max(a,x)) }
@@ -59,9 +59,14 @@ nonisolated enum WormholeTimeline {
     static let crossDelay: Double = 420
     /// Collected-object sheet springs in this long after the cross.
     static let sheetDelay: Double = 120
-    static let reframeDuration: Double = 1250
-    static let reframeFieldOfView: Double = 84
-    static let reframeAltitude: Double = -45
+    /// From T_LAND the view eases onto the collected star (cubic-bezier .42,0,.12,1) over this long.
+    static let landingDuration: Double = 900
+    /// Field of view while resting on the star (kit convention), so some sea/horizon shows when it is low.
+    static let landingFieldOfView: Double = 70
+    /// Once the card is up, the star sits in the middle of the sky above it (fraction of screen height).
+    static let sheetStarY: Double = 0.30
+    /// Closing the card hands the view back to gyro/drag over this long.
+    static let releaseDuration: Double = 600
 
     // MARK: Radius
 

@@ -60,10 +60,12 @@ final class WormholeHandover: Identifiable {
     enum Phase: Int, Comparable {
         /// Wormhole over the frozen camera frame.
         case wormhole
-        /// Landed: the garden starts rendering underneath (hidden) so the cross is seamless.
+        /// Landed (T_LAND): the view locks onto the collected star; the garden renders underneath (hidden).
         case landed
-        /// The Night Sea has taken over and is reframing (fov → 84°, look 45° down).
+        /// The Night Sea has taken over (the camera layer is gone); still looking at the star.
         case reframe
+        /// The card was closed: blending back to the garden's own camera (gyro / drag).
+        case releasing
         case done
         static func < (a: Phase,b: Phase) -> Bool { a.rawValue < b.rawValue }
     }
@@ -87,11 +89,14 @@ final class WormholeHandover: Identifiable {
     private(set) var phase: Phase = .wormhole
     /// Set when the sheet should spring in.
     private(set) var showsSheet = false
+    /// ms at which the card's arrival lifts the star to the area above it, and at which control was handed back.
+    private var sheetAt: Double?
+    private var releaseAt: Double?
 
     /// Night Sea field of view (kit convention: focal = 0.62·min(W,H)/tan(fov/2)) of the frozen camera.
     let baseFieldOfView: Double
 
-    /// The garden's own camera to land on (set by the garden at the cross).
+    /// The garden's own camera to hand back to (kept current by the garden while releasing).
     @ObservationIgnored var target: NightSeaCamera?
 
     init(freeze: WormholeFreeze,star: CGPoint,itemID: Int?,scene: WormholeScene,demo: WormholeDemo? = nil) {
@@ -120,8 +125,18 @@ final class WormholeHandover: Identifiable {
         }
         await wait(until:landing); phase = .landed
         await wait(until:cross); phase = .reframe
-        await wait(until:cross+WormholeTimeline.sheetDelay); showsSheet = true
-        await wait(until:cross+WormholeTimeline.reframeDuration); phase = .done
+        await wait(until:cross+WormholeTimeline.sheetDelay)
+        if itemID != nil { sheetAt = tt(); showsSheet = true } else { beginRelease() }
+    }
+
+    /// The card was closed (or there is none): hand the view back to the garden over 600 ms.
+    func beginRelease() {
+        guard phase < .releasing else { return }
+        releaseAt = tt(); phase = .releasing
+        Task { @MainActor in
+            try? await Task.sleep(for:.milliseconds(Int(WormholeTimeline.releaseDuration)))
+            phase = .done
+        }
     }
 
     // MARK: Camera
@@ -139,35 +154,55 @@ final class WormholeHandover: Identifiable {
         0.62*Double(min(freeze.size.width,freeze.size.height))/tan(max(5,min(170,fov)) * .pi/360)
     }
 
-    /// The camera the Night Sea is seen through: frozen pose + hand sway + landing shake + fov pull,
-    /// then (after the cross) the reframe onto the garden's own camera.
+    /// The collected star's direction [east, north, up] (falls back to where the frozen camera looked).
+    @ObservationIgnored private lazy var starDirection: SIMD3<Double> = {
+        scene.objects.first { $0.id == scene.newID }?.direction ?? freeze.orientation.act(SIMD3(0,0,-1))
+    }()
+
+    /// Upright camera looking straight at the collected star.
+    @ObservationIgnored private lazy var starView: simd_quatd = {
+        let f = simd_normalize(starDirection)
+        var right = simd_cross(f,SIMD3(0,0,1))
+        if simd_length(right) < 1e-3 { right = freeze.orientation.act(SIMD3(1,0,0)) }
+        right = simd_normalize(right)
+        return WormholeFreeze.orientation(forward:f,right:right,up:simd_cross(right,f))
+    }()
+
+    /// The camera the Night Sea is seen through: frozen pose + hand sway (until T_LAND) + fov pull, then from
+    /// T_LAND it locks and eases onto the collected star (gyro ignored); the landing shake rides on top and dies
+    /// out on the star. When the card rises the star moves to the middle of the area above it. On release it
+    /// blends back to the garden's own camera.
     func pinhole(_ tt: Double,frame f: WormholeTimeline.Frame) -> Pinhole {
         let t = tt/1000
-        let swayYaw = f.jitter*(0.6*sin(t*1.7)+0.4*sin(t*2.9+1.3))
-        let swayPitch = f.jitter*(0.5*sin(t*1.3+0.7)+0.5*sin(t*2.3+2.1))
+        let jitter = tt >= landing ? 0 : f.jitter
+        let swayYaw = jitter*(0.6*sin(t*1.7)+0.4*sin(t*2.9+1.3))
+        let swayPitch = jitter*(0.5*sin(t*1.3+0.7)+0.5*sin(t*2.3+2.1))
         let az = (0.10*f.shake+swayYaw) * .pi/180, alt = (-0.32*f.shake+swayPitch) * .pi/180
-        let shaken = simd_quatd(angle:-az,axis:SIMD3(0,0,1))*freeze.orientation*simd_quatd(angle:alt,axis:SIMD3(1,0,0))
-        let fov = baseFieldOfView+f.pull
+        let ease = WormholeTimeline.reframe
+        let lock = ease(WormholeTimeline.seg(tt,landing,landing+WormholeTimeline.landingDuration))
+        let base = lock > 0 ? simd_slerp(freeze.orientation,starView,lock) : freeze.orientation
+        let shaken = simd_quatd(angle:-az,axis:SIMD3(0,0,1))*base*simd_quatd(angle:alt,axis:SIMD3(1,0,0))
+        let fov = WormholeTimeline.mix(baseFieldOfView,WormholeTimeline.landingFieldOfView,lock)+f.pull
         let pinFocal = focal(forFieldOfView:fov)
-        var result = Pinhole(orientation:shaken,focal:pinFocal,centerY:0.5,imageScale:freeze.focal/pinFocal,
+        var centerY = 0.5
+        if let sheetAt { centerY = WormholeTimeline.mix(0.5,WormholeTimeline.sheetStarY,ease(WormholeTimeline.seg(tt,sheetAt,sheetAt+500))) }
+        var result = Pinhole(orientation:shaken,focal:pinFocal,centerY:centerY,imageScale:freeze.focal/pinFocal,
                              imageShift:CGVector(dx:freeze.focal*az,dy:-freeze.focal*alt))
-        guard tt > cross else { return result }
-        let r = WormholeTimeline.reframe(WormholeTimeline.seg(tt,cross,cross+WormholeTimeline.reframeDuration))
-        let goal = landingCamera
+        guard let releaseAt, let goal = target else { return result }
+        let r = ease(WormholeTimeline.seg(tt,releaseAt,releaseAt+WormholeTimeline.releaseDuration))
         let goalFocal = goal.focalLength(in:freeze.size)
         let goalFov = 2*atan(0.62*Double(min(freeze.size.width,freeze.size.height))/goalFocal)*180 / .pi
         result.orientation = simd_slerp(shaken,Self.orientation(of:goal),r)
         result.focal = focal(forFieldOfView:WormholeTimeline.mix(fov,goalFov,r))
-        result.centerY = WormholeTimeline.mix(0.5,goal.center(in:CGSize(width:1,height:1)).y,r)
+        result.centerY = WormholeTimeline.mix(centerY,goal.center(in:CGSize(width:1,height:1)).y,r)
         return result
     }
 
-    /// Where the reframe ends: the garden's camera, or (if it has not reported one) 45° down at 84°.
-    var landingCamera: NightSeaCamera {
-        if let target { return target }
+    /// Where the view rests after landing: on the star, upright, at the landing field of view.
+    var restingCamera: NightSeaCamera {
         var camera = NightSeaCamera()
-        camera.orientation = freeze.orientation*simd_quatd(angle:WormholeTimeline.reframeAltitude * .pi/180,axis:SIMD3(1,0,0))
-        camera.focalOverride = focal(forFieldOfView:WormholeTimeline.reframeFieldOfView)
+        camera.orientation = starView
+        camera.focalOverride = focal(forFieldOfView:WormholeTimeline.landingFieldOfView)
         return camera
     }
 
