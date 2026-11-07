@@ -51,7 +51,6 @@ struct CollectionListView: View {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }
-            .celyxSheet()
         }
     }
 
