@@ -293,15 +293,19 @@ struct GardenSkyView: View {
         // Calibrated compass error (see SkyCalibration): turn the sensor's north to true north.
         let correction = SkyCalibration.motionHeadingOffset
         if correction != 0 { sensor = simd_quatd(angle:-correction,axis:SIMD3(0,0,1))*sensor }
-        if offset.azimuth != 0 || offset.altitude != 0 {
+        // A few degrees of extra upward tilt by default, so the horizon rests lower and the sky dominates.
+        let tilt = offset.altitude+Self.restingTilt
+        if offset.azimuth != 0 || tilt != 0 {
             let yaw = simd_quatd(angle:-offset.azimuth,axis:SIMD3(0,0,1))      // around the world's vertical
-            let pitch = simd_quatd(angle:offset.altitude,axis:SIMD3(1,0,0))    // around the phone's own right axis
+            let pitch = simd_quatd(angle:tilt,axis:SIMD3(1,0,0))               // around the phone's own right axis
             sensor = yaw*sensor*pitch
         }
         guard let current = camera.orientation, !reduceMotion else { camera.orientation = sensor; return }
         // Light smoothing against sensor jitter; still follows the phone within a few frames.
         camera.orientation = simd_slerp(current,sensor,0.45)
     }
+    /// Default upward tilt of the gyro view (radians).
+    private static let restingTilt = 4 * Double.pi/180
     /// Horizontal (long-side) field of view of the back wide camera, used for the 1:1 window.
     private static let backCameraFieldOfView: Double = {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:.back) else { return 69 }

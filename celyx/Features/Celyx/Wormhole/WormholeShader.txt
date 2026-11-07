@@ -19,61 +19,10 @@ float2 wormCamUV(float2 p, constant WormUniforms &w) {
     return clamp(q / w.scr.xy, 0.0, 1.0);
 }
 
-// The collected objects, looked up by direction in the pinhole layers (others + the new star fading in).
-float4 wormLayer(float2 uv, texture2d<float> tA, texture2d<float> tB, float starAmt) {
-    constexpr sampler smp(filter::linear, address::clamp_to_edge);
-    return min(tA.sample(smp, uv) + tB.sample(smp, uv) * starAmt, float4(1.0));
-}
-
-// Same colour as seaFragment for direction d, with the object layer sampled where d projects.
+// Same colour as the garden for direction d (shared envColor), with the object layers looked up where d projects
+// (the collection, plus the new star fading in).
 float3 wormEnv(float3 d, constant SeaUniforms &u, texture2d<float> tA, texture2d<float> tB, float starAmt, texture2d<float> tMW) {
-    float3 col;
-    if (d.z >= 0.0) {
-        float2 uv = toScreen(d, u);
-        float4 st = (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ? wormLayer(uv, tA, tB, starAmt) : float4(0);
-        col = skyCol(d, u, tMW) * (1.0 - st.a) + st.rgb;
-        float4 il = island(d, u);
-        col = mix(col, il.rgb, il.a);
-    } else {
-        float eh = 1.5, dist = min(eh / -d.z, 4000.0);
-        float2 P = d.xy * dist; float2 gr = float2(0);
-        float4 ang = float4(.3, -.8, 1.9, 2.7), L = float4(9.0, 5.5, 3.1, 1.7), A = float4(.22, .12, .07, .04);
-        for (int i = 0; i < 4; i++) {
-            float2 dir = float2(cos(ang[i]), sin(ang[i]));
-            float k = 2.0 * PI / L[i], wq = sqrt(9.81 * k), ph = k * dot(dir, P) - wq * u.res.w;
-            float f = 1.0 - smoothstep(L[i] * 6.0, L[i] * 45.0, dist);
-            gr -= A[i] * f * k * sin(ph) * dir;
-        }
-        float3 sea = mix(float3(.01, .018, .045), float3(.035, .06, .12), smoothstep(-.5, -.01, d.z));
-        float2 gc = gr * u.cam.w;
-        float3 N = normalize(float3(-gc, 1.0));
-        float3 R = reflect(d, N); R.z = max(R.z, .003); R = normalize(R);
-        float fr = .02 + .98 * pow(1.0 - max(-dot(d, N), 0.0), 5.0);
-        float3 refl = skyCol(R, u, tMW);
-        float3 R0 = reflect(d, normalize(float3(-gc * .3, 1.0))); R0.z = max(R0.z, .0005);
-        float4 il = island(normalize(R0), u);
-        if (il.a < .5) {
-            float2 uv = toScreen(R, u);
-            if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
-                float4 s = float4(0); float stp = 2.0 * u.res.z / u.res.y;
-                for (int j = -2; j <= 2; j++) s += wormLayer(uv + float2(0.0, float(j) * stp * .5), tA, tB, starAmt) * .2;
-                float fd = mix(.3, 1.0, smoothstep(-.55, -.02, d.z));
-                refl = refl * (1.0 - s.a * .55 * fd) + s.rgb * .55 * fd;
-            }
-        }
-        refl = mix(refl, il.rgb * .85, il.a * .85);
-        float k = clamp(.8 + fr * .45, 0.0, 1.0);
-        col = mix(sea, refl * float3(.62, .70, .88), k * .85);
-        float far = smoothstep(3.0, 500.0, dist);
-        float sig = .06 + .33 * u.cam.w, pM = road(d, u.moon.xyz, sig * .9), hz = mix(.1, .75, far);
-        col += float3(.85, .88, .95) * u.flags.y * (pM * hz * .3 + sparkle(d + .001, pM * .7, u) * .6);
-        col = mix(col, skyCol(normalize(float3(d.xy, .002)), u, tMW), smoothstep(250.0, 4000.0, dist) * .6);
-        float3 up = normalize(float3(d.xy, .0015));
-        float4 iu = island(up, u);
-        float3 ab = mix(skyCol(up, u, tMW), iu.rgb, iu.a) * .82;
-        col = mix(col, ab, smoothstep(-.012, -.0005, d.z) * .9);
-    }
-    return clamp(col, 0.0, 1.0);
+    return envColor(d, toScreen(d, u), u, tA, tB, starAmt, tMW);
 }
 
 fragment float4 wormholeFragment(VOut in [[stage_in]], constant SeaUniforms &u [[buffer(0)]], constant WormUniforms &w [[buffer(1)]],
@@ -136,5 +85,5 @@ fragment float4 wormholeFragment(VOut in [[stage_in]], constant SeaUniforms &u [
     col *= mix(1.0, .2, smoothstep(.985, 1.0, wu));
     col *= mix(1.0, w.fx.z, w.wh.w);
     col += noise * w.fx.x * w.wh.w;
-    return float4(clamp(col, 0.0, 1.0), 1.0);
+    return float4(clamp(dither(col, fc), 0.0, 1.0), 1.0);   // same dither as the garden (seamless cross)
 }
