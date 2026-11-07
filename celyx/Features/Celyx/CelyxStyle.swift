@@ -24,9 +24,18 @@ enum CelyxColor {
 /// The glow is measured in points from the top edge, exactly like the inner shadows in Figma,
 /// so short cards and tall sheets get the same band.
 struct CelyxBluePanel: View {
-    var cornerRadius: CGFloat
+    /// Omit the radius to follow the enclosing system sheet's shape.
+    var cornerRadius: CGFloat? = nil
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius:cornerRadius,style:.continuous)
+        if let cornerRadius {
+            surface(in:RoundedRectangle(cornerRadius:cornerRadius,style:.continuous))
+        } else {
+            surface(in:ContainerRelativeShape())
+        }
+    }
+
+    private func surface<S: InsettableShape>(in shape: S) -> some View {
         shape.fill(CelyxColor.panelBase)
             .overlay(alignment:.top) {
                 LinearGradient(stops:[

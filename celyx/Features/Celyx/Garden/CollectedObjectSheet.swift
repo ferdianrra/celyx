@@ -15,59 +15,69 @@ struct CollectedObjectSheet: View {
     private var photo: UIImage? { StarPhotoStore.load(item.record.photoFilename) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment:.leading,spacing:16) {
-                HStack(spacing:16) {
-                    StarPortraitView(star:star)
-                        .frame(width:64,height:64)
-                        .shadow(color:Color(red:star.rgb.x,green:star.rgb.y,blue:star.rgb.z).opacity(0.7),radius:10)
-                        .accessibilityHidden(true)
-                    VStack(alignment:.leading,spacing:2) {
-                        Text(star.title).font(.system(size:28,weight:.bold)).tracking(0.38).foregroundStyle(CelyxColor.primaryLabel)
-                            .lineLimit(1).minimumScaleFactor(0.6)
-                        Text(subtitle).font(.system(size:15,weight:.medium)).foregroundStyle(CelyxColor.subtitle)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment:.leading,spacing:16) {
+                    HStack(spacing:16) {
+                        StarPortraitView(star:star)
+                            .frame(width:64,height:64)
+                            .shadow(color:Color(red:star.rgb.x,green:star.rgb.y,blue:star.rgb.z).opacity(0.7),radius:10)
+                            .accessibilityHidden(true)
+                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                        Spacer(minLength:0)
                     }
-                    Spacer(minLength:0)
-                    CelyxCloseButton { if let onClose { onClose() } else { dismiss() } }
-                }
 
-                if let photo {
-                    Image(uiImage:photo).resizable().scaledToFill()
-                        .frame(maxWidth:.infinity).frame(height:200)
-                        .clipShape(RoundedRectangle(cornerRadius:16,style:.continuous))
-                        .accessibilityLabel("Your photo of \(star.title)")
-                }
+                    if let photo {
+                        Image(uiImage:photo).resizable().scaledToFill()
+                            .frame(maxWidth:.infinity).frame(height:200)
+                            .clipShape(RoundedRectangle(cornerRadius:16,style:.continuous))
+                            .accessibilityLabel("Your photo of \(star.title)")
+                    }
 
-                infoRow(symbol:"calendar",label:"Collected",value:item.record.date.formatted(.dateTime.day().month(.wide).year().hour().minute().locale(Locale(identifier:"en_US"))))
-                infoRow(symbol:"location",label:"Where you were",value:item.coordinates)
-                infoRow(symbol:"safari",label:"In the sky right now",value:skyPosition)
-                if let note = item.record.note, !note.isEmpty {
-                    infoRow(symbol:"note.text",label:"Your note",value:note)
-                }
-                if let identification = item.record.identificationNote {
-                    Text(identification).font(.system(size:12)).foregroundStyle(.white.opacity(0.5))
-                }
+                    infoRow(symbol:"calendar",label:"Collected",value:item.record.date.formatted(.dateTime.day().month(.wide).year().hour().minute().locale(Locale(identifier:"en_US"))))
+                    infoRow(symbol:"location",label:"Where you were",value:item.coordinates)
+                    infoRow(symbol:"safari",label:"In the sky right now",value:skyPosition)
+                    if let note = item.record.note, !note.isEmpty {
+                        infoRow(symbol:"note.text",label:"Your note",value:note)
+                    }
+                    if let identification = item.record.identificationNote {
+                        Text(identification).font(.system(size:12)).foregroundStyle(.white.opacity(0.5))
+                    }
 
-                Button(role:.destructive) { confirmsDelete = true } label: {
-                    Label("Delete from garden",systemImage:"trash")
-                        .font(.system(size:17,weight:.semibold))
-                        .frame(maxWidth:.infinity).frame(height:48)
-                        .background(Capsule().fill(Color.red.opacity(0.18)))
-                        .foregroundStyle(.red)
-                        .contentShape(Capsule())
+                    Button(role:.destructive) { confirmsDelete = true } label: {
+                        Label("Delete from garden",systemImage:"trash")
+                            .font(.system(size:17,weight:.semibold))
+                            .frame(maxWidth:.infinity).frame(height:48)
+                            .background(Capsule().fill(Color.red.opacity(0.18)))
+                            .foregroundStyle(.red)
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top,4)
+                    .confirmationDialog("Delete \(star.title)?",isPresented:$confirmsDelete,titleVisibility:.visible) {
+                        Button("Delete",role:.destructive,action:onDelete)
+                        Button("Cancel",role:.cancel) {}
+                    } message: {
+                        Text("It will leave your garden, along with its photo and note.")
+                    }
                 }
-                .buttonStyle(.plain)
-                .padding(.top,4)
-                .confirmationDialog("Delete \(star.title)?",isPresented:$confirmsDelete,titleVisibility:.visible) {
-                    Button("Delete",role:.destructive,action:onDelete)
-                    Button("Cancel",role:.cancel) {}
-                } message: {
-                    Text("It will leave your garden, along with its photo and note.")
+                .padding(.horizontal,20).padding(.top,12).padding(.bottom,20)
+            }
+            .scrollIndicators(.hidden)
+            .modifier(TransparentNavigation(enabled:onClose != nil))
+            .navigationTitle(star.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement:.topBarTrailing) {
+                    Button("Close",systemImage:"xmark") { if let onClose { onClose() } else { dismiss() } }
+                        .labelStyle(.iconOnly)
                 }
             }
-            .padding(.horizontal,20).padding(.bottom,20)
         }
-        .scrollIndicators(.hidden)
+        .presentationDetents([.medium,.large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground { CelyxBluePanel() }
+        .preferredColorScheme(.dark)
     }
 
     private var subtitle: String {
@@ -102,4 +112,12 @@ struct CollectedObjectSheet: View {
 #Preview("Collected object") {
     CollectedObjectSheet(item:AppPreviewData.item,direction:SIMD3(0,0.8,0.6),onDelete:{})
         .preferredColorScheme(.dark)
+}
+
+/// Shown inside the wormhole handover's own panel (not a system sheet): let that panel show through.
+private struct TransparentNavigation: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.containerBackground(.clear,for:.navigation) } else { content }
+    }
 }

@@ -35,37 +35,23 @@ struct CollectionListView: View {
     let events: SkyEventStore
     let onSelectEvent: (SkyEvent) -> Void
     @State private var selected: GardenCollectionItem?
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ScrollView {
-            VStack(alignment:.leading,spacing:0) {
-                navigationBar
-                content.padding(.horizontal,20).padding(.top,12).padding(.bottom,40)
-            }
+            content.padding(.horizontal,20).padding(.top,12).padding(.bottom,40)
         }
         .scrollIndicators(.hidden)
         .background(CelyxScreenWash())
-        .toolbar(.hidden,for:.navigationBar)
+        .navigationTitle(category.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible,for:.navigationBar)
         .preferredColorScheme(.dark)
         .sheet(item:$selected) { item in
             CollectedObjectSheet(item:item,direction:currentDirection(of:item)) {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }
-            .celyxSheet()
         }
-    }
-
-    private var navigationBar: some View {
-        HStack {
-            CelyxBackButton { dismiss() }
-            Spacer()
-            Text(category.title).font(.system(size:20)).tracking(-0.45).foregroundStyle(.white)
-            Spacer()
-            Color.clear.frame(width:48,height:48)
-        }
-        .padding(.horizontal,20).padding(.vertical,12)
     }
 
     @ViewBuilder private var content: some View {

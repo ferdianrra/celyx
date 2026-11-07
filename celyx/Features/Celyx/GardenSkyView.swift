@@ -107,7 +107,6 @@ struct GardenSkyView: View {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }
-            .celyxSheet()
         }
         .accessibilityElement(children:.contain)
         .accessibilityLabel("Your garden sky")
@@ -260,7 +259,7 @@ struct GardenSkyView: View {
                 model.deleteCollected(id:item.id)
                 close()
             }
-            .padding(.top,24)
+            .padding(.top,14)
         }
         .frame(height:UIScreen.main.bounds.height*0.52)
         .padding(.horizontal,6).padding(.bottom,6)
