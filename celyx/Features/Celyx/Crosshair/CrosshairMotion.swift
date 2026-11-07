@@ -186,14 +186,14 @@ enum CrosshairChoreography {
             return CrosshairTransition(name: "Lose", tracks: [
                 .arcTrim: t(0, 320, E.flow), .tickDip: t(0, 300, E.settle, 14), .tickRotate: t(30, 240, E.flow, 14),
                 .tickRadius: t(30, 300, E.flow, 14), .tickWidth: t(0, 300, E.flow),
-            ], sound: .back)
+            ])   // Celyx: leaving a target is silent
 
         case (.enable, .default):    // Release: the lock in reverse (ticks spin back −90°, retract and fire out)
             return CrosshairTransition(name: "Release", tracks: [
                 .label: t(0, 160, E.exit), .tickRotate: t(0, 340, E.flow, 10), .tickRadius: t(0, 340, E.flow, 10),
                 .tickDip: t(0, 300, E.settle, 14), .color: t(0, 220, E.flow), .ringOpacity: t(0, 220, E.flow),
                 .tickWidth: t(0, 300, E.flow), .ringScale: t(0, 340, E.flow), .focus: t(0, 340, E.flow),
-            ], haptic: .acquire, hapticAt: 0, sound: .release)
+            ], haptic: .release, hapticAt: 0)   // Celyx: silent, just a whisper of a haptic
 
         case (.enable, .locking):    // Slip
             return CrosshairTransition(name: "Slip", tracks: [
@@ -208,7 +208,7 @@ enum CrosshairChoreography {
                 .color: t(50, 350, E.flow), .ringOpacity: t(50, 350, E.flow),
                 .tickDip: t(0, 300, E.settle, 14), .tickRotate: t(30, 240, E.flow, 14), .tickRadius: t(30, 300, E.flow, 14),
                 .tickWidth: t(0, 350, E.flow),
-            ], sound: .back)
+            ])   // Celyx: silent
 
         default:                      // Morph: any other jump
             var tr: [TrackKey: Track] = [
@@ -222,7 +222,7 @@ enum CrosshairChoreography {
                 tr[.tickPunch] = t(200, 380, E.glide, 16); tr[.label] = t(220, 490, E.glide); tr[.focus] = t(190, 420, E.pop)
                 return CrosshairTransition(name: "Morph", tracks: tr, haptic: .lock, hapticAt: 190, sound: .lock, soundAt: 190)
             }
-            let s: CrosshairSound = to == .locking ? .acquire : (to == .validating ? .validate : .back)
+            let s: CrosshairSound? = to == .locking ? .acquire : (to == .validating ? .validate : nil)   // Celyx: Default is silent
             return CrosshairTransition(name: "Morph", tracks: tr, sound: s)
         }
     }
@@ -340,6 +340,8 @@ final class CrosshairEngine {
     private var lastNow: Double?
     private var readyClock = 0.0, readyNext = CrosshairTuning.readyFirst
     private var pending: [DispatchWorkItem] = []
+    /// Celyx: hovering on the edge of a star must not machine-gun the lock cue.
+    private var lastLockCue = -1e12
 
     private static let loaderMaxDiff: Double = {
         var m = 0.0
@@ -431,7 +433,11 @@ final class CrosshairEngine {
 
         // Haptics + sound, timed to the motion.
         pending.forEach { $0.cancel() }; pending.removeAll()
-        let snd = soundEnabled, hap = hapticsEnabled
+        var snd = soundEnabled, hap = hapticsEnabled
+        if target == .enable {
+            // At most one lock sound (and haptic) per 600 ms.
+            if now - lastLockCue < 600 { snd = false; hap = false } else { lastLockCue = now }
+        }
         if let h = tr.haptic, hap { schedule(after: tr.hapticAt) { CrosshairFeedback.shared.play(h) } }
         if let s = tr.sound, snd { schedule(after: tr.soundAt) { CrosshairFeedback.shared.play(s) } }
     }

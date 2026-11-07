@@ -8,7 +8,7 @@ import AVFoundation
 import CoreHaptics
 import UIKit
 
-public enum CrosshairHaptic: Sendable { case acquire, lock, validate, fail, collect }
+public enum CrosshairHaptic: Sendable { case acquire, lock, validate, fail, collect, release }
 
 public enum CrosshairSound: String, CaseIterable, Sendable {
     case acquire, lock, validate, back, release, ready
@@ -118,6 +118,8 @@ public final class CrosshairFeedback: @unchecked Sendable {
             return [continuous(0, 0.5, 0.4, 0.15)]
         case .fail:     // "not this time": two soft, dull taps that step down, matching the falling two-note sound
             return [transient(0, 0.5, 0.25), transient(0.125, 0.32, 0.1)]
+        case .release:  // Celyx: unlock, barely there
+            return [transient(0, 0.25, 0.2)]
         case .collect:  // rising taps on each arpeggio note, then a firm bright "ting" with a short shimmer
             return [transient(0.035, 0.35, 0.5), transient(0.09, 0.45, 0.6), transient(0.145, 0.55, 0.7),
                     transient(0.20, 0.65, 0.8), transient(0.255, 1.0, 0.9), continuous(0.255, 0.35, 0.35, 0.8)]
@@ -148,6 +150,7 @@ public final class CrosshairFeedback: @unchecked Sendable {
                 case .validate: UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 case .fail: UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.6)
                 case .collect: UINotificationFeedbackGenerator().notificationOccurred(.success)
+                case .release: UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.25)
                 }
             }
         }
