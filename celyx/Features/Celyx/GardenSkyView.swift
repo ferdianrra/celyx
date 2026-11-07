@@ -332,3 +332,8 @@ struct GardenSheetRequest: Equatable {
     let id = UUID()
     let itemID: Int
 }
+
+#Preview("Garden sky") {
+    GardenSkyView(model:AppPreviewData.collectedModel,camera:.constant(NightSeaCamera()))
+        .preferredColorScheme(.dark)
+}

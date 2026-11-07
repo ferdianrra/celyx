@@ -158,3 +158,8 @@ private struct CameraThumbnail: View {
 }
 
 #Preview("Event") { CollectCameraView(mode:.event(SkyEvent.catalogue[0]),model:HomeViewModel(),events:SkyEventStore()) { _ in } }
+
+#Preview("Camera thumbnail") {
+    CameraThumbnail(asset:"event-moon").padding().background(.black)
+        .preferredColorScheme(.dark)
+}

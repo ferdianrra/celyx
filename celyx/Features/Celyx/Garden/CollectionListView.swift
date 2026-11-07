@@ -185,3 +185,8 @@ struct CollectionListView: View {
         return geometric.map { Refraction.apparent($0) }
     }
 }
+
+#Preview("Collection list") {
+    CollectionListView(category:.stars,model:AppPreviewData.collectedModel,events:SkyEventStore(),onSelectEvent:{ _ in })
+        .preferredColorScheme(.dark)
+}

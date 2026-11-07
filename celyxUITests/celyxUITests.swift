@@ -9,6 +9,30 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testFilteredStarsCanBeOpenedFromHome() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+        let list = app.buttons["open-filtered-stars"]
+        XCTAssertTrue(list.waitForExistence(timeout:30))
+        list.tap()
+        XCTAssertTrue(app.staticTexts["Visible Now"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.buttons["View filtered stars in AR"].exists)
+        let screenshot = XCTAttachment(screenshot:app.screenshot())
+        screenshot.name = "Filtered Stars — list and controls"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let daylight = app.switches["Daylight"]
+        XCTAssertTrue(daylight.exists)
+        let before = daylight.value as? String
+        daylight.tap()
+        XCTAssertNotEqual(daylight.value as? String,before)
+        app.buttons["Back"].tap()
+        XCTAssertTrue(list.waitForExistence(timeout:5))
+    }
+
+    @MainActor
     func testHomePanoramaAndControls() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

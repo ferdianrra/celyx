@@ -298,3 +298,8 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         command.commit()
     }
 }
+
+#Preview("Night sea") {
+    NightSeaView(camera:NightSeaCamera(),objects:[],selectedID:nil,moon:nil,equatorial:nil,isActive:false).ignoresSafeArea()
+        .preferredColorScheme(.dark)
+}

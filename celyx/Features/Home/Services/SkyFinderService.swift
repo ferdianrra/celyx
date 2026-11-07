@@ -293,6 +293,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     }
 
     func start() async {
+        guard !AppPreviewData.isRunning else { status = .unavailable("Live camera is available on an iPhone."); return }
         guard !running else { return }; running = true
         guard AROrientationTrackingConfiguration.isSupported else {
             status = .unavailable("Sky Camera isn’t supported on this device.")

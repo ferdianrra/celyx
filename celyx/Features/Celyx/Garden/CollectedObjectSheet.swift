@@ -98,3 +98,8 @@ struct CollectedObjectSheet: View {
         .accessibilityElement(children:.combine)
     }
 }
+
+#Preview("Collected object") {
+    CollectedObjectSheet(item:AppPreviewData.item,direction:SIMD3(0,0.8,0.6),onDelete:{})
+        .preferredColorScheme(.dark)
+}

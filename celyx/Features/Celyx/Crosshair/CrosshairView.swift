@@ -180,3 +180,8 @@ public struct CrosshairDemoView: View {
 }
 
 #Preview { CrosshairDemoView() }
+
+#Preview("Crosshair states") {
+    HStack { CrosshairView(state:.default,soundEnabled:false,hapticsEnabled:false,idleLoops:false); CrosshairView(state:.validating,soundEnabled:false,hapticsEnabled:false,idleLoops:false); CrosshairView(state:.enable,label:"Sirius",soundEnabled:false,hapticsEnabled:false,idleLoops:false) }.background(.black)
+        .preferredColorScheme(.dark)
+}

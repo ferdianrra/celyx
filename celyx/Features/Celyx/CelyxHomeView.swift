@@ -10,6 +10,7 @@ struct CelyxHomeView: View {
     @State private var gardenCamera = NightSeaCamera()
     @State private var gardenReset = 0
     @State private var showsCalibration = false
+    @State private var showsFilteredStars = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
     @State private var cameraFades = false
@@ -24,7 +25,7 @@ struct CelyxHomeView: View {
         NavigationStack(path:$path) {
             ZStack(alignment:.bottom) {
                 GardenSkyView(model:model,camera:$gardenCamera,
-                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
+                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration && !showsFilteredStars
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,
                               handover:handover,sheetRequest:sheetRequest)
@@ -52,6 +53,11 @@ struct CelyxHomeView: View {
                     VStack(spacing:0) {
                         topBar
                         HStack {
+                            CelyxGlassButton(width:156,action:{ showsFilteredStars = true }) {
+                                Label("Filtered Stars",systemImage:"list.star")
+                                    .font(.system(size:15,weight:.semibold)).foregroundStyle(CelyxColor.primaryLabel)
+                            }
+                            .accessibilityIdentifier("open-filtered-stars")
                             Spacer()
                             backgroundToggle
                         }
@@ -101,8 +107,11 @@ struct CelyxHomeView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .fullScreenCover(isPresented:$showsFilteredStars) {
+            FilteredStarsView(model:model)
+        }
         .fullScreenCover(isPresented:$showsCalibration) {
-            SkyCalibrationView(catalogue:model.stars) { showsCalibration = false }
+            SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
         }
         .fullScreenCover(item:$camera) { mode in
             CollectCameraView(mode:mode,model:model,events:events) { finished in
@@ -339,4 +348,24 @@ private struct CollectionTile<Art: View>: View {
     }
 }
 
-#Preview { CelyxHomeView(model:HomeViewModel()) }
+#Preview { CelyxHomeView(model:AppPreviewData.collectedModel) }
+
+#Preview("Collection sheet") {
+    CollectionSheet(counts:.init(stars:12,planets:2,events:1,constellations:3),onSelect:{ _ in },onClose:{}).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Compass badge") {
+    CompassBadge().padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Collecting background") {
+    StartCollectingBackground().frame(height:64).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Collection tile") {
+    CollectionTile(title:"Stars",count:12,action:{}) { Image(systemName:"sparkles").font(.largeTitle).foregroundStyle(.white) }.frame(width:180,height:150).padding().background(.black)
+        .preferredColorScheme(.dark)
+}
