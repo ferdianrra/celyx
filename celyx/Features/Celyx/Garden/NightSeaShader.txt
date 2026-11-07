@@ -209,32 +209,45 @@ float isl(float az, float n, float hm, float sd) {
     return best;
 }
 
-float4 lay(float az, float alt, float pa, float n, float hm, float sd, float3 base, float haze, constant SeaUniforms &u) {
+constant float EYE_HEIGHT = 6.0;   // metres above the water (was 1.5: the view felt sunken)
+
+// One island ring. Heights are angles above the island's own WATERLINE, which (seen from 6 m up) lies below the
+// sea horizon by atan(6 / distance): the base sits on the water in front of the horizon, never floating above it.
+// alt: altitude of the look direction (radians); altw: this ring's waterline altitude (< 0).
+float4 lay(float az, float alt, float altw, float pa, float n, float hm, float sd, float3 base, float haze, constant SeaUniforms &u) {
     float h = isl(az, n, hm, sd) * PI / 180.0;
-    float cov = clamp((h - alt) / (pa * .9), 0.0, 1.0);
+    float a2 = alt - altw;                                     // height above the waterline
+    float cov = clamp((h - a2) / (pa * .9), 0.0, 1.0) * smoothstep(-.6 * pa, .6 * pa, a2);
     if (cov <= 0.0) return float4(0);
     float e = .03, sl = (isl(az + e, n, hm, sd) - isl(az - e, n, hm, sd)) * PI / 180.0 / (2.0 * e);
-    float t = clamp(alt / max(h, 1e-5), 0.0, 1.0), side = clamp(.5 + sl * 5.0, 0.0, 1.0);
+    float t = clamp(a2 / max(h, 1e-5), 0.0, 1.0), side = clamp(.5 + sl * 5.0, 0.0, 1.0);
     float3 c = base * mix(.6, 1.5, side);
     c += u.hor.rgb * .07 * t * (1.0 - haze);
-    float rim = smoothstep(2.2 * pa, 0.0, h - alt) * (.25 + .5 * side);
+    float rim = smoothstep(2.2 * pa, 0.0, h - a2) * (.25 + .5 * side);
     float glowSide = pow(max(-sin(az), 0.0), 2.0);                     // ridges facing the dusk glow catch it
     float3 rimCol = mix(u.hor.rgb * .6 + base, GLOW_PEACH * .75, .55 * glowSide);
     c = mix(c, rimCol, rim * (1.0 - haze));
     c = mix(c, u.hor.rgb * .85, haze * (1.0 - .35 * t));
+    // Shoreline: wet, darker rock at the waterline, and a hairline of light where water meets rock on the glow side.
+    c *= mix(1.0, .72, 1.0 - smoothstep(0.0, 3.0 * pa, a2));
+    c += GLOW_PEACH * .30 * glowSide * (1.0 - smoothstep(0.0, 1.2 * pa, a2));
+    // Low mist lying on the water, wrapped around the base (thin near, thicker far).
+    c = mix(c, u.hor.rgb * .9, (.18 + .25 * haze) * (1.0 - smoothstep(0.0, .026, a2)));
     return float4(c, cov);
 }
 
-float4 island(float3 d, constant SeaUniforms &u) {
+// Islands at their distances: near ring ~2 km, mid ~4 km, far ~7 km (about 200–230 m high).
+// mirror = 1 evaluates the reflection: the look direction is mirrored at each ring's own waterline.
+float4 island(float3 d, constant SeaUniforms &u, float mirror = 0.0) {
     if (u.flags.z < .5) return float4(0);
     float az = atan2(d.x, d.y), alt = asin(clamp(d.z, -1.0, 1.0)), pa = 1.0 / u.cam.x;
-    if (alt < -.003 || alt > .16) return float4(0);
+    if (alt < -.006 || alt > .16) return float4(0);
+    float w1 = -atan(EYE_HEIGHT / 2000.0), w2 = -atan(EYE_HEIGHT / 4000.0), w3 = -atan(EYE_HEIGHT / 7000.0);
     float3 col = float3(0); float a = 0.0; float4 L;
-    // Celyx: islands a little lower (higher eye, more open sky).
     // Atmospheric perspective: near 15 %, mid 40 %, far 70 % toward the horizon haze.
-    L = lay(az, alt, pa, 6.0, 6.4, 19.0, float3(.022, .03, .06), .15, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a);
-    if (a < .999) { L = lay(az, alt, pa, 11.0, 3.3, 7.0, float3(.05, .07, .13), .40, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a); }
-    if (a < .999) { L = lay(az, alt, pa, 19.0, 1.6, 1.0, float3(.10, .14, .24), .70, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a); }
+    L = lay(az, alt + mirror * 2.0 * w1, w1, pa, 6.0, 6.4, 19.0, float3(.022, .03, .06), .15, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a);
+    if (a < .999) { L = lay(az, alt + mirror * 2.0 * w2, w2, pa, 11.0, 3.3, 7.0, float3(.05, .07, .13), .40, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a); }
+    if (a < .999) { L = lay(az, alt + mirror * 2.0 * w3, w3, pa, 19.0, 1.6, 1.0, float3(.10, .14, .24), .70, u); col += L.rgb * L.a * (1.0 - a); a += L.a * (1.0 - a); }
     return float4(col / max(a, 1e-4), a);
 }
 
@@ -268,7 +281,6 @@ float4 layerAt(float2 uv, texture2d<float> tA, texture2d<float> tB, float amtB) 
     return min(tA.sample(smp, uv) + (amtB > 0.0 ? tB.sample(smp, uv) * amtB : float4(0)), float4(1.0));
 }
 
-constant float EYE_HEIGHT = 6.0;   // metres above the water (was 1.5: the view felt sunken)
 
 // The whole Night Sea for one view direction. Shared by the garden and the wormhole (one source of truth).
 // starUV: where the object layer is sampled for this direction (top-left uv), or (-1) for none.
@@ -281,7 +293,6 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         col = skyCol(d, u, tMW) * (1.0 - st.a) + st.rgb;
         float4 il = island(d, u);
         col = mix(col, il.rgb, il.a);
-        col = mix(col, mist, .35 * (1.0 - smoothstep(0.0, .035, d.z)));  // low mist, 0–2° above the water
     } else {
         float dist = min(EYE_HEIGHT / -d.z, 4000.0);
         float2 P = d.xy * dist; float2 gr = float2(0);
@@ -299,7 +310,7 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         float fr = .02 + .98 * pow(1.0 - max(-dot(d, N), 0.0), 5.0);              // Schlick, F0 .02
         float3 refl = skyCol(R, u, tMW);                                         // the real sky: glow + Milky Way
         float3 R0 = reflect(d, normalize(float3(-gc * .3, 1.0))); R0.z = max(R0.z, .0005);
-        float4 il = island(normalize(R0), u);
+        float4 il = island(normalize(R0), u, 1.0);                        // mirrored at each waterline
         if (il.a < .5) {
             float2 uv = toScreen(R, u);
             if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
@@ -319,12 +330,18 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         // Glow road: a soft warm path on the water toward the dusk glow, with fine shimmering sparkles.
         float pG = road(d, normalize(float3(-1.0, 0.0, .04)), sig * 1.25);
         col += GLOW_PEACH * (pG * hz * .16 + sparkle(d + .002, pG * .55, u) * .28);
-        col = mix(col, mist, smoothstep(150.0, 3000.0, dist) * .75);            // far water melts into the mist
+        // Far water melts into the horizon haze, or into the island's own reflection where one stands.
         float3 up = normalize(float3(d.xy, .0015));
-        float4 iu = island(up, u);
-        float3 ab = mix(skyCol(up, u, tMW), iu.rgb, iu.a) * .82;
-        col = mix(col, ab, smoothstep(-.012, -.0005, d.z) * .9);
-        col = mix(col, mist, .35 * smoothstep(-.03, 0.0, d.z));                  // the mist sits on the water too
+        float4 iu = island(normalize(float3(d.xy, -d.z)), u, 1.0);
+        float3 fogCol = mix(mist, iu.rgb * .82, iu.a);
+        col = mix(col, fogCol, smoothstep(150.0, 3000.0, dist) * .75);
+        float4 ih = island(up, u);
+        float3 ab = mix(skyCol(up, u, tMW), ih.rgb, ih.a) * .82;
+        col = mix(col, mix(ab, fogCol, iu.a), smoothstep(-.012, -.0005, d.z) * .9 * (1.0 - iu.a));
+        col = mix(col, fogCol, .18 * smoothstep(-.03, 0.0, d.z));                // thin mist lying on the water
+        // Islands whose base sits below the horizon are drawn over the water in front of it.
+        float4 isd = island(d, u);
+        col = mix(col, isd.rgb, isd.a);
     }
     return col;
 }
