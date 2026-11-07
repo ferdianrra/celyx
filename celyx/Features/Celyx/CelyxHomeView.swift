@@ -70,7 +70,7 @@ struct CelyxHomeView: View {
             },onClose:{ showsCollection = false })
             .presentationDetents([.height(300),.large])
             .presentationDragIndicator(.visible)
-            .presentationBackground { CelyxBluePanel(cornerRadius:0) }
+            .presentationBackground { CelyxBluePanel() }
         }
         .fullScreenCover(isPresented:$showsFilteredStars) {
             FilteredStarsView(model:model)
@@ -292,7 +292,7 @@ private struct CollectionTile<Art: View>: View {
             CollectionSheet(counts:.init(stars:12,planets:2,events:1,constellations:3),onSelect:{ _ in },onClose:{})
                 .presentationDetents([.height(300),.large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground { CelyxBluePanel(cornerRadius:0) }
+                .presentationBackground { CelyxBluePanel() }
         }
         .preferredColorScheme(.dark)
 }
