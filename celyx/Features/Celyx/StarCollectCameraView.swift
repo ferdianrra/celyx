@@ -139,8 +139,17 @@ struct StarCollectCameraView: View {
                                     service.setZoom((zoomStart ?? 1)*value.magnification)
                                 }
                                 .onEnded { _ in zoomStart = nil })
+                            #if DEBUG
+                            // The crosshair doesn't take touches, so a press on it lands here, on the AR view,
+                            // whose own UIKit recognizers swallow parent gestures: attach the demo long-press here.
+                            .simultaneousGesture(LongPressGesture(minimumDuration:0.6).onEnded { _ in toggleDemoSky() })
+                            #endif
                     } else {
                         CelyxColor.night
+                            #if DEBUG
+                            .contentShape(Rectangle())
+                            .onLongPressGesture(minimumDuration:0.6) { toggleDemoSky() }
+                            #endif
                     }
                     #if DEBUG
                     if let point = demoPoint, let star = demoStar, handover == nil {
@@ -154,11 +163,6 @@ struct StarCollectCameraView: View {
                 }
                 .scaleEffect(squeeze)
                 .overlay { Color.white.opacity(flash).allowsHitTesting(false) }
-                #if DEBUG
-                // Debug: long-press anywhere on the camera to turn the demo sky on/off.
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration:0.6) { toggleDemoSky() }
-                #endif
                 .onAppear { viewSize = geometry.size }
                 .onChange(of:geometry.size) { _, size in viewSize = size }
             }
@@ -167,6 +171,16 @@ struct StarCollectCameraView: View {
             VStack {
                 HStack {
                     CelyxBackButton { service.stop(); onClose() }
+                    #if DEBUG
+                    // Fallback: one tap toggles the demo sky.
+                    Button(action:toggleDemoSky) {
+                        Text("Demo").font(.system(size:12,weight:.bold)).foregroundStyle(.white)
+                            .padding(.horizontal,10).padding(.vertical,6)
+                            .background(Capsule().fill(demoOn ? Color.purple.opacity(0.75) : Color.white.opacity(0.18)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(demoOn ? "Turn demo sky off" : "Turn demo sky on")
+                    #endif
                     Spacer()
                     CelyxGlassButton(width:148,action:{ service.stop(); showsFilteredStars = true }) {
                         Label("Filtered Stars",systemImage:"list.star")
