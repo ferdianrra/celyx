@@ -5,8 +5,6 @@ struct CollectedObjectSheet: View {
     let item: GardenCollectionItem
     /// Where it is in the sky right now (horizon frame), if it could be placed.
     let direction: SIMD3<Double>?
-    /// Close action when shown outside a system sheet (the wormhole handover).
-    var onClose: (() -> Void)? = nil
     let onDelete: () -> Void
     @State private var confirmsDelete = false
     @Environment(\.dismiss) private var dismiss
@@ -64,12 +62,11 @@ struct CollectedObjectSheet: View {
                 .padding(.horizontal,20).padding(.top,12).padding(.bottom,20)
             }
             .scrollIndicators(.hidden)
-            .modifier(TransparentNavigation(enabled:onClose != nil))
             .navigationTitle(star.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement:.topBarTrailing) {
-                    Button("Close",systemImage:"xmark") { if let onClose { onClose() } else { dismiss() } }
+                    Button("Close",systemImage:"xmark") { dismiss() }
                         .labelStyle(.iconOnly)
                 }
             }
@@ -112,12 +109,4 @@ struct CollectedObjectSheet: View {
 #Preview("Collected object") {
     CollectedObjectSheet(item:AppPreviewData.item,direction:SIMD3(0,0.8,0.6),onDelete:{})
         .preferredColorScheme(.dark)
-}
-
-/// Shown inside the wormhole handover's own panel (not a system sheet): let that panel show through.
-private struct TransparentNavigation: ViewModifier {
-    let enabled: Bool
-    func body(content: Content) -> some View {
-        if enabled { content.containerBackground(.clear,for:.navigation) } else { content }
-    }
 }

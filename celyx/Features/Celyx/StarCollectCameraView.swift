@@ -44,6 +44,20 @@ struct StarCollectCameraView: View {
     @State private var showsFilteredStars = false
     /// True while something sits in the circle and we're locking on to it.
     @State private var isLocking = false
+    /// Capture cue ("cekrek"): white flash and a tiny shutter squeeze of the frame.
+    @State private var flash = 0.0
+    @State private var squeeze = 1.0
+    #if DEBUG
+    /// Demo sky: a fake Rigel fixed in the AR world (nil = off). Never saved.
+    @State private var demoDirection: SIMD3<Float>?
+    @State private var demoPoint: CGPoint?
+    @State private var demoArrow: CGVector?
+    @State private var demoChecking = false
+    private var demoOn: Bool { demoDirection != nil }
+    private var demoStar: CatalogStar? { DemoSky.star(in:model.stars) }
+    #else
+    private var demoOn: Bool { false }
+    #endif
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -67,6 +81,13 @@ struct StarCollectCameraView: View {
     /// `viewableObjects` already accounts for the Sun's altitude (no stars by day), the Moon,
     /// light pollution and clouds. A light the camera actually sees at the centre wins over a mapped position.
     private var centerTarget: CenterTarget? {
+        #if DEBUG
+        if demoOn {
+            // The demo star feeds the real flow: it counts as a detected light only while it sits in the circle.
+            guard let star = demoStar, let point = demoPoint, viewSize != .zero, distance(point) <= captureRadius else { return nil }
+            return CenterTarget(star:star,detection:CameraStarAnnotation(star:star,point:point,size:CGSize(width:28,height:28)))
+        }
+        #endif
         guard service.status == .tracking, !service.isAdjustingCamera, viewSize != .zero else { return nil }
         let visible = Set(service.viewableObjects.map(\.id))
         if let seen = service.annotations
@@ -121,11 +142,23 @@ struct StarCollectCameraView: View {
                     } else {
                         CelyxColor.night
                     }
+                    #if DEBUG
+                    if let point = demoPoint, let star = demoStar, handover == nil {
+                        DemoStarView(color:star.rgb).position(point)
+                    }
+                    #endif
                     if let handover { WormholeHandoverView(handover:handover) }
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
                     reticle.position(x:geometry.size.width/2,y:geometry.size.height/2+10)
                         .opacity(crosshair)
                 }
+                .scaleEffect(squeeze)
+                .overlay { Color.white.opacity(flash).allowsHitTesting(false) }
+                #if DEBUG
+                // Debug: long-press anywhere on the camera to turn the demo sky on/off.
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration:0.6) { toggleDemoSky() }
+                #endif
                 .onAppear { viewSize = geometry.size }
                 .onChange(of:geometry.size) { _, size in viewSize = size }
             }
@@ -145,6 +178,9 @@ struct StarCollectCameraView: View {
                     .accessibilityLabel("Calibrate direction")
                 }
                 .padding(.horizontal,20)
+                #if DEBUG
+                if demoOn { DemoSkyPill().padding(.top,8) }
+                #endif
                 Spacer()
             }
             .opacity(cameraUI)
@@ -170,6 +206,17 @@ struct StarCollectCameraView: View {
             await service.start()
         }
         .onDisappear { service.stop() }
+        #if DEBUG
+        .task(id:demoOn) {
+            // Keep the demo star glued to its place in the sky while the phone moves.
+            while demoOn && !Task.isCancelled {
+                if let direction = demoDirection, let projection = service.demoProjection(world:direction) {
+                    demoPoint = projection.point; demoArrow = projection.arrow
+                }
+                try? await Task.sleep(for:.milliseconds(33))
+            }
+        }
+        #endif
         .onChange(of:phase) { _, value in
             if value == .active, !showsCalibration, !showsFilteredStars { Task { await service.start() } } else { service.stop() }
         }
@@ -189,6 +236,15 @@ struct StarCollectCameraView: View {
             isLocking = true
             try? await Task.sleep(for:.seconds(Self.lockDuration))
             guard !Task.isCancelled else { isLocking = false; return }
+            #if DEBUG
+            if demoOn {
+                // A short "is it really there?" beat before the sheet.
+                demoChecking = true
+                try? await Task.sleep(for:.milliseconds(700))
+                demoChecking = false
+                guard !Task.isCancelled else { isLocking = false; return }
+            }
+            #endif
             isLocking = false
             settledID = target.id
             lastShown = target
@@ -216,11 +272,6 @@ struct StarCollectCameraView: View {
         // During the wormhole the handover owns the audio and haptics: the crosshair stays silent.
         CrosshairView(state:crosshairState,label:(shownTarget ?? (isLocking ? centerTarget : nil))?.star.title ?? "",
                       soundEnabled:handover == nil,hapticsEnabled:handover == nil)
-        #if DEBUG
-            // Debug: long-press the crosshair to replay the wormhole indoors (fake success at the centre).
-            .contentShape(Rectangle())
-            .onLongPressGesture(minimumDuration:0.6) { replayHandover() }
-        #endif
     }
     private var crosshairState: CrosshairState {
         if isChecking { return .validating }
@@ -230,6 +281,19 @@ struct StarCollectCameraView: View {
     }
 
     private var hintText: String {
+        #if DEBUG
+        if demoOn {
+            if demoChecking { return "Checking it’s really there…" }
+            guard let point = demoPoint else {
+                if let arrow = demoArrow {
+                    let way = abs(arrow.dx) > abs(arrow.dy) ? (arrow.dx > 0 ? "right" : "left") : (arrow.dy > 0 ? "down" : "up")
+                    return "Turn \(way) to find Rigel"
+                }
+                return "Look around to find Rigel"
+            }
+            return distance(point) <= captureRadius ? "Hold steady on Rigel" : "Rigel is close. Put it in your circle"
+        }
+        #endif
         switch service.status {
         case .tracking: break
         case .preparing: return "Finding your place under the sky…"
@@ -251,7 +315,7 @@ struct StarCollectCameraView: View {
 
     private func sheet(for target: CenterTarget) -> some View {
         let star = target.star
-        let isCollected = model.collected[star.id] != nil
+        let isCollected = model.collected[star.id] != nil && !demoOn
         let checking = verification == .checking(star.id)
         let failed = verification == .failed(star.id)
         return ZStack(alignment:.top) {
@@ -334,7 +398,7 @@ struct StarCollectCameraView: View {
                    current.detection != nil || lightIsInCircle(for:current.star) {
                     confirmations += 1
                     // Several consecutive confirmations, and let the spinner read as a real check.
-                    if confirmations >= 4 && Date().timeIntervalSince(start) >= Self.verifyDuration {
+                    if confirmations >= 4 && Date().timeIntervalSince(start) >= (demoOn ? 1.2 : Self.verifyDuration) {
                         save(current)
                         return
                     }
@@ -357,6 +421,9 @@ struct StarCollectCameraView: View {
     }
 
     private func save(_ target: CenterTarget) {
+        #if DEBUG
+        if demoOn { captureDemo(target); return }
+        #endif
         // The confirmed light: a detected source, or the bright source we just measured at the centre.
         let annotation = target.detection ?? CameraStarAnnotation(star:target.star,point:center,size:CGSize(width:28,height:28))
         let note = target.detection?.estimatedSeparation.map {
@@ -387,9 +454,9 @@ struct StarCollectCameraView: View {
     // MARK: Wormhole handover
 
     /// Freezes the camera frame and opens the wormhole at the collected star's screen point.
-    private func beginHandover(itemID: Int?,point: CGPoint,demoStar: CatalogStar? = nil) {
+    private func beginHandover(itemID: Int?,point: CGPoint,demoStar: CatalogStar? = nil,freeze frozen: WormholeFreeze? = nil) {
         guard handover == nil, let onCollect, viewSize != .zero else { return }
-        let freeze = service.wormholeFreeze() ?? .placeholder(size:viewSize)
+        let freeze = frozen ?? service.wormholeFreeze() ?? .placeholder(size:viewSize)
         let demo = demoStar.map { WormholeDemo.make(star:$0,freeze:freeze,location:model.location) }
         let id = demo?.item.id ?? itemID
         let handover = WormholeHandover(freeze:freeze,star:point,itemID:id,
@@ -401,13 +468,43 @@ struct StarCollectCameraView: View {
     }
 
     #if DEBUG
-    /// Fake success on a fixed point (the screen centre) with Rigel as an in-memory demo star (never saved),
-    /// so it lights up at landing and its sheet springs in, even with an empty collection.
-    private func replayHandover() {
-        guard onCollect != nil, !isChecking else { return }
-        if reduceMotion { onCollect?(.fade(itemID:model.collectionItems.first?.id)); return }
-        let rigel = model.stars.first { $0.name == "Rigel" || $0.title == "Rigel" }
-        beginHandover(itemID:model.collectionItems.first?.id,point:center,demoStar:rigel)
+    // MARK: Demo sky
+
+    private func toggleDemoSky() {
+        guard handover == nil, !isChecking else { return }
+        if demoOn {
+            demoDirection = nil; demoPoint = nil; demoArrow = nil; demoChecking = false
+        } else if demoStar != nil {
+            // ~22° to the side of where the phone points now, fixed in the AR world.
+            demoDirection = DemoSky.direction(from:service.demoForwardWorld() ?? SIMD3(0,0,-1))
+            if service.demoForwardWorld() == nil { demoPoint = CGPoint(x:center.x+90,y:center.y-140) }   // Simulator
+        }
+        CrosshairFeedback.shared.play(CrosshairHaptic.acquire)
+    }
+
+    /// Demo success: the capture cue ("cekrek"), then the wormhole 250 ms later from the frozen frame.
+    private func captureDemo(_ target: CenterTarget) {
+        guard onCollect != nil, !reduceMotion else {
+            CrosshairFeedback.shared.play(CrosshairSound.collect)
+            onCollect?(.fade(itemID:nil)); verification = .idle; return
+        }
+        let star = target.star
+        let point = target.detection?.point ?? center
+        var freeze = service.wormholeFreeze() ?? .placeholder(size:viewSize)
+        freeze.image = DemoSky.composite(freeze.image,star:point,viewSize:viewSize,color:star.rgb)
+        WormholeFeedback.shared.playShutter()
+        Task { @MainActor in
+            withAnimation(.linear(duration:0.03)) { flash = 0.35 }
+            withAnimation(.easeInOut(duration:0.11)) { squeeze = 0.985 }
+            try? await Task.sleep(for:.milliseconds(30))
+            withAnimation(.easeOut(duration:0.18)) { flash = 0 }
+            try? await Task.sleep(for:.milliseconds(80))
+            withAnimation(.easeInOut(duration:0.11)) { squeeze = 1 }
+            try? await Task.sleep(for:.milliseconds(140))
+            beginHandover(itemID:star.id,point:point,demoStar:star,freeze:freeze)
+            verification = .idle
+            demoDirection = nil; demoPoint = nil; demoArrow = nil
+        }
     }
     #endif
 

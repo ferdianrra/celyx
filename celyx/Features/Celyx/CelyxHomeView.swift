@@ -17,6 +17,8 @@ struct CelyxHomeView: View {
     @State private var cameraFades = false
     @State private var handover: WormholeHandover?
     @State private var sheetRequest: GardenSheetRequest?
+    /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
+    @State private var demoShowing = false
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @Environment(\.scenePhase) private var phase
     @AppStorage("galaxyOwnerName") private var ownerName = "Ferdiansyah"
@@ -29,10 +31,10 @@ struct CelyxHomeView: View {
                               isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration && !showsFilteredStars
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,
-                              handover:handover,sheetRequest:sheetRequest)
+                              handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
                     .ignoresSafeArea()
 
-                if model.collectionItems.isEmpty && !showsCollection {
+                if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing {
                     VStack(spacing:6) {
                         Text("Your sky is still empty").font(.system(size:15,weight:.semibold))
                         Text("Collect your first star and it will shine here.").font(.system(size:13)).opacity(0.7)
@@ -197,6 +199,7 @@ struct CelyxHomeView: View {
         switch result {
         case .wormhole(let handover):
             self.handover = handover
+            demoShowing = handover.demo != nil
             Task { await handover.run() }
         case .fade(let itemID):
             // Reduce Motion: 400 ms cross-fade to the garden, then the sheet.

@@ -16,6 +16,8 @@ struct GardenSkyView: View {
     var handover: WormholeHandover?
     /// Shows a collected object's sheet with a spring (after a handover or the Reduce Motion fade).
     var sheetRequest: GardenSheetRequest?
+    /// Called when the demo object's sheet closes (debug replay).
+    var onDemoEnded: () -> Void = {}
 
     struct Placed: Identifiable {
         let item: GardenCollectionItem
@@ -36,8 +38,6 @@ struct GardenSkyView: View {
     @State private var zoomStart: Double?
     @State private var selected: GardenCollectionItem?
     @State private var failed = false
-    /// The collected object's sheet after a handover (springs in instead of the system sheet).
-    @State private var handoverItem: GardenCollectionItem?
     /// Debug replay: the demo object stays in the sky until its sheet closes (never saved).
     @State private var demo: WormholeDemo?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -95,14 +95,9 @@ struct GardenSkyView: View {
         }
         .onChange(of:sheetRequest) { _, request in
             guard let request, let item = model.collectionItems.first(where:{ $0.id == request.itemID }) ?? request.demoItem else { return }
-            withAnimation(reduceMotion ? .easeInOut(duration:0.25) : .spring(response:0.57,dampingFraction:0.68)) { handoverItem = item }
+            selected = item   // Sendi's native card (springs in with the system sheet)
         }
-        .overlay(alignment:.bottom) {
-            if let item = handoverItem {
-                handoverSheet(item).transition(.move(edge:.bottom))
-            }
-        }
-        .sheet(item:$selected) { item in
+        .sheet(item:$selected,onDismiss:endDemo) { item in
             CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction) {
                 model.deleteCollected(id:item.id)
                 selected = nil
@@ -247,24 +242,11 @@ struct GardenSkyView: View {
         }
     }
 
-    private func handoverSheet(_ item: GardenCollectionItem) -> some View {
-        let close = {
-            withAnimation(reduceMotion ? nil : .spring(response:0.4,dampingFraction:0.9)) { handoverItem = nil }
-            if demo != nil { demo = nil; place() }
-        }
-        return ZStack(alignment:.top) {
-            CelyxBluePanel(cornerRadius:34)
-            CelyxGrabber()
-            CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction,onClose:close) {
-                model.deleteCollected(id:item.id)
-                close()
-            }
-            .padding(.top,14)
-        }
-        .frame(height:UIScreen.main.bounds.height*0.52)
-        .padding(.horizontal,6).padding(.bottom,6)
-        .ignoresSafeArea(edges:.bottom)
-        .gesture(DragGesture().onEnded { value in if value.translation.height > 80 { close() } })
+    private func endDemo() {
+        guard demo != nil else { return }
+        demo = nil
+        place()
+        onDemoEnded()
     }
 
     // MARK: Gyro

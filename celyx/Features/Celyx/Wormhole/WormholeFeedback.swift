@@ -9,7 +9,7 @@ import UIKit
 final class WormholeFeedback {
     static let shared = WormholeFeedback()
 
-    enum Cue: String, CaseIterable { case ping, bend, pop, swell, boom, sheet }
+    enum Cue: String, CaseIterable { case ping, bend, pop, swell, boom, sheet, shutter }
     /// The swell's hard stop sits this far into its file (a reverb tail follows); it must land on T_LAND.
     static let swellCut = 0.476
 
@@ -52,6 +52,21 @@ final class WormholeFeedback {
         let TL = landing/1000
         if sound { playSounds(TL) }
         if haptics { playHaptics(TL) }
+    }
+
+    /// Capture cue ("cekrek"): mechanical shutter clicks + a rigid haptic transient. Follows silent mode.
+    func playShutter() {
+        prepare()
+        if let player = players[.shutter] {
+            player.stop(); player.currentTime = 0; player.volume = volume; player.play()
+        }
+        if let engine, let pattern = try? CHHapticPattern(events:[CHHapticEvent(eventType:.hapticTransient,parameters:[
+            .init(parameterID:.hapticIntensity,value:0.9),.init(parameterID:.hapticSharpness,value:0.9)],relativeTime:0)],parameters:[]) {
+            try? engine.start()
+            try? engine.makePlayer(with:pattern).start(atTime:CHHapticTimeImmediate)
+        } else {
+            UIImpactFeedbackGenerator(style:.rigid).impactOccurred(intensity:0.9)
+        }
     }
 
     func stop() {

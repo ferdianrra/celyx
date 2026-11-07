@@ -253,6 +253,18 @@ func sheet() -> ([Double], [Double]) {
     ])
 }
 
+/// Capture cue ("cekrek"): two very short bandpassed-noise clicks (2.5 kHz, then 1.2 kHz 35 ms later)
+/// and a tiny low thump. Mechanical, not tonal: no sine above 250 Hz.
+func shutter() -> ([Double], [Double]) {
+    var n1 = Noise(77), n2 = Noise(78), bp1 = Biquad(), bp2 = Biquad(), phase = 0.0
+    let click2 = 0.035
+    return mix([
+        layer(0.03, peak: 0.16, wet: 0.12, { _ in bp1.run(.bandpass, n1.white(), 2500, 2.2) }, env: { hit($0, 0.025) }),
+        layer(click2 + 0.03, peak: 0.12, wet: 0.12, { _ in bp2.run(.bandpass, n2.white(), 1200, 2.2) }, env: { hit($0 - click2, 0.028) }),
+        layer(0.09, peak: 0.14, wet: 0.08, { t in phase += 2 * .pi * glide(90, 55, t, 0.06) / sr; return sin(phase) }, env: { hit($0, 0.09) }),
+    ])
+}
+
 // MARK: Output
 
 func write(_ name: String, _ stereo: ([Double], [Double]), scale: Double) throws {
@@ -277,7 +289,7 @@ let check = fftConvolve([1, 0, 0], [0.5, 0.25])
 precondition(abs(check[0] - 0.5) < 1e-4 && abs(check[1] - 0.25) < 1e-4, "FFT convolution scale is off: \(check)")
 
 try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
-let cues: [(String, ([Double], [Double]))] = [("ping", impact()), ("bend", bend()), ("pop", pop()), ("swell", swell()), ("boom", boom()), ("sheet", sheet())]
+let cues: [(String, ([Double], [Double]))] = [("ping", impact()), ("bend", bend()), ("pop", pop()), ("swell", swell()), ("boom", boom()), ("sheet", sheet()), ("shutter", shutter())]
 let boomPeak = cues.first { $0.0 == "boom" }!.1
 let scale = pow(10, -1.0 / 20) / (zip(boomPeak.0, boomPeak.1).map { max(abs($0), abs($1)) }.max() ?? 1)
 for (name, stereo) in cues { try write(name, stereo, scale: scale) }
