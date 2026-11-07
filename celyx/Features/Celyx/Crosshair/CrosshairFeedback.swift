@@ -114,8 +114,8 @@ public final class CrosshairFeedback: @unchecked Sendable {
             return [transient(0, 0.45, 0.6)]
         case .lock:     // "ka-chunk": hard hit, body, and a bright second click
             return [transient(0, 1.0, 0.85), continuous(0, 0.08, 0.35, 0.15), transient(0.045, 0.5, 1.0)]
-        case .validate: // light tap that swells away
-            return [transient(0, 0.55, 0.4), continuous(0, 0.25, 0.25, 0.3)]
+        case .validate: // Celyx: a soft swell with the breath-in, no tap
+            return [continuous(0, 0.5, 0.4, 0.15)]
         case .fail:     // "not this time": two soft, dull taps that step down, matching the falling two-note sound
             return [transient(0, 0.5, 0.25), transient(0.125, 0.32, 0.1)]
         case .collect:  // rising taps on each arpeggio note, then a firm bright "ting" with a short shimmer
@@ -128,7 +128,7 @@ public final class CrosshairFeedback: @unchecked Sendable {
         switch h {
         case .validate:
             return [CHHapticParameterCurve(parameterID: .hapticIntensityControl, controlPoints: [
-                .init(relativeTime: 0, value: 1), .init(relativeTime: 0.25, value: 0),
+                .init(relativeTime: 0, value: 0.1), .init(relativeTime: 0.42, value: 1), .init(relativeTime: 0.5, value: 0),
             ], relativeTime: 0)]
         case .collect:  // let the chime's shimmer fade out
             return [CHHapticParameterCurve(parameterID: .hapticIntensityControl, controlPoints: [

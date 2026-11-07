@@ -89,8 +89,11 @@ enum CrosshairRenderer {
         Color(red: 1 + (greenRGB.r - 1) * g, green: 1 + (greenRGB.g - 1) * g, blue: 1 + (greenRGB.b - 1) * g)
     }
 
-    static func draw(_ f: CrosshairFrame, label: String, in ctx: inout GraphicsContext, center c: CGPoint) {
+    static func draw(_ f: CrosshairFrame, label: String, in base: inout GraphicsContext, center c: CGPoint) {
         let col = color(f.green)
+        // Celyx focus scale: ring, ping and ticks grow together about the centre; the label stays crisp below.
+        var ctx = base
+        ctx.translateBy(x: c.x, y: c.y); ctx.scaleBy(x: f.focusScale, y: f.focusScale); ctx.translateBy(x: -c.x, y: -c.y)
 
         // Ring group (dotted ring + arc), scaled as one so the dots never re-space.
         var ring = ctx
@@ -130,11 +133,11 @@ enum CrosshairRenderer {
 
         // Label (SF Pro 15/20, tracking -0.23), focus-pulls in.
         if !label.isEmpty && f.labelOpacity > 0.001 {
-            var l = ctx
+            var l = base
             l.opacity = f.labelOpacity
             if f.labelBlur > 0.05 { l.addFilter(.blur(radius: f.labelBlur)) }
             let text = l.resolve(Text(label).font(.system(size: 15)).tracking(-0.23).foregroundColor(.white))
-            l.draw(text, at: CGPoint(x: c.x, y: c.y + 24 + f.labelY), anchor: .top)
+            l.draw(text, at: CGPoint(x: c.x, y: c.y + 24 * max(1, f.focusScale) + f.labelY), anchor: .top)
         }
     }
 

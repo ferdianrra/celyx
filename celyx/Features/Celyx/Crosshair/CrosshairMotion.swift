@@ -29,7 +29,8 @@ public enum CrosshairState: Int, CaseIterable, Sendable {
                          tickInner: 16, tickOuter: 24, tickWidth: 2.5, labelOpacity: 0, labelY: 6, labelBlur: 2.5, tickRotationBase: 45)
         case .enable:
             return .init(ringScale: 1, dotOpacity: 0.60, green: 1, arcLength: 360, arcOpacity: 0,
-                         tickInner: 12, tickOuter: 20, tickWidth: 2.5, labelOpacity: 1, labelY: 0, labelBlur: 0, tickRotationBase: 0)
+                         tickInner: 12, tickOuter: 20, tickWidth: 2.5, labelOpacity: 1, labelY: 0, labelBlur: 0, tickRotationBase: 0,
+                         focusScale: 1.12)
         case .validating:
             return .init(ringScale: 1.25, dotOpacity: 0.60, green: 1, arcLength: 270, arcOpacity: 0.48,
                          tickInner: 15, tickOuter: 25, tickWidth: 2.5, labelOpacity: 1, labelY: 0, labelBlur: 0, tickRotationBase: 45)
@@ -50,6 +51,8 @@ struct CrosshairValues {
     var labelY: Double
     var labelBlur: Double
     var tickRotationBase: Double  // only (rotation mod 90) matters
+    /// Celyx: the whole reticle grows a little while a star is collectible (Enable), label kept clear.
+    var focusScale: Double = 1
 }
 
 // MARK: - Easing
@@ -102,6 +105,8 @@ public enum CrosshairEase {
     public static let loaderHead = CubicBezier(0.4, 0, 0.2, 1)
     public static let loaderTail = CubicBezier(0.8, 0, 0.6, 1)
     public static let linear = CubicBezier(0, 0, 1, 1)
+    /// Celyx: spring-like pop (≈ response .32 s, damping .62: one small overshoot).
+    public static let pop = CubicBezier(0.34, 1.56, 0.64, 1)
 }
 
 // MARK: - Choreography (the transition table)
@@ -109,6 +114,7 @@ public enum CrosshairEase {
 enum TrackKey: Hashable {
     case tickRotate, tickRadius, tickWidth, ringScale, ringOpacity, color
     case arcTrim, arcOpacity, label, ping, tickDip, tickPunch
+    case focus
 }
 
 struct Track {
@@ -160,6 +166,7 @@ enum CrosshairChoreography {
                 .arcTrim: t(0, 190, E.exit), .arcOpacity: t(180, 240, E.glide), .color: t(150, 320, E.flow), .ringOpacity: t(150, 320, E.flow),
                 .tickRotate: t(70, 450, E.anticipate, 16), .tickRadius: t(70, 450, E.anticipate, 16), .tickPunch: t(200, 380, E.glide, 16),
                 .tickWidth: t(140, 320, E.glide), .label: t(260, 490, E.glide), .ping: t(190, 700, E.glide),
+                .focus: t(190, 420, E.pop),
             ], haptic: .lock, hapticAt: 190, sound: .lock, soundAt: 190)
 
         case (.enable, .validating): // Validate
@@ -181,11 +188,12 @@ enum CrosshairChoreography {
                 .tickRadius: t(30, 300, E.flow, 14), .tickWidth: t(0, 300, E.flow),
             ], sound: .back)
 
-        case (.enable, .default):    // Release
+        case (.enable, .default):    // Release: the lock in reverse (ticks spin back −90°, retract and fire out)
             return CrosshairTransition(name: "Release", tracks: [
-                .label: t(0, 270, E.exit), .tickDip: t(40, 270, E.settle, 14), .color: t(50, 350, E.flow),
-                .ringOpacity: t(50, 350, E.flow), .tickWidth: t(50, 350, E.flow),
-            ], sound: .release)
+                .label: t(0, 160, E.exit), .tickRotate: t(0, 340, E.flow, 10), .tickRadius: t(0, 340, E.flow, 10),
+                .tickDip: t(0, 300, E.settle, 14), .color: t(0, 220, E.flow), .ringOpacity: t(0, 220, E.flow),
+                .tickWidth: t(0, 300, E.flow), .ringScale: t(0, 340, E.flow), .focus: t(0, 340, E.flow),
+            ], haptic: .acquire, hapticAt: 0, sound: .release)
 
         case (.enable, .locking):    // Slip
             return CrosshairTransition(name: "Slip", tracks: [
@@ -211,7 +219,7 @@ enum CrosshairChoreography {
             ]
             if to == .enable {
                 tr[.arcTrim] = t(0, 190, E.exit); tr[.arcOpacity] = t(180, 240, E.glide); tr[.ping] = t(190, 700, E.glide)
-                tr[.tickPunch] = t(200, 380, E.glide, 16); tr[.label] = t(220, 490, E.glide)
+                tr[.tickPunch] = t(200, 380, E.glide, 16); tr[.label] = t(220, 490, E.glide); tr[.focus] = t(190, 420, E.pop)
                 return CrosshairTransition(name: "Morph", tracks: tr, haptic: .lock, hapticAt: 190, sound: .lock, soundAt: 190)
             }
             let s: CrosshairSound = to == .locking ? .acquire : (to == .validating ? .validate : .back)
@@ -298,6 +306,7 @@ struct CrosshairFrame {
     var pingRadius: Double
     var pingWidth: Double
     var pingOpacity: Double
+    var focusScale: Double = 1
 }
 
 final class CrosshairEngine {
@@ -308,7 +317,7 @@ final class CrosshairEngine {
     var hapticsEnabled = true
 
     // Animated properties
-    private var ringScale = Tween(1), dotOpacity = Tween(0.4), green = Tween(0)
+    private var ringScale = Tween(1), dotOpacity = Tween(0.4), green = Tween(0), focusScale = Tween(1)
     private var arcTail = Tween(0), arcLength = Tween(0), arcOpacity = Tween(0.48)
     private var tickWidth = Tween(2)
     private var labelOpacity = Tween(0), labelY = Tween(6), labelBlur = Tween(2.5)
@@ -357,7 +366,7 @@ final class CrosshairEngine {
     func jump(to state: CrosshairState) {
         current = state
         let v = state.values
-        ringScale.set(v.ringScale); dotOpacity.set(v.dotOpacity); green.set(v.green)
+        ringScale.set(v.ringScale); dotOpacity.set(v.dotOpacity); green.set(v.green); focusScale.set(v.focusScale)
         arcTail.set(0); arcLength.set(v.arcLength); arcOpacity.set(v.arcOpacity)
         tickWidth.set(v.tickWidth); labelOpacity.set(v.labelOpacity); labelY.set(v.labelY); labelBlur.set(v.labelBlur)
         for i in 0..<4 { tickRot[i].set(v.tickRotationBase); tickIn[i].set(v.tickInner); tickOut[i].set(v.tickOuter); prevRot[i] = v.tickRotationBase }
@@ -388,6 +397,7 @@ final class CrosshairEngine {
         }
         tickWidth.retarget(v.tickWidth, tr.track(.tickWidth), now: now)
         ringScale.retarget(v.ringScale, tr.track(.ringScale), now: now)
+        focusScale.retarget(v.focusScale, tr.track(.focus), now: now)
         dotOpacity.retarget(v.dotOpacity, tr.track(.ringOpacity), now: now)
         green.retarget(v.green, tr.track(.color), now: now)
         arcOpacity.retarget(v.arcOpacity, tr.track(.arcOpacity), now: now)
@@ -449,6 +459,8 @@ final class CrosshairEngine {
 
     private func targetRotation(_ cur: Double, from: CrosshairState, to: CrosshairState) -> Double {
         let base = to.values.tickRotationBase
+        // Release spins back a full quarter turn (reverse of the lock) even though both rest at 0°.
+        if from == .enable && to == .default { return base + floor((cur - base - 1e-6) / 90) * 90 }
         if to.rawValue > from.rawValue { return base + ceil((cur - base - 1e-6) / 90) * 90 }   // forward = clockwise
         return base + floor((cur - base + 1e-6) / 90) * 90                                      // back = counter-clockwise
     }
@@ -487,7 +499,7 @@ final class CrosshairEngine {
         let dt = lastNow.map { min(50, max(1, now - $0)) } ?? 16
         lastNow = now
 
-        ringScale.update(now); dotOpacity.update(now); green.update(now)
+        ringScale.update(now); dotOpacity.update(now); green.update(now); focusScale.update(now)
         arcTail.update(now); arcLength.update(now); arcOpacity.update(now)
         tickWidth.update(now); labelOpacity.update(now); labelY.update(now); labelBlur.update(now); loaderWeight.update(now)
         for i in 0..<4 { tickRot[i].update(now); tickIn[i].update(now); tickOut[i].update(now) }
@@ -527,7 +539,8 @@ final class CrosshairEngine {
                     if d0 < 0 { d0 += 360 }
                     if d0 > 0 && d0 <= step {
                         kick[i] = Kick(start: now, attack: CrosshairTuning.kickAttack, decay: CrosshairTuning.kickDecay, amp: CrosshairTuning.kickAmp)
-                        if soundEnabled { let k = i; DispatchQueue.main.async { CrosshairFeedback.shared.playKick(k) } }
+                        // Celyx: no ratchet clicks while validating (the soft breath-in carries it).
+                        if soundEnabled && current != .validating { let k = i; DispatchQueue.main.async { CrosshairFeedback.shared.playKick(k) } }
                     }
                 }
             }
@@ -568,6 +581,6 @@ final class CrosshairEngine {
             arcTail: renderedTail, arcLength: min(360, max(0, renderedLength)), arcOpacity: max(0, arcOpacity.value),
             ticks: ticks,
             labelOpacity: min(1, max(0, labelOpacity.value)), labelY: labelY.value, labelBlur: max(0, labelBlur.value),
-            pingRadius: pr, pingWidth: pw, pingOpacity: po)
+            pingRadius: pr, pingWidth: pw, pingOpacity: po, focusScale: focusScale.value)
     }
 }
