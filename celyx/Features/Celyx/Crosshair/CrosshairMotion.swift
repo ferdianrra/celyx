@@ -193,7 +193,7 @@ enum CrosshairChoreography {
                 .label: t(0, 160, E.exit), .tickRotate: t(0, 340, E.flow, 10), .tickRadius: t(0, 340, E.flow, 10),
                 .tickDip: t(0, 300, E.settle, 14), .color: t(0, 220, E.flow), .ringOpacity: t(0, 220, E.flow),
                 .tickWidth: t(0, 300, E.flow), .ringScale: t(0, 340, E.flow), .focus: t(0, 340, E.flow),
-            ], haptic: .release, hapticAt: 0)   // Celyx: silent, just a whisper of a haptic
+            ], haptic: .release, hapticAt: 0, sound: .release, soundAt: 0)   // Celyx: soft low "tock" + whisper haptic
 
         case (.enable, .locking):    // Slip
             return CrosshairTransition(name: "Slip", tracks: [
@@ -341,7 +341,7 @@ final class CrosshairEngine {
     private var readyClock = 0.0, readyNext = CrosshairTuning.readyFirst
     private var pending: [DispatchWorkItem] = []
     /// Celyx: hovering on the edge of a star must not machine-gun the lock cue.
-    private var lastLockCue = -1e12
+    private var lastLockCue = -1e12, lastReleaseCue = -1e12
 
     private static let loaderMaxDiff: Double = {
         var m = 0.0
@@ -437,6 +437,9 @@ final class CrosshairEngine {
         if target == .enable {
             // At most one lock sound (and haptic) per 600 ms.
             if now - lastLockCue < 600 { snd = false; hap = false } else { lastLockCue = now }
+        } else if from == .enable && target == .default {
+            // Same for the unlock "power-down".
+            if now - lastReleaseCue < 600 { snd = false; hap = false } else { lastReleaseCue = now }
         }
         if let h = tr.haptic, hap { schedule(after: tr.hapticAt) { CrosshairFeedback.shared.play(h) } }
         if let s = tr.sound, snd { schedule(after: tr.soundAt) { CrosshairFeedback.shared.play(s) } }

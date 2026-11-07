@@ -6,8 +6,8 @@
 //   Now a non-percussive "breath-in": filtered-noise riser (bandpass 500 Hz → 2.5 kHz, Q 0.8, 450 ms
 //   exponential rise, gentle 80 ms tail) plus a very soft low bloom (90 → 70 Hz, 300 ms, 40 ms attack),
 //   a little reverb, peak ≈ −24 dBFS. No transient: every attack is ≥ 25 ms.
-// crosshair_release.wav: the unlock (Enable → Default). A soft exhale: bandpass 1.8 kHz → 600 Hz, 220 ms,
-//   30 ms attack, peak ≈ −26 dBFS.
+// crosshair_release.wav: the unlock (Enable → Default). A soft "power-down", the mirror of the lock:
+//   noise sweeping 1.8 kHz → 500 Hz + a tiny 160 → 110 Hz sine, ≥ 15 ms attacks, peak ≈ −30 dBFS.
 // 48 kHz mono 16-bit, like the other crosshair sounds.
 
 import Foundation
@@ -83,17 +83,26 @@ func validate() -> [Double] {
     return reverb(dry, wet: 0.25)
 }
 
-/// Soft exhale for the unlock.
+/// Unlock: the mirror of the lock, a soft "power-down". Bandpassed noise 1.8 kHz → 500 Hz (Q 1.0, 180 ms,
+/// 20 ms attack, exponential decay) at ≈ −30 dBFS, plus a tiny 160 → 110 Hz sine (120 ms, 15 ms attack)
+/// about 2 dB lower, and a light 250 ms reverb tail. No attack under 15 ms, no tonal ping.
 func release() -> [Double] {
-    var n = Noise(state: 8), bp = Bandpass()
-    let d = 0.22
-    let dry = (0..<Int(d * sr)).map { i -> Double in
+    var n = Noise(state: 8), bp = Bandpass(), phase = 0.0
+    let d = 0.18, ds = 0.12
+    var noise = (0..<Int(d * sr)).map { i -> Double in
         let t = Double(i) / sr
-        let env = min(1, t / 0.03) * pow(1 - t / d, 1.5)
-        return env * bp.run(n.white(), glide(1800, 600, t, d), 0.9)
+        return min(1, t / 0.02) * exp(-4 * t / d) * bp.run(n.white(), glide(1800, 500, t, d), 1.0)
     }
-    return reverb(dry, wet: 0.2, length: 0.35)
+    var sine = (0..<Int(d * sr)).map { i -> Double in
+        let t = Double(i) / sr
+        guard t < ds else { return 0 }
+        phase += 2 * .pi * glide(160, 110, t, ds) / sr
+        return min(1, t / 0.015) * pow(1 - t / ds, 2) * sin(phase)
+    }
+    let pn = noise.map(abs).max() ?? 1, ps = sine.map(abs).max() ?? 1
+    noise = noise.map { $0 / pn }; sine = sine.map { $0 / ps * pow(10, -2.0 / 20) }   // sine 2 dB under the noise
+    return reverb(zip(noise, sine).map(+), wet: 0.15, length: 0.25)
 }
 
 try write("crosshair_validate", validate(), peakDB: -24)
-try write("crosshair_release", release(), peakDB: -26)
+try write("crosshair_release", release(), peakDB: -30)
