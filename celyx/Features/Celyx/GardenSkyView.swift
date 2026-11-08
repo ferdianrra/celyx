@@ -137,8 +137,12 @@ struct GardenSkyView: View {
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance:2)
-                .onChanged { value in drag(value.translation,in:geometry.size) }
-                .onEnded { _ in dragStart = nil })
+                .onChanged { value in
+                    drag(value.translation,in:geometry.size)
+                    // A finger on the water trails through it while looking around.
+                    if let p = waterPoint(at:value.location,in:geometry.size) { NightSeaWater.shared.trail(at:p) }
+                }
+                .onEnded { _ in dragStart = nil; NightSeaWater.shared.endTrail() })
             .simultaneousGesture(MagnifyGesture()
                 .onChanged { value in
                     if camera.orientation != nil {
@@ -336,7 +340,17 @@ struct GardenSkyView: View {
             let distance = hypot(p.x-point.x,p.y-point.y)
             return distance <= max(36,entry.object.radius*0.6) ? (entry,distance) : nil
         }
-        if let hit = hits.min(by:{ $0.1 < $1.1 }) { selected = hit.0.item }
+        if let hit = hits.min(by:{ $0.1 < $1.1 }) { selected = hit.0.item; return }
+        // Not a star: a tap on the water drops a stone where the finger's ray meets the surface.
+        if let p = waterPoint(at:point,in:size) { NightSeaWater.shared.tap(at:p) }
+    }
+
+    /// Where a screen point's view ray meets the water plane (horizon frame metres), if it's on the water.
+    private func waterPoint(at point: CGPoint,in size: CGSize) -> SIMD2<Double>? {
+        guard !usesCamera, handover == nil else { return nil }
+        let f = camera.focalLength(in:size), c = camera.center(in:size)
+        let d = simd_normalize(camera.forward+((point.x-c.x)/f)*camera.right+((c.y-point.y)/f)*camera.up)
+        return NightSeaWater.waterPoint(d)
     }
 }
 

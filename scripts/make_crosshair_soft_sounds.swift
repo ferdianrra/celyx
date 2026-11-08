@@ -50,7 +50,7 @@ func reverb(_ x: [Double], wet: Double, length: Double = 0.5) -> [Double] {
     return out
 }
 
-func write(_ name: String, _ x: [Double], peakDB: Double) throws {
+func write(_ name: String, _ x: [Double], peakDB: Double, dir: String = outDir) throws {
     let peak = x.map(abs).max() ?? 1, scale = pow(10, peakDB / 20) / peak
     var data = Data()
     func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
@@ -59,7 +59,8 @@ func write(_ name: String, _ x: [Double], peakDB: Double) throws {
     data.append(contentsOf: Array("WAVEfmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(sr)); u32(UInt32(sr) * 2); u16(2); u16(16)
     data.append(contentsOf: Array("data".utf8)); u32(UInt32(x.count * 2))
     for s in x { u16(UInt16(bitPattern: Int16(max(-1, min(1, s * scale)) * 32767))) }
-    try data.write(to: URL(fileURLWithPath: outDir).appendingPathComponent("\(name).wav"))
+    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    try data.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).wav"))
     print(String(format: "%@.wav  %.3f s  peak %.1f dBFS", name, Double(x.count) / sr, peakDB))
 }
 
@@ -103,5 +104,19 @@ func release() -> [Double] {
     return reverb(dry, wet: 0.15, length: 0.15)
 }
 
+/// Touching the Night Sea: a tiny water "plip", a bubble tone gliding 600 → 300 Hz. Pure tone (no noise burst,
+/// which reads as a slap on a phone speaker), 10 ms raised-cosine attack, gone in ~140 ms.
+func plip() -> [Double] {
+    var phase = 0.0
+    let d = 0.14, attack = 0.010
+    return (0..<Int(d * sr)).map { i -> Double in
+        let t = Double(i) / sr
+        phase += 2 * .pi * glide(600, 300, t, 0.09) / sr
+        let rise = t < attack ? 0.5 - 0.5 * cos(.pi * t / attack) : 1
+        return rise * exp(-(t - attack) / 0.035) * (1 - t / d) * sin(phase)
+    }
+}
+
 try write("crosshair_validate", validate(), peakDB: -24)
 try write("crosshair_release", release(), peakDB: -32)
+try write("water_plip", plip(), peakDB: -30, dir: "celyx/Features/Celyx/Garden/Sounds")

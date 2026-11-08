@@ -87,6 +87,8 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
     private let wormPipeline: MTLRenderPipelineState
     private let milkyWay: MTLTexture
     private let cameraTexture: MTLTexture
+    /// The garden's touch ripples don't exist inside the wormhole: a flat 1x1 field.
+    private let flatRipple: MTLTexture
     private var others: (buffer: MTLBuffer?, count: Int) = (nil,0)
     private var fresh: (buffer: MTLBuffer?, count: Int) = (nil,0)
     private var layers: (MTLTexture,MTLTexture)?
@@ -132,6 +134,11 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
             texture.replace(region:MTLRegionMake2D(0,0,1,1),mipmapLevel:0,withBytes:&pixel,bytesPerRow:4)
             cameraTexture = texture
         }
+        let flat = MTLTextureDescriptor.texture2DDescriptor(pixelFormat:.r32Float,width:1,height:1,mipmapped:false)
+        guard let flatTexture = device.makeTexture(descriptor:flat) else { throw CocoaError(.featureUnsupported) }
+        var zero: Float = 0
+        flatTexture.replace(region:MTLRegionMake2D(0,0,1,1),mipmapLevel:0,withBytes:&zero,bytesPerRow:4)
+        flatRipple = flatTexture
         super.init()
         let scene = handover.scene
         func gpu(_ list: [NightSeaObject]) -> (MTLBuffer?,Int) {
@@ -225,6 +232,7 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
             encoder.setFragmentTexture(milkyWay,index:1)
             encoder.setFragmentTexture(cameraTexture,index:2)
             encoder.setFragmentTexture(layerB,index:3)
+            encoder.setFragmentTexture(flatRipple,index:4)
             encoder.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3)
             encoder.endEncoding()
         }

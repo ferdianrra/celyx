@@ -174,6 +174,16 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     private var lastObjects: [NightSeaObject] = []
     private var lastSelected: Int?
     private let inFlight = DispatchSemaphore(value:2)
+    // Touch ripples: 2D wave equation on a 256² height field (see NightSeaWater), fixed 60 Hz steps.
+    private let rippleStep: MTLComputePipelineState
+    private let rippleDrop: MTLComputePipelineState
+    private var ripple: [MTLTexture]
+    private var rippleClock: CFTimeInterval?
+    private var rippleBacklog = 0.0
+    static let rippleSize = 256
+    #if DEBUG
+    private var perf = (frames: 0, start: CACurrentMediaTime(), gpu: 0.0)
+    #endif
     /// Shared by every Night Sea view (and the wormhole), so waves and twinkle never jump between them.
     static let clockOrigin = CACurrentMediaTime()
     private let start = NightSeaRenderer.clockOrigin
@@ -207,6 +217,21 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         pointPipeline = try device.makeRenderPipelineState(descriptor:points)
         milkyWay = try Self.loadMilkyWay(device:device)
+        guard let step = library.makeFunction(name:"rippleStep"), let drop = library.makeFunction(name:"rippleDrop") else {
+            throw CocoaError(.featureUnsupported)
+        }
+        rippleStep = try device.makeComputePipelineState(function:step)
+        rippleDrop = try device.makeComputePipelineState(function:drop)
+        let n = Self.rippleSize
+        let rd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat:.r32Float,width:n,height:n,mipmapped:false)
+        rd.usage = [.shaderRead,.shaderWrite]
+        rd.storageMode = .shared
+        let zeros = [Float](repeating:0,count:n*n)
+        ripple = try (0..<3).map { _ in
+            guard let t = device.makeTexture(descriptor:rd) else { throw CocoaError(.featureUnsupported) }
+            t.replace(region:MTLRegionMake2D(0,0,n,n),mipmapLevel:0,withBytes:zeros,bytesPerRow:n*4)
+            return t
+        }
         super.init()
     }
 
@@ -309,20 +334,82 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
             }
             encoder.endEncoding()
         }
+        stepRipples(command)
+
         // Pass 2: sky, islands and the sea that mirrors the layer.
         if let encoder = command.makeRenderCommandEncoder(descriptor:pass) {
             encoder.setRenderPipelineState(seaPipeline)
             encoder.setFragmentBytes(&uniforms,length:MemoryLayout<SeaUniforms>.stride,index:0)
             encoder.setFragmentTexture(layer,index:0)
             encoder.setFragmentTexture(milkyWay,index:1)
+            encoder.setFragmentTexture(ripple[0],index:2)
             encoder.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3)
             encoder.endEncoding()
         }
         let semaphore = inFlight
+        #if DEBUG
+        command.addCompletedHandler { [weak self] buffer in
+            let gpu = buffer.gpuEndTime-buffer.gpuStartTime
+            DispatchQueue.main.async { self?.logPerf(gpu:gpu) }
+        }
+        #endif
         command.addCompletedHandler { _ in semaphore.signal() }
         command.present(drawable)
         command.commit()
     }
+
+    // MARK: Touch ripples
+
+    /// Applies queued drops, then advances the wave equation at a fixed 60 Hz (at most 4 steps per frame).
+    private func stepRipples(_ command: MTLCommandBuffer) {
+        let now = CACurrentMediaTime()
+        rippleBacklog = min(4,rippleBacklog+(now-(rippleClock ?? now))*60)
+        rippleClock = now
+        let n = Self.rippleSize
+        let threads = MTLSize(width:8,height:8,depth:1)
+        let groups = MTLSize(width:(n+7)/8,height:(n+7)/8,depth:1)
+        let drops = NightSeaWater.shared.drain()
+        if !drops.isEmpty, let encoder = command.makeComputeCommandEncoder() {
+            let cell = NightSeaWater.span/Double(n)
+            var gpu = drops.map { d -> SIMD4<Float> in
+                SIMD4(Float((d.position.x/NightSeaWater.span+0.5)*Double(n)),Float((d.position.y/NightSeaWater.span+0.5)*Double(n)),
+                      Float(max(0.8,d.radius/cell)),Float(d.height))
+            }
+            var count = UInt32(gpu.count)
+            encoder.setComputePipelineState(rippleDrop)
+            encoder.setTexture(ripple[0],index:0)
+            encoder.setBytes(&gpu,length:MemoryLayout<SIMD4<Float>>.stride*gpu.count,index:0)
+            encoder.setBytes(&count,length:4,index:1)
+            encoder.dispatchThreadgroups(groups,threadsPerThreadgroup:threads)
+            encoder.endEncoding()
+        }
+        // c = 0.9 m/s over 0.375 m cells at 60 Hz: courant 0.04; damping .985 per step (rings fade in ~3–4 s).
+        let cell = NightSeaWater.span/Double(n), courant = 0.9*(1.0/60)/cell
+        var params = SIMD4<Float>(Float(courant*courant),0.985,0,0)
+        while rippleBacklog >= 1 {
+            rippleBacklog -= 1
+            guard let encoder = command.makeComputeCommandEncoder() else { break }
+            encoder.setComputePipelineState(rippleStep)
+            encoder.setTexture(ripple[0],index:0)        // current
+            encoder.setTexture(ripple[1],index:1)        // previous
+            encoder.setTexture(ripple[2],index:2)        // next
+            encoder.setBytes(&params,length:MemoryLayout<SIMD4<Float>>.stride,index:0)
+            encoder.dispatchThreadgroups(groups,threadsPerThreadgroup:threads)
+            encoder.endEncoding()
+            ripple = [ripple[2],ripple[0],ripple[1]]     // next becomes current, current becomes previous
+        }
+    }
+
+    #if DEBUG
+    /// Every ~2 s: average frame rate and GPU time per frame (read with `devicectl ... --console`).
+    private func logPerf(gpu: Double) {
+        perf.frames += 1; perf.gpu += gpu
+        let elapsed = CACurrentMediaTime()-perf.start
+        guard elapsed >= 2 else { return }
+        print(String(format:"[NightSea] %.1f fps, GPU %.2f ms/frame",Double(perf.frames)/elapsed,perf.gpu/Double(perf.frames)*1000))
+        perf = (0,CACurrentMediaTime(),0)
+    }
+    #endif
 }
 
 #Preview("Night sea") {

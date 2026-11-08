@@ -298,8 +298,11 @@ float4 layerAt(float2 uv, texture2d<float> tA, texture2d<float> tB, float amtB) 
 
 // The whole Night Sea for one view direction. Shared by the garden and the wormhole (one source of truth).
 // starUV: where the object layer is sampled for this direction (top-left uv), or (-1) for none.
+// Touch ripples: a height field (metres) over RIPPLE_SPAN x RIPPLE_SPAN metres of water centred on the viewer.
+constant float RIPPLE_SPAN = 96.0;
+
 float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<float> tA, texture2d<float> tB, float amtB,
-                texture2d<float> tMW) {
+                texture2d<float> tMW, texture2d<float> tRip) {
     float3 col;
     float3 mist = skyCol(normalize(float3(d.xy, .006)), u, tMW);         // horizon colour, glow included
     if (d.z >= 0.0) {
@@ -334,6 +337,15 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         float3 n2 = noised(P / .8 + float2(-T * .22, T * .31));
         gr += n1.yz / 2.4 * .10 * rough * (1.0 - smoothstep(.3, .9, fp / 2.4));
         gr += n2.yz / .8 * .035 * rough * (1.0 - smoothstep(.3, .9, fp / .8));
+        // Touch ripples: slopes of the simulated height field add to the normals (so reflections and glints ripple).
+        float2 ruv = P / RIPPLE_SPAN + .5;
+        if (all(ruv > 0.0) && all(ruv < 1.0) && tRip.get_width() > 1) {
+            constexpr sampler rs(filter::linear, address::clamp_to_zero);
+            float cell = RIPPLE_SPAN / float(tRip.get_width()), du = 1.0 / float(tRip.get_width());
+            float hx = tRip.sample(rs, ruv + float2(du, 0)).r - tRip.sample(rs, ruv - float2(du, 0)).r;
+            float hy = tRip.sample(rs, ruv + float2(0, du)).r - tRip.sample(rs, ruv - float2(0, du)).r;
+            gr += float2(hx, hy) / (2.0 * cell) * 2.2 * (1.0 - smoothstep(.4, 1.2, fp / cell));
+        }
         float3 sea = mix(float3(.010, .020, .046), float3(.020, .040, .085), smoothstep(-.5, -.01, d.z));   // dark navy body
         float2 gc = gr * (u.cam.w / .14) * mix(.6, 1.0, smoothstep(6.0, 40.0, dist));
         float3 N = normalize(float3(-gc, 1.0));
@@ -383,11 +395,37 @@ float3 dither(float3 c, float2 fc) {
 }
 
 fragment float4 seaFragment(VOut in [[stage_in]], constant SeaUniforms &u [[buffer(0)]], texture2d<float> tStar [[texture(0)]],
-                            texture2d<float> tMW [[texture(1)]]) {
+                            texture2d<float> tMW [[texture(1)]], texture2d<float> tRip [[texture(2)]]) {
     float2 fc = in.position.xy;
     float2 px = fc / u.res.z;
     float foc = u.cam.x;
     float3 d = normalize(u.F.xyz + ((px.x - u.cam.y) / foc) * u.R.xyz + ((u.cam.z - px.y) / foc) * u.U.xyz);
-    float3 col = envColor(d, fc / u.res.xy, u, tStar, tStar, 0.0, tMW);
+    float3 col = envColor(d, fc / u.res.xy, u, tStar, tStar, 0.0, tMW, tRip);
     return float4(clamp(dither(col, fc), 0.0, 1.0), 1.0);
+}
+
+// ---------- touch ripples: 2D wave equation on a height field ----------
+// next = (2 cur - prev + c^2 * laplacian(cur)) * damping, fixed 60 Hz steps; edges held at 0.
+kernel void rippleStep(texture2d<float, access::read> cur [[texture(0)]], texture2d<float, access::read> prev [[texture(1)]],
+                       texture2d<float, access::write> next [[texture(2)]], constant float4 &p [[buffer(0)]],
+                       uint2 g [[thread_position_in_grid]]) {
+    uint w = cur.get_width(), hgt = cur.get_height();
+    if (g.x >= w || g.y >= hgt) return;
+    if (g.x == 0 || g.y == 0 || g.x == w - 1 || g.y == hgt - 1) { next.write(float4(0), g); return; }
+    float c = cur.read(g).r;
+    float lap = cur.read(g + uint2(1, 0)).r + cur.read(g - uint2(1, 0)).r + cur.read(g + uint2(0, 1)).r + cur.read(g - uint2(0, 1)).r - 4.0 * c;
+    float n = (2.0 * c - prev.read(g).r + p.x * lap) * p.y;
+    next.write(float4(n, 0, 0, 0), g);
+}
+
+// Drops: x, y in cells, z radius in cells, w height (m). A smooth dimple.
+kernel void rippleDrop(texture2d<float, access::read_write> cur [[texture(0)]], constant float4 *drops [[buffer(0)]],
+                       constant uint &count [[buffer(1)]], uint2 g [[thread_position_in_grid]]) {
+    if (g.x >= cur.get_width() || g.y >= cur.get_height()) return;
+    float add = 0.0;
+    for (uint i = 0; i < count; i++) {
+        float2 q = float2(g) - drops[i].xy;
+        add -= drops[i].w * exp(-dot(q, q) / (drops[i].z * drops[i].z));
+    }
+    if (add != 0.0) cur.write(cur.read(g) + float4(add, 0, 0, 0), g);
 }

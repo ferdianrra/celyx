@@ -21,13 +21,15 @@ float2 wormCamUV(float2 p, constant WormUniforms &w) {
 
 // Same colour as the garden for direction d (shared envColor), with the object layers looked up where d projects
 // (the collection, plus the new star fading in).
-float3 wormEnv(float3 d, constant SeaUniforms &u, texture2d<float> tA, texture2d<float> tB, float starAmt, texture2d<float> tMW) {
-    return envColor(d, toScreen(d, u), u, tA, tB, starAmt, tMW);
+float3 wormEnv(float3 d, constant SeaUniforms &u, texture2d<float> tA, texture2d<float> tB, float starAmt, texture2d<float> tMW,
+               texture2d<float> tRip) {
+    return envColor(d, toScreen(d, u), u, tA, tB, starAmt, tMW, tRip);
 }
 
 fragment float4 wormholeFragment(VOut in [[stage_in]], constant SeaUniforms &u [[buffer(0)]], constant WormUniforms &w [[buffer(1)]],
                                  texture2d<float> tA [[texture(0)]], texture2d<float> tMW [[texture(1)]],
-                                 texture2d<float> tCam [[texture(2)]], texture2d<float> tB [[texture(3)]]) {
+                                 texture2d<float> tCam [[texture(2)]], texture2d<float> tB [[texture(3)]],
+                                 texture2d<float> tRip [[texture(4)]]) {
     constexpr sampler cs(filter::linear, address::clamp_to_edge);
     float2 fc = in.position.xy;
     float2 px = fc / u.res.z;
@@ -79,7 +81,7 @@ fragment float4 wormholeFragment(VOut in [[stage_in]], constant SeaUniforms &u [
     float aw = 2.75 * pow(wu, 1.18), al = mix(ap, aw, W);
     d = normalize(cos(al) * aF + sin(al) * pp);
 
-    float3 col = wormEnv(d, u, tA, tB, w.fx.y, tMW);
+    float3 col = wormEnv(d, u, tA, tB, w.fx.y, tMW, tRip);
     float rim = smoothstep(.82, 1.0, wu);
     col = mix(col, col * 1.35 + float3(.06, .08, .16), rim * W * .8);
     col *= mix(1.0, .2, smoothstep(.985, 1.0, wu));
