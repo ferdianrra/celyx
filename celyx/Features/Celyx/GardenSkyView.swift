@@ -277,10 +277,15 @@ struct GardenSkyView: View {
         motion = service
         camera.cameraFieldOfView = Self.backCameraFieldOfView
         service.onLocation = { fix in gpsLocation = fix; place() }
+        let resumed = Date()
         service.onCalibration = { ready,_,message,stage in
             gyroLive = ready
             gyroMessage = ready || stage == .blocked ? nil : message
-            if !ready { camera.orientation = nil }
+            // Coming back (e.g. from the camera): keep the last view while the gyro settles, so the sky
+            // doesn't jump to the drag view and rotate back. Only fall back to drag if it really can't settle.
+            if !ready && (camera.orientation == nil || stage == .blocked || Date().timeIntervalSince(resumed) > 3) {
+                camera.orientation = nil
+            }
         }
         service.start { _,_,_ in }
         service.onAttitude = { attitude in follow(attitude) }
@@ -289,7 +294,7 @@ struct GardenSkyView: View {
         motion?.stop()
         gyroLive = false
         gyroMessage = nil
-        camera.orientation = nil
+        // Keep camera.orientation: the paused sky stays exactly where it was (no jump while hidden / on return).
     }
     /// Phone attitude -> camera orientation, plus the user's drag offset (turn left/right, tilt up/down).
     private func follow(_ attitude: simd_double3x3) {

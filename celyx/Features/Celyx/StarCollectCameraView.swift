@@ -44,6 +44,8 @@ struct StarCollectCameraView: View {
     @State private var showsFilteredStars = false
     /// True while something sits in the circle and we're locking on to it.
     @State private var isLocking = false
+    /// The camera feed shows only once ARKit delivers real frames (no skewed first frames).
+    @State private var feedReady = false
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
     @State private var captureImage: CGImage?
@@ -134,6 +136,9 @@ struct StarCollectCameraView: View {
                 ZStack {
                     if service.isCameraRunning {
                         SkyCameraPreview(session:service.session,onViewport:service.updateViewport,zoom:service.cameraZoom)
+                            // Hidden behind the night colour until ARKit delivers real frames, then a quick fade.
+                            .opacity(feedReady ? 1 : 0)
+                            .animation(.easeOut(duration:0.2),value:feedReady)
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { value in
                                     if zoomStart == nil { zoomStart = service.cameraZoom }
@@ -223,6 +228,12 @@ struct StarCollectCameraView: View {
             await service.start()
         }
         .onDisappear { service.stop() }
+        .task {
+            // Wait for the first real AR frame, plus a couple more so the preview has its orientation.
+            while !Task.isCancelled && service.session.currentFrame == nil { try? await Task.sleep(for:.milliseconds(40)) }
+            try? await Task.sleep(for:.milliseconds(90))
+            feedReady = true
+        }
         #if DEBUG
         .task(id:demoOn) {
             // Keep the demo star glued to its place in the sky while the phone moves.

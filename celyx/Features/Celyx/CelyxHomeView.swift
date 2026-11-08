@@ -14,7 +14,6 @@ struct CelyxHomeView: View {
     @State private var showsFilteredStars = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
-    @State private var cameraFades = false
     @State private var handover: WormholeHandover?
     @State private var sheetRequest: GardenSheetRequest?
     /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
@@ -45,9 +44,10 @@ struct CelyxHomeView: View {
 
                 if showsStarCamera {
                     StarCollectCameraView(model:model,handover:handover,onCollect:collected) {
-                        withAnimation(reduceMotion ? nil : .spring(duration:0.4)) { showsStarCamera = false }
+                        withAnimation(Self.cameraTransition) { showsStarCamera = false }
                     }
-                    .transition(cameraFades ? .opacity : .move(edge:.bottom))
+                    // Native, simple: the whole camera (feed + its controls) cross-fades in and out as one piece.
+                    .transition(.opacity)
                     .zIndex(1)
                 }
 
@@ -190,9 +190,11 @@ struct CelyxHomeView: View {
         return showsStarCamera ? 0 : 1
     }
 
+    /// Camera in/out: a short native cross-fade (Home's controls fade with it, in the same transaction).
+    static let cameraTransition: Animation = .smooth(duration:0.32)
+
     private func openStarCamera() {
-        cameraFades = false
-        withAnimation(reduceMotion ? nil : .spring(duration:0.45)) { showsStarCamera = true }
+        withAnimation(Self.cameraTransition) { showsStarCamera = true }
     }
 
     private func collected(_ result: StarCollectCameraView.CollectResult) {
@@ -203,7 +205,6 @@ struct CelyxHomeView: View {
             Task { await handover.run() }
         case .fade(let itemID):
             // Reduce Motion: 400 ms cross-fade to the garden, then the sheet.
-            cameraFades = true
             withAnimation(.easeInOut(duration:0.4)) { showsStarCamera = false }
             guard let itemID else { return }
             Task {
