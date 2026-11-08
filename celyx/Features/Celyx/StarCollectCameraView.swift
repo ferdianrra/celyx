@@ -40,6 +40,9 @@ struct StarCollectCameraView: View {
     @State private var referenceCapture: CameraReferenceCapture?
     @State private var showsFilteredStars = false
     @State private var capturedItem: GardenCollectionItem?
+    /// The target that finished its lock (see shownTarget), and whether a lock is running now.
+    @State private var settledID: Int?
+    @State private var isLocking = false
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
     @State private var captureImage: CGImage?
@@ -118,16 +121,56 @@ struct StarCollectCameraView: View {
         // The filtered catalog remains available in the separate AR map.
         return nil
     }
-    private var shownTarget: CenterTarget? { centerTarget }
+    /// Our crosshair interaction: a target is shown (Enable, green) only after it stayed in the circle for
+    /// a short lock (Locking); it hides as soon as it leaves (animated release).
+    private var shownTarget: CenterTarget? {
+        guard let target = centerTarget, target.id == settledID else { return nil }
+        return target
+    }
+    private static let lockDuration = 0.7
 
     var body: some View {
-        NavigationStack {
-            TimelineView(.animation(paused:handover == nil && captureStart == nil)) { _ in
-                let frame = handover.map { $0.frame($0.tt()) }
-                let shutter = captureStart.map { (CACurrentMediaTime()-$0)*1000 }
-                cameraContent(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1,shutter:shutter)
-            }
+        TimelineView(.animation(paused:handover == nil && captureStart == nil)) { _ in
+            let frame = handover.map { $0.frame($0.tt()) }
+            let shutter = captureStart.map { (CACurrentMediaTime()-$0)*1000 }
+            cameraContent(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1,shutter:shutter)
         }
+    }
+
+    /// The camera's top controls (Ferdi's toolbar: Back, Filtered Stars, Calibrate, + Demo in debug), as native
+    /// glass buttons. The camera lives as a layer inside Home's NavigationStack, where a nested toolbar can't render.
+    private var topBar: some View {
+        HStack(spacing:10) {
+            Button { service.stop(); onClose() } label: {
+                Image(systemName:"chevron.left").font(.system(size:18,weight:.semibold)).frame(width:44,height:44)
+            }
+            .accessibilityLabel("Back")
+            Spacer()
+            Button { service.stop(); showsFilteredStars = true } label: {
+                Label("Filtered Stars",systemImage:"list.star").font(.system(size:15,weight:.semibold))
+                    .padding(.horizontal,14).frame(height:44)
+            }
+            Button { service.stop(); showsCalibration = true } label: {
+                Image(systemName:"scope").font(.system(size:18,weight:.semibold)).frame(width:44,height:44)
+            }
+            .accessibilityLabel("Calibrate direction")
+            #if DEBUG
+            // Debug: one tap toggles the demo sky (a fake Rigel to try the whole collect flow indoors).
+            Button(action:toggleDemoSky) {
+                Image(systemName:demoOn ? "sparkles" : "sparkle").font(.system(size:18,weight:.semibold)).frame(width:44,height:44)
+            }
+            .accessibilityLabel(demoOn ? "Turn demo sky off" : "Turn demo sky on")
+            #endif
+        }
+        .buttonStyle(.glass)
+        .foregroundStyle(.white)
+        .padding(.horizontal,16)
+    }
+
+    /// The collectible sheet shows (natively) only while a target is shown and nothing else is on screen.
+    private var showsTargetSheet: Bool {
+        shownTarget != nil && handover == nil && captureStart == nil && !showsCalibration && !showsFilteredStars
+            && referenceCapture == nil && capturedItem == nil
     }
 
     private func cameraContent(cameraUI: Double,crosshair: Double,shutter: Double?) -> some View {
@@ -181,11 +224,8 @@ struct StarCollectCameraView: View {
             .ignoresSafeArea()
 
             Group {
-                if let target = shownTarget, centerTarget?.id == target.id {
-                    sheet(for:target)
-                        .padding(.horizontal,6).padding(.bottom,6)
-                        .ignoresSafeArea(edges:.bottom)
-                        .transition(.move(edge:.bottom).combined(with:.opacity))
+                if shownTarget != nil {
+                    EmptyView()                                     // the native sheet below shows the target
                 } else if service.pinnedLight != nil {
                     pinnedLightPanel.padding(.horizontal,6).padding(.bottom,6)
                 } else {
@@ -193,9 +233,14 @@ struct StarCollectCameraView: View {
                 }
             }
             .opacity(cameraUI)
-            #if DEBUG
-            if demoOn { DemoSkyPill().frame(maxHeight:.infinity,alignment:.top).padding(.top,8).opacity(cameraUI) }
-            #endif
+            VStack(spacing:8) {
+                topBar
+                #if DEBUG
+                if demoOn { DemoSkyPill() }
+                #endif
+                Spacer()
+            }
+            .opacity(cameraUI)
         }
         .allowsHitTesting(handover == nil && captureStart == nil)
         .overlay(alignment:.trailing) {
@@ -208,20 +253,18 @@ struct StarCollectCameraView: View {
             }
         }
         .background(CelyxColor.night)
-        .toolbarBackground(.hidden,for:.navigationBar)
-        .toolbar(handover == nil && captureStart == nil ? .automatic : .hidden,for:.navigationBar)
-        .toolbar {
-            ToolbarItem(placement:.topBarLeading) {
-                Button("Back",systemImage:"chevron.left") { service.stop(); onClose() }.labelStyle(.iconOnly)
+        // Native sheet for the collectible target: fixed height, no grabber, no close button; the camera behind it
+        // stays tappable (tap anywhere to capture), and it hides by itself when the star leaves the circle.
+        .sheet(isPresented:Binding(get:{ showsTargetSheet },set:{ _ in })) {
+            Group {
+                if let target = shownTarget { sheet(for:target) } else { Color.clear.frame(height:1) }
             }
-            ToolbarItemGroup(placement:.topBarTrailing) {
-                Button("Filtered Stars",systemImage:"list.star") { service.stop(); showsFilteredStars = true }
-                Button("Calibrate direction",systemImage:"scope") { service.stop(); showsCalibration = true }.labelStyle(.iconOnly)
-                #if DEBUG
-                // Debug: one tap toggles the demo sky (a fake Rigel to try the whole collect flow indoors).
-                Button(demoOn ? "Demo on" : "Demo",systemImage:demoOn ? "sparkles" : "sparkle") { toggleDemoSky() }
-                #endif
-            }
+            .presentationDetents([.height(shownTarget?.star.isSolarDisc == true ? 214 : 234)])
+            .presentationDragIndicator(.hidden)
+            .presentationBackgroundInteraction(.enabled)
+            .presentationBackground { CelyxBluePanel(cornerRadius:34) }
+            .presentationCornerRadius(34)
+            .interactiveDismissDisabled()
         }
         .tint(.white)
         .preferredColorScheme(.dark)
@@ -232,6 +275,17 @@ struct StarCollectCameraView: View {
             await service.start()
         }
         .onDisappear { service.stop() }
+        // Our lock beat: Locking while the target stays in the circle, then Enable (green) and the sheet.
+        .task(id:centerTarget?.id) {
+            guard let target = centerTarget else { isLocking = false; settledID = nil; return }
+            if settledID == target.id { return }
+            settledID = nil
+            isLocking = true
+            try? await Task.sleep(for:.seconds(Self.lockDuration))
+            guard !Task.isCancelled else { return }
+            isLocking = false
+            settledID = target.id
+        }
         .task {
             // Wait for the first real AR frame, plus a couple more so the preview has its orientation.
             while !Task.isCancelled && service.session.currentFrame == nil { try? await Task.sleep(for:.milliseconds(40)) }
@@ -285,10 +339,10 @@ struct StarCollectCameraView: View {
         return CrosshairView(state:crosshairState,label:label,soundEnabled:handover == nil,hapticsEnabled:handover == nil)
     }
     private var crosshairState: CrosshairState {
-        if isChecking { return .validating }
-        if shownTarget != nil { return .enable }
-        if isAnalyzingLight { return .locking }
-        return .default
+        if isChecking || captureStart != nil { return .validating }   // capturing
+        if shownTarget != nil { return .enable }                     // collectible
+        if isLocking || isAnalyzingLight { return .locking }         // locking on / scanning a light
+        return .default                                              // searching
     }
 
     private var hintText: String {
@@ -429,8 +483,6 @@ struct StarCollectCameraView: View {
         let checking = verification == .checking(star.id)
         let failed = verification == .failed(star.id)
         return ZStack(alignment:.top) {
-            CelyxBluePanel(cornerRadius:34)
-            CelyxGrabber()
             VStack(spacing:0) {
                 HStack(spacing:0) {
                     StarPortraitView(star:star)
@@ -444,9 +496,8 @@ struct StarCollectCameraView: View {
                     }
                     .padding(.horizontal,16)
                     Spacer(minLength:0)
-                    CelyxCloseButton { verification = .idle; service.clearPinnedLight() }
                 }
-                .padding(.horizontal,16).frame(height:64).padding(.top,24).padding(.bottom,8)
+                .padding(.horizontal,16).frame(height:64).padding(.top,20).padding(.bottom,8)
                 if !star.isSolarDisc {
                     Text(service.hasReferenceAlignment ? "Estimated identity · direction aligned" : "Estimated identity · not independently confirmed")
                         .font(.system(size:12)).foregroundStyle(CelyxColor.secondaryLabel)
@@ -476,7 +527,7 @@ struct StarCollectCameraView: View {
                 .padding(.horizontal,16)
             }
         }
-        .frame(height:star.isSolarDisc ? 228 : 248)
+        .frame(maxWidth:.infinity,alignment:.top)
         .contentShape(Rectangle())
         .onTapGesture { collect(target) }
     }

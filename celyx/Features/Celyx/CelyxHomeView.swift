@@ -87,7 +87,11 @@ struct CelyxHomeView: View {
                 }
             }
             .onChange(of:handover?.showsSheet == true) { _, shows in
-                if shows, let id = handover?.itemID { sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover?.demo?.item) }
+                if shows, let handover, let id = handover.itemID {
+                    // The demo isn't saved, so its album shows the frozen frame (with the demo star painted in).
+                    let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
+                    sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo)
+                }
             }
             .toolbar(.hidden,for:.navigationBar)
             .navigationDestination(for:CelyxRoute.self) { route in

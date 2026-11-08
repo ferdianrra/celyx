@@ -38,6 +38,8 @@ struct GardenSkyView: View {
     @State private var zoomStart: Double?
     @State private var selected: GardenCollectionItem?
     @State private var failed = false
+    /// The album shown right after a capture's wormhole lands.
+    @State private var albumRequest: GardenSheetRequest?
     /// Debug replay: the demo object stays in the sky until its sheet closes (never saved).
     @State private var demo: WormholeDemo?
     /// Decorative background star field (not tappable, no labels).
@@ -95,11 +97,21 @@ struct GardenSkyView: View {
             if phase == .landed, let next = handover?.demo { demo = next; place() }
             if phase == .releasing { prepareRelease() }
         }
+        // After a capture: Ferdi's sky album (photo, place and time, note, story, Save to Photos) right after landing.
         .onChange(of:sheetRequest) { _, request in
-            guard let request, let item = model.collectionItems.first(where:{ $0.id == request.itemID }) ?? request.demoItem else { return }
-            selected = item   // Sendi's native card (springs in with the system sheet)
+            guard let request, model.collectionItems.contains(where:{ $0.id == request.itemID }) || request.demoItem != nil else { return }
+            albumRequest = request
         }
-        .sheet(item:$selected,onDismiss:{ endDemo(); handover?.beginRelease() }) { item in
+        .fullScreenCover(item:$albumRequest,onDismiss:{ endDemo(); handover?.beginRelease() }) { request in
+            if let item = model.collectionItems.first(where:{ $0.id == request.itemID }) {
+                StarAlbumView(item:item,photo:request.photo,
+                    onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
+                    onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) })
+            } else if let demo = request.demoItem {
+                StarAlbumView(item:demo,photo:request.photo)      // demo: shown, never saved
+            }
+        }
+        .sheet(item:$selected) { item in
             CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction,
                 onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
                 onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) }) {
@@ -362,11 +374,13 @@ struct GardenSkyView: View {
 }
 
 /// One request to spring in the collected object's sheet (a new value every time).
-struct GardenSheetRequest: Equatable {
+struct GardenSheetRequest: Equatable, Identifiable {
     let id = UUID()
     let itemID: Int
     /// Debug replay: an in-memory object that isn't in the collection.
     var demoItem: GardenCollectionItem? = nil
+    /// Photo to show in the album (the demo's frozen frame; real captures use their saved photo).
+    var photo: UIImage? = nil
     static func == (a: Self,b: Self) -> Bool { a.id == b.id }
 }
 
