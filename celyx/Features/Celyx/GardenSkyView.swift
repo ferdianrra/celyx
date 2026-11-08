@@ -108,7 +108,7 @@ struct GardenSkyView: View {
                     onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
                     onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) })
             } else if let demo = request.demoItem {
-                StarAlbumView(item:demo,photo:request.photo)      // demo: shown, never saved
+                StarAlbumView(item:demo,photo:request.photo,onSaveNote:{ _ in },onSavePlace:{ _ in })   // demo: never saved
             }
         }
         .sheet(item:$selected) { item in

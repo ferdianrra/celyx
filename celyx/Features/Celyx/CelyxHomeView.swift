@@ -42,14 +42,6 @@ struct CelyxHomeView: View {
                     .frame(maxWidth:.infinity,maxHeight:.infinity).allowsHitTesting(false)
                 }
 
-                if showsStarCamera {
-                    StarCollectCameraView(model:model,handover:handover,onCollect:collected) {
-                        withAnimation(Self.cameraTransition) { showsStarCamera = false }
-                    }
-                    // Native, simple: the whole camera (feed + its controls) cross-fades in and out as one piece.
-                    .transition(.opacity)
-                    .zIndex(1)
-                }
 
                 // Home UI: hidden under the camera, fading in over the wormhole after landing.
                 TimelineView(.animation(paused:handover == nil)) { _ in
@@ -70,7 +62,7 @@ struct CelyxHomeView: View {
                     }
                     .opacity(homeUIOpacity)
                 }
-                .allowsHitTesting(!showsStarCamera && handover == nil)
+                .allowsHitTesting(handover == nil)
                 .zIndex(2)
             }
             .background(CelyxColor.night)
@@ -120,6 +112,9 @@ struct CelyxHomeView: View {
         }
         .fullScreenCover(isPresented:$showsCalibration) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
+        }
+        .fullScreenCover(isPresented:$showsStarCamera) {
+            StarCollectCameraView(model:model,handover:handover,onCollect:collected) { showsStarCamera = false }
         }
         .fullScreenCover(item:$camera) { mode in
             CollectCameraView(mode:mode,model:model,events:events) { finished in
@@ -192,15 +187,11 @@ struct CelyxHomeView: View {
 
     private var homeUIOpacity: Double {
         if let handover { return handover.frame(handover.tt()).envUI }
-        return showsStarCamera ? 0 : 1
+        return 1
     }
 
-    /// Camera in/out: a short native cross-fade (Home's controls fade with it, in the same transaction).
-    static let cameraTransition: Animation = .smooth(duration:0.32)
-
-    private func openStarCamera() {
-        withAnimation(Self.cameraTransition) { showsStarCamera = true }
-    }
+    /// The star camera is presented like dev does (a full-screen cover), so Ferdi's toolbar renders.
+    private func openStarCamera() { showsStarCamera = true }
 
     private func collected(_ result: StarCollectCameraView.CollectResult) {
         switch result {
