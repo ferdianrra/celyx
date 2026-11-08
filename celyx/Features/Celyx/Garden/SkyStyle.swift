@@ -1,18 +1,17 @@
 //  SkyStyle.swift
-//  Which Milky Way look the Night Sea draws. Being chosen with the user: a DEBUG chip on Home cycles them
-//  live; the chosen one becomes the default. The softened maps are made offline by scripts/make_soft_milky_way.swift.
+//  TEMPORARY sky test: which Milky Way map the Night Sea draws. A DEBUG chip on Home cycles them live.
+//  NASA maps: NASA/Goddard Space Flight Center Scientific Visualization Studio, "Deep Star Maps 2020"
+//  (svs.gsfc.nasa.gov/4851), graded by scripts/make_nasa_milky_way.swift.
 
 import Foundation
 
 enum SkyStyle: Int, CaseIterable {
-    /// The Night Sea kit's real Milky Way map (detailed: dust lanes, nebulae).
+    /// The Night Sea kit's Milky Way map.
     case kit = 0
-    /// The same map, lightly softened.
-    case softLight = 1
-    /// Softened toward the user's reference: soft lavender band, pink-beige core, gentle dust lanes.
-    case softLavender = 2
-    /// The softest, dreamiest version.
-    case softDreamy = 3
+    /// NASA's Milky Way, graded toward the user's reference (lavender band, wide glow, soft dust lanes).
+    case nasaLavender = 1
+    /// NASA's Milky Way as photographed (levels only).
+    case nasaNatural = 2
 
     static let storageKey = "skyStyle"
     static let defaultStyle: SkyStyle = .kit
@@ -26,18 +25,16 @@ enum SkyStyle: Int, CaseIterable {
     var textureName: String {
         switch self {
         case .kit: "garden-milky-way-radec"
-        case .softLight: "garden-milky-way-radec-soft1"
-        case .softLavender: "garden-milky-way-radec-soft2"
-        case .softDreamy: "garden-milky-way-radec-soft3"
+        case .nasaLavender: "garden-milky-way-radec-nasa-lavender"
+        case .nasaNatural: "garden-milky-way-radec-nasa-natural"
         }
     }
 
     var title: String {
         switch self {
         case .kit: "0 · Kit"
-        case .softLight: "1 · Kit Soft (light)"
-        case .softLavender: "2 · Kit Soft (lavender)"
-        case .softDreamy: "3 · Kit Soft (dreamy)"
+        case .nasaLavender: "1 · NASA lavender"
+        case .nasaNatural: "2 · NASA natural"
         }
     }
     var next: SkyStyle { SkyStyle(rawValue:(rawValue+1) % SkyStyle.allCases.count) ?? .kit }
