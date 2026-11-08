@@ -100,7 +100,9 @@ struct GardenSkyView: View {
             selected = item   // Sendi's native card (springs in with the system sheet)
         }
         .sheet(item:$selected,onDismiss:{ endDemo(); handover?.beginRelease() }) { item in
-            CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction) {
+            CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction,
+                onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
+                onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) }) {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }

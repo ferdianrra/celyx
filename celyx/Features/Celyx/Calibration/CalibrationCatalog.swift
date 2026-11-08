@@ -26,6 +26,10 @@ struct CalibrationSuggestion: Identifiable {
 
 /// One known identity is enough for a manual yaw correction; it is not an automatic identification.
 nonisolated enum CalibrationReference {
+    static func localRotation(expected: SIMD3<Float>,observed: SIMD3<Float>,existingOffset: Double) -> simd_quatf? {
+        guard let offset = correction(expected:expected,observed:observed) else { return nil }
+        return simd_quatf(angle:Float(offset-existingOffset),axis:SIMD3(0,1,0))
+    }
     static func correction(expected: SIMD3<Float>,observed: SIMD3<Float>) -> Double? {
         guard expected.x.isFinite, expected.y.isFinite, expected.z.isFinite,
               observed.x.isFinite, observed.y.isFinite, observed.z.isFinite,

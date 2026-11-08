@@ -344,6 +344,20 @@ final class HomeViewModel {
             throw error
         }
     }
+    func updateObservationNote(id: Int,note: String) {
+        guard var record = collected[id] else { return }
+        record.note = note.trimmingCharacters(in:.whitespacesAndNewlines)
+        var updated = collected; updated[id] = record
+        guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
+        defaults.set(data,forKey:"collectedStars"); collected = updated
+    }
+    func updateObservationPlace(id: Int,name: String) {
+        guard var record = collected[id], let name = ObservationPlaceName.readableName(city:name,region:nil) else { return }
+        record.placeName = name
+        var updated = collected; updated[id] = record
+        guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
+        defaults.set(data,forKey:"collectedStars"); collected = updated
+    }
     func showDetail(_ star: CatalogStar) {
         guard !isCameraTransitioning else { return }
         selectedStar = star

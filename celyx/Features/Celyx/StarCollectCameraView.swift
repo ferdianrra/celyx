@@ -5,10 +5,9 @@ import ARKit
 ///
 /// `SkyFinderService` does the work: GPS + true-north camera orientation (ARKit) project the HYG catalogue
 /// onto the live camera image, and `CameraStarDetector` looks for an actual point of light at that spot.
-/// The crosshair never moves: only what sits inside the centre circle is scanned. A target must be
-/// really visible from this place right now (no stars in daylight, only the Sun). Pressing Collect starts
-/// a short check: the crosshair spins green while we confirm the camera really sees that light in the
-/// circle, and only then is it saved to the garden.
+/// The crosshair never moves: only what sits inside the centre circle is scanned. Star collection needs
+/// fresh optical evidence. Tapping the camera captures the current frame immediately
+/// and opens its album; verification happens during live scanning, before the tap.
 struct StarCollectCameraView: View {
     /// What sits inside the centre circle right now.
     struct CenterTarget {
@@ -30,25 +29,22 @@ struct StarCollectCameraView: View {
     let onClose: () -> Void
     /// The running handover, if any (fades this screen's UI on its clock).
     var handover: WormholeHandover? = nil
-    /// When set, a successful collect hands over to the garden instead of staying here.
+    /// When set, a successful collect hands over to the garden (wormhole) instead of opening the album here.
     var onCollect: ((CollectResult) -> Void)? = nil
     @State private var service: SkyFinderService
     @State private var viewSize: CGSize = .zero
-    @State private var settledID: Int?
-    /// Last settled target, kept briefly so a single missed frame doesn't close the sheet.
-    @State private var lastShown: CenterTarget?
     @State private var errorMessage: String?
     @State private var zoomStart: Double?
     @State private var verification: Verification = .idle
     @State private var showsCalibration = false
+    @State private var referenceCapture: CameraReferenceCapture?
     @State private var showsFilteredStars = false
-    /// True while something sits in the circle and we're locking on to it.
-    @State private var isLocking = false
-    /// The camera feed shows only once ARKit delivers real frames (no skewed first frames).
-    @State private var feedReady = false
+    @State private var capturedItem: GardenCollectionItem?
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
     @State private var captureImage: CGImage?
+    /// The camera feed shows only once ARKit delivers real frames (no skewed first frames).
+    @State private var feedReady = false
     #if DEBUG
     /// Demo sky: a fake Rigel fixed in the AR world (nil = off). Never saved.
     @State private var demoDirection: SIMD3<Float>?
@@ -79,9 +75,8 @@ struct StarCollectCameraView: View {
     private var center: CGPoint { CGPoint(x:viewSize.width/2,y:viewSize.height/2) }
     private func distance(_ point: CGPoint) -> CGFloat { hypot(point.x-center.x,point.y-center.y) }
 
-    /// Only objects that are really visible from this GPS position at this moment can be targeted:
-    /// `viewableObjects` already accounts for the Sun's altitude (no stars by day), the Moon,
-    /// light pollution and clouds. A light the camera actually sees at the centre wins over a mapped position.
+    /// Predictions use visibility estimates. A repeatedly observed, identified night-sky
+    /// light can still be collected when a cloud or light-pollution estimate disagrees.
     private var centerTarget: CenterTarget? {
         #if DEBUG
         if demoOn {
@@ -90,13 +85,27 @@ struct StarCollectCameraView: View {
             return CenterTarget(star:star,detection:CameraStarAnnotation(star:star,point:point,size:CGSize(width:28,height:28)))
         }
         #endif
+        if service.isPinnedLightCentered,
+           let pin = service.pinnedLight, pin.isIdentified, let star = pin.match?.star,
+           let point = service.pinnedLightGuide?.point, distance(point) <= 40 {
+            return CenterTarget(star:star,detection:service.reacquiredPinnedAnnotation
+                ?? service.annotations.first(where:{ $0.id == star.id && distance($0.point) <= captureRadius }))
+        }
         guard service.status == .tracking, !service.isAdjustingCamera, viewSize != .zero else { return nil }
         let visible = Set(service.viewableObjects.map(\.id))
-        if let seen = service.annotations
-            .filter({ visible.contains($0.id) && distance($0.point) <= captureRadius })
+        let observations = service.annotations + (service.reacquiredPinnedAnnotation.map { [$0] } ?? [])
+        if let seen = observations
+            .filter({ annotation in
+                let observedAtNight = (service.sunAltitude ?? 90) < -6 && !annotation.star.isSolarDisc
+                    && (annotation.sourceDirection?.y ?? -1) > sin(5 * Float.pi/180)
+                return (visible.contains(annotation.id) || observedAtNight) && distance(annotation.point) <= captureRadius
+            })
             .min(by:{ distance($0.point) < distance($1.point) }) {
             return CenterTarget(star:seen.star,detection:seen)
         }
+        // While returning to an observed pin, a different catalog marker alone
+        // must not replace that light or expose an unrelated Collect action.
+        if service.pinnedLight != nil { return nil }
         // Sun, Moon and planets: judged by angle, tolerant to the phone compass error.
         // The Collect check then demands the real bright light inside the circle.
         let tolerance = min(25,max(10,(service.cameraHeadingAccuracy ?? 15)+5))
@@ -105,57 +114,48 @@ struct StarCollectCameraView: View {
             .min(by:{ $0.separation < $1.separation }) {
             return CenterTarget(star:body.star,detection:nil)
         }
-        return service.mappedObjects
-            .filter { $0.likelyVisible && distance($0.point) <= captureRadius }
-            .min(by:{ distance($0.point) < distance($1.point) })
-            .map { CenterTarget(star:$0.star,detection:nil) }
+        // An ordinary star's predicted position is never presented as a detection.
+        // The filtered catalog remains available in the separate AR map.
+        return nil
     }
-    /// A catalogue object in the circle that can't actually be seen now (daylight, too faint…).
-    private var hiddenAtCenter: CatalogStar? {
-        guard service.status == .tracking, viewSize != .zero else { return nil }
-        return service.mappedObjects
-            .filter { !$0.likelyVisible && distance($0.point) <= captureRadius }
-            .min(by:{ distance($0.point) < distance($1.point) })?.star
-    }
-    private var shownTarget: CenterTarget? {
-        if let target = centerTarget, settledID == target.id { return target }
-        return settledID == nil ? nil : lastShown
-    }
+    private var shownTarget: CenterTarget? { centerTarget }
 
     var body: some View {
-        TimelineView(.animation(paused:handover == nil && captureStart == nil)) { _ in
-            let frame = handover.map { $0.frame($0.tt()) }
-            let shutter = captureStart.map { (CACurrentMediaTime()-$0)*1000 }
-            content(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1,shutter:shutter)
+        NavigationStack {
+            TimelineView(.animation(paused:handover == nil && captureStart == nil)) { _ in
+                let frame = handover.map { $0.frame($0.tt()) }
+                let shutter = captureStart.map { (CACurrentMediaTime()-$0)*1000 }
+                cameraContent(cameraUI:frame?.cameraUI ?? 1,crosshair:frame?.crossAlpha ?? 1,shutter:shutter)
+            }
         }
     }
 
-    private func content(cameraUI: Double,crosshair: Double,shutter: Double?) -> some View {
+    private func cameraContent(cameraUI: Double,crosshair: Double,shutter: Double?) -> some View {
         ZStack(alignment:.bottom) {
             GeometryReader { geometry in
                 ZStack {
                     if service.isCameraRunning {
-                        SkyCameraPreview(session:service.session,onViewport:service.updateViewport,zoom:service.cameraZoom)
+                        SkyCameraPreview(session:service.session,onViewport:service.updateViewport,
+                            onTap:{ point in
+                                if let target = shownTarget { collect(target) }
+                                else { _ = service.focus(at:point) }
+                            },
+                            onExposureDrag:{ translation,_,ended in service.dragExposure(translation:translation,ended:ended) },
+                            zoom:service.cameraZoom)
                             // Hidden behind the night colour until ARKit delivers real frames, then a quick fade.
                             .opacity(feedReady ? 1 : 0)
                             .animation(.easeOut(duration:0.2),value:feedReady)
+                            #if DEBUG
+                            .simultaneousGesture(LongPressGesture(minimumDuration:0.6).onEnded { _ in toggleDemoSky() })
+                            #endif
                             .simultaneousGesture(MagnifyGesture()
                                 .onChanged { value in
                                     if zoomStart == nil { zoomStart = service.cameraZoom }
                                     service.setZoom((zoomStart ?? 1)*value.magnification)
                                 }
                                 .onEnded { _ in zoomStart = nil })
-                            #if DEBUG
-                            // The crosshair doesn't take touches, so a press on it lands here, on the AR view,
-                            // whose own UIKit recognizers swallow parent gestures: attach the demo long-press here.
-                            .simultaneousGesture(LongPressGesture(minimumDuration:0.6).onEnded { _ in toggleDemoSky() })
-                            #endif
                     } else {
                         CelyxColor.night
-                            #if DEBUG
-                            .contentShape(Rectangle())
-                            .onLongPressGesture(minimumDuration:0.6) { toggleDemoSky() }
-                            #endif
                     }
                     #if DEBUG
                     if let point = demoPoint, let star = demoStar, handover == nil {
@@ -166,8 +166,12 @@ struct StarCollectCameraView: View {
                     if let shutter, shutter < CaptureFlash.duration { CaptureFlashView(image:captureImage,t:shutter) }
                     if let handover { WormholeHandoverView(handover:handover) }
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
-                    reticle.position(x:geometry.size.width/2,y:geometry.size.height/2+10)
+                    reticle.position(x:geometry.size.width/2,y:geometry.size.height/2+10).allowsHitTesting(false)
                         .opacity(crosshair)
+                    if service.pinnedLight != nil, let guide = service.pinnedLightGuide {
+                        CameraPinnedLightOverlay(guide:guide,title:pinnedLightTitle,isRecognizing:isAnalyzingLight,
+                            subtitle:service.pinnedLight?.match == nil ? nil : "Estimated identity")
+                    }
                 }
                 .scaleEffect(shutter.map(CaptureFlash.squeeze) ?? 1)
                 .overlay { Color.white.opacity(shutter.map(CaptureFlash.white) ?? 0).allowsHitTesting(false) }
@@ -176,50 +180,50 @@ struct StarCollectCameraView: View {
             }
             .ignoresSafeArea()
 
-            VStack {
-                HStack {
-                    CelyxBackButton { service.stop(); onClose() }
-                    #if DEBUG
-                    // Fallback: one tap toggles the demo sky.
-                    Button(action:toggleDemoSky) {
-                        Text("Demo").font(.system(size:12,weight:.bold)).foregroundStyle(.white)
-                            .padding(.horizontal,10).padding(.vertical,6)
-                            .background(Capsule().fill(demoOn ? Color.purple.opacity(0.75) : Color.white.opacity(0.18)))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(demoOn ? "Turn demo sky off" : "Turn demo sky on")
-                    #endif
-                    Spacer()
-                    CelyxGlassButton(width:148,action:{ service.stop(); showsFilteredStars = true }) {
-                        Label("Filtered Stars",systemImage:"list.star")
-                            .font(.system(size:14,weight:.semibold)).foregroundStyle(CelyxColor.primaryLabel)
-                    }
-                    CelyxGlassButton(action:{ service.stop(); showsCalibration = true }) {
-                        Image(systemName:"scope").font(.system(size:20)).foregroundStyle(.white)
-                    }
-                    .accessibilityLabel("Calibrate direction")
+            Group {
+                if let target = shownTarget, centerTarget?.id == target.id {
+                    sheet(for:target)
+                        .padding(.horizontal,6).padding(.bottom,6)
+                        .ignoresSafeArea(edges:.bottom)
+                        .transition(.move(edge:.bottom).combined(with:.opacity))
+                } else if service.pinnedLight != nil {
+                    pinnedLightPanel.padding(.horizontal,6).padding(.bottom,6)
+                } else {
+                    CelyxHintPill(text:hintText,isLoading:isAnalyzingLight).padding(.bottom,59).transition(.opacity)
                 }
-                .padding(.horizontal,20)
-                #if DEBUG
-                if demoOn { DemoSkyPill().padding(.top,8) }
-                #endif
-                Spacer()
             }
             .opacity(cameraUI)
-
-            if let target = shownTarget {
-                sheet(for:target)
-                    .padding(.horizontal,6).padding(.bottom,6)
-                    .ignoresSafeArea(edges:.bottom)
-                    .transition(.move(edge:.bottom).combined(with:.opacity))
-                    .opacity(cameraUI)
-            } else {
-                CelyxHintPill(text:hintText).padding(.bottom,59).transition(.opacity)
-                    .opacity(cameraUI)
+            #if DEBUG
+            if demoOn { DemoSkyPill().frame(maxHeight:.infinity,alignment:.top).padding(.top,8).opacity(cameraUI) }
+            #endif
+        }
+        .allowsHitTesting(handover == nil && captureStart == nil)
+        .overlay(alignment:.trailing) {
+            if service.exposureControlVisible {
+                CameraExposureControl(minimum:service.minimumExposure,maximum:service.maximumExposure,
+                    value:Binding(get:{ service.exposureBias },set:{ service.setExposure($0) }),
+                    message:service.cameraControlMessage,onReset:{ service.setExposure(0) },
+                    onEditingChanged:service.setExposureEditing)
+                    .padding(.trailing,12).transition(.opacity)
             }
         }
-        .allowsHitTesting(handover == nil)
         .background(CelyxColor.night)
+        .toolbarBackground(.hidden,for:.navigationBar)
+        .toolbar(handover == nil && captureStart == nil ? .automatic : .hidden,for:.navigationBar)
+        .toolbar {
+            ToolbarItem(placement:.topBarLeading) {
+                Button("Back",systemImage:"chevron.left") { service.stop(); onClose() }.labelStyle(.iconOnly)
+            }
+            ToolbarItemGroup(placement:.topBarTrailing) {
+                Button("Filtered Stars",systemImage:"list.star") { service.stop(); showsFilteredStars = true }
+                Button("Calibrate direction",systemImage:"scope") { service.stop(); showsCalibration = true }.labelStyle(.iconOnly)
+                #if DEBUG
+                // Debug: one tap toggles the demo sky (a fake Rigel to try the whole collect flow indoors).
+                Button(demoOn ? "Demo on" : "Demo",systemImage:demoOn ? "sparkles" : "sparkle") { toggleDemoSky() }
+                #endif
+            }
+        }
+        .tint(.white)
         .preferredColorScheme(.dark)
         .animation(reduceMotion ? nil : .spring(duration:0.35),value:shownTarget?.id)
         .task {
@@ -246,36 +250,13 @@ struct StarCollectCameraView: View {
         }
         #endif
         .onChange(of:phase) { _, value in
-            if value == .active, !showsCalibration, !showsFilteredStars { Task { await service.start() } } else { service.stop() }
+            if value == .active, !showsCalibration, !showsFilteredStars, capturedItem == nil { Task { await service.start() } }
+            else if value == .background { service.suspendForBackground() }
+            else { service.stop() }
         }
-        .onChange(of:centerTarget?.detection != nil) { _, _ in
-            if let target = centerTarget, target.id == settledID { lastShown = target }
-        }
-        // Settle briefly so the sheet doesn't flicker while sweeping across the sky.
-        .task(id:centerTarget?.id) {
-            guard let target = centerTarget else {
-                try? await Task.sleep(for:.milliseconds(800))
-                guard !Task.isCancelled else { return }
-                settledID = nil; lastShown = nil
-                return
-            }
-            if settledID == target.id { return }
-            // Lock on: the crosshair's loader runs while the object stays in the circle.
-            isLocking = true
-            try? await Task.sleep(for:.seconds(Self.lockDuration))
-            guard !Task.isCancelled else { isLocking = false; return }
-            #if DEBUG
-            if demoOn {
-                // A short "is it really there?" beat before the sheet.
-                demoChecking = true
-                try? await Task.sleep(for:.milliseconds(700))
-                demoChecking = false
-                guard !Task.isCancelled else { isLocking = false; return }
-            }
-            #endif
-            isLocking = false
-            settledID = target.id
-            lastShown = target
+        .sheet(item:$referenceCapture) { capture in
+            CameraReferencePickerView(capture:capture,onConfirm:{ service.confirmFirstReference(capture,star:$0) })
+                .celyxSheet(detents:[.large])
         }
         .fullScreenCover(isPresented:$showsCalibration,onDismiss:{ Task { await service.start() } }) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
@@ -283,7 +264,11 @@ struct StarCollectCameraView: View {
         .fullScreenCover(isPresented:$showsFilteredStars,onDismiss:{ Task { await service.start() } }) {
             FilteredStarsView(model:model)
         }
-        .alert("Couldn’t collect that",isPresented:Binding(get:{ errorMessage != nil },set:{ if !$0 { errorMessage = nil } })) {
+        .fullScreenCover(item:$capturedItem,onDismiss:{ Task { await service.start() } }) { item in
+            StarAlbumView(item:item,onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
+                onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) })
+        }
+        .alert("Camera",isPresented:Binding(get:{ errorMessage != nil },set:{ if !$0 { errorMessage = nil } })) {
             Button("Try Again",role:.cancel) {}
         } message: {
             Text(errorMessage ?? "")
@@ -292,26 +277,23 @@ struct StarCollectCameraView: View {
 
     // MARK: Crosshair (always fixed at the centre of the screen)
 
-    private static let lockDuration = 0.9
-    private static let verifyDuration = 1.6
-
     /// Figma "Crosshair" component (node 922:1567) with its own motion, sound and haptics.
     private var reticle: some View {
+        let star = shownTarget?.star
+        let label = star?.id == service.pinnedLight?.match?.star.id ? "" : star?.title ?? ""
         // During the wormhole the handover owns the audio and haptics: the crosshair stays silent.
-        CrosshairView(state:crosshairState,label:(shownTarget ?? (isLocking ? centerTarget : nil))?.star.title ?? "",
-                      soundEnabled:handover == nil,hapticsEnabled:handover == nil)
+        return CrosshairView(state:crosshairState,label:label,soundEnabled:handover == nil,hapticsEnabled:handover == nil)
     }
     private var crosshairState: CrosshairState {
         if isChecking { return .validating }
         if shownTarget != nil { return .enable }
-        if isLocking { return .locking }
+        if isAnalyzingLight { return .locking }
         return .default
     }
 
     private var hintText: String {
         #if DEBUG
         if demoOn {
-            if demoChecking { return "Checking it’s really there…" }
             guard let point = demoPoint else {
                 if let arrow = demoArrow {
                     let way = abs(arrow.dx) > abs(arrow.dy) ? (arrow.dx > 0 ? "right" : "left") : (arrow.dy > 0 ? "down" : "up")
@@ -319,7 +301,7 @@ struct StarCollectCameraView: View {
                 }
                 return "Look around to find Rigel"
             }
-            return distance(point) <= captureRadius ? "Hold steady on Rigel" : "Rigel is close. Put it in your circle"
+            return distance(point) <= captureRadius ? "Rigel is in your circle. Tap to collect" : "Rigel is close. Put it in your circle"
         }
         #endif
         switch service.status {
@@ -328,18 +310,118 @@ struct StarCollectCameraView: View {
         case .requestingPermission: return "Allow camera and location to find stars"
         case .limited(let message), .unavailable(let message), .denied(let message): return message
         }
-        let sun = service.sunAltitude ?? -90
-        if let hidden = hiddenAtCenter {
-            if sun >= -0.833 { return "It’s daytime, so \(hidden.title) can’t be seen now" }
-            if sun >= -6 { return "The sky is still too bright to see \(hidden.title)" }
-            return "\(hidden.title) is too faint to see from here now"
+        if service.isAdjustingCamera { return "Letting the camera settle… Hold steady" }
+        if let issue = centeredLightIssue {
+            switch issue {
+            case .stabilizing: return "Light found. Checking its name… Hold steady"
+            case .compass: return "Light found. Tap the scope to calibrate direction."
+            case .noCandidate: return "Light found, but no clear catalog match. Check alignment."
+            case .ambiguous: return "Several stars fit this light. Calibrate direction to check."
+            case .alignment: return "Light found, but its position is off. Recalibrate direction."
+            }
         }
+        if isAnalyzingLight { return "Scanning faint starlight… Hold steady for a moment" }
+        let sun = service.sunAltitude ?? -90
         if sun >= -0.833 { return "It’s daytime. Only the Sun can be collected now" }
         if sun >= -6 { return "The sky is still too bright for stars" }
-        return "Point your circle at a star"
+        return service.pointScanProgress >= 1 ? "No steady point yet. Adjust your aim, or tap the star to focus." : "Point your circle at a star"
+    }
+
+    private var centeredLightIssue: CameraIdentificationIssue? {
+        service.unidentifiedLights.filter { distance($0.point) <= captureRadius }
+            .min { distance($0.point) < distance($1.point) }?.issue
+    }
+    private var isAnalyzingLight: Bool {
+        guard service.status == .tracking else { return false }
+        if service.isScanningNewLight { return true }
+        if service.pinnedLight?.isIdentified == true { return false }
+        if service.isAdjustingCamera { return true }
+        if service.pinnedLight != nil {
+            if service.reacquiredPinnedAnnotation != nil { return false }
+            return service.isRecognizingPinnedLight
+        }
+        if let issue = centeredLightIssue { return issue == .stabilizing }
+        return service.isGatheringInitialLight && service.pointScanProgress > 0 && service.pointScanProgress < 1
     }
 
     // MARK: Sheet
+
+    private var pinIsInReticle: Bool {
+        service.pinnedLightGuide?.point.map { distance($0) <= captureRadius } ?? false
+    }
+    private var pinnedLightTitle: String {
+        guard let star = service.pinnedLight?.match?.star else { return "Last seen light" }
+        return star.title
+    }
+
+    private var pinnedLightPanel: some View {
+        VStack(alignment:.leading,spacing:12) {
+            if let issue = service.newLightIssue {
+                HStack(spacing:8) {
+                    if service.isScanningNewLight { ProgressView().tint(CelyxColor.primaryLabel) }
+                    else { Image(systemName:"sparkle.magnifyingglass") }
+                    Text(issue == .stabilizing ? "New light · matching its direction…" : "New light · \(issue.title)")
+                        .font(.system(size:13))
+                }
+            }
+            HStack(spacing:10) {
+                if isAnalyzingLight { ProgressView().tint(CelyxColor.primaryLabel) }
+                Text(pinnedLightTitle)
+                    .font(.system(size:17,weight:.semibold))
+                Spacer()
+                Button("Clear pin") { service.clearPinnedLight() }
+                    .font(.system(size:13,weight:.semibold))
+            }
+            if service.pinnedLight?.match != nil {
+                Text("Estimated identity").font(.system(size:12,weight:.medium))
+                    .foregroundStyle(CelyxColor.secondaryLabel)
+            }
+            Text(pinnedLightInstruction)
+                .font(.system(size:13)).foregroundStyle(CelyxColor.secondaryLabel)
+                .fixedSize(horizontal:false,vertical:true)
+            if !service.hasReferenceAlignment {
+                Button {
+                    if let capture = service.captureFirstReference() { referenceCapture = capture }
+                    else { errorMessage = "Keep the light visible, then try aligning again." }
+                } label: {
+                    Label("Improve direction (optional)",systemImage:"scope")
+                        .font(.system(size:13,weight:.semibold))
+                }.buttonStyle(.plain)
+            }
+        }.padding(20).foregroundStyle(CelyxColor.primaryLabel).background(CelyxBluePanel(cornerRadius:28))
+    }
+
+    private var pinnedLightInstruction: String {
+        if !service.hasReferenceAlignment {
+            if let issue = service.pinnedLight?.issue, service.pinnedLight?.match == nil {
+                return issue == .stabilizing ? "Light detected. Checking nearby catalog candidates…" : issue.message
+            }
+            return "The light is detected. Its name is an estimate from direction, time and location. Aligning is optional and improves accuracy."
+        }
+        guard service.status == .tracking else {
+            return "Tracking is adjusting. Your last light is saved; move slowly to steady the guide."
+        }
+        if service.isAdjustingCamera { return "Applying camera settings. Your last light stays pinned." }
+        if service.pinnedLight?.isIdentified == true {
+            return pinIsInReticle
+                ? "Identification saved. Waiting for fresh light in the circle before collecting."
+                : "Identification saved. Follow the arrow back to the last detected light."
+        }
+        if pinIsInReticle {
+            if service.reacquiredPinnedAnnotation != nil { return "Light detected again. Getting your collection ready." }
+            if service.pinnedLight?.issue == .ambiguous {
+                return "Light found, but several names fit. Check direction calibration to identify it."
+            }
+            return "Back at the saved position. Checking fresh camera frames for this light…"
+        }
+        if service.isRecognizingPinnedLight {
+            return "Checking the saved direction. You can move; the last light stays pinned."
+        }
+        if service.pinnedLight?.match != nil {
+            return "Follow the arrow back to this light. Collecting needs a fresh sighting inside the circle."
+        }
+        return "No clear identity yet. Return to the pin or aim at another light. Check calibration if needed."
+    }
 
     private func sheet(for target: CenterTarget) -> some View {
         let star = target.star
@@ -362,13 +444,18 @@ struct StarCollectCameraView: View {
                     }
                     .padding(.horizontal,16)
                     Spacer(minLength:0)
-                    CelyxCloseButton { verification = .idle; settledID = nil; lastShown = nil }
+                    CelyxCloseButton { verification = .idle; service.clearPinnedLight() }
                 }
                 .padding(.horizontal,16).frame(height:64).padding(.top,24).padding(.bottom,8)
+                if !star.isSolarDisc {
+                    Text(service.hasReferenceAlignment ? "Estimated identity · direction aligned" : "Estimated identity · not independently confirmed")
+                        .font(.system(size:12)).foregroundStyle(CelyxColor.secondaryLabel)
+                        .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,16).padding(.top,4)
+                }
                 HStack(spacing:6) {
                     let color = failed ? Color.orange : CelyxColor.ready
                     Circle().fill(color).frame(width:6,height:6).shadow(color:color,radius:3)
-                    Text("\(Text(statusText(for:star,checking:checking,failed:failed,collected:isCollected)).foregroundStyle(CelyxColor.primaryLabel))\(Text(directionText(for:star)).foregroundStyle(CelyxColor.secondaryLabel))")
+                    Text("\(Text(statusText(for:star,checking:checking,failed:failed,collected:isCollected,fresh:target.detection != nil)).foregroundStyle(CelyxColor.primaryLabel))\(Text(directionText(for:star)).foregroundStyle(CelyxColor.secondaryLabel))")
                         .font(.system(size:12)).lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength:0)
                 }
@@ -378,21 +465,28 @@ struct StarCollectCameraView: View {
                         CelyxPillButton(title:"Collected",systemImage:"checkmark",style:.collected) {}
                             .allowsHitTesting(false)
                     } else {
-                        CelyxPillButton(title:checking ? "Checking the sky…" : star.isSun ? "Collect the Sun" : "Collect this star",
-                                        style:checking ? .disabled : .primary) { collect(target) }
+                        Text(checking ? "Capturing…" : "Tap anywhere to capture")
+                            .font(.system(size:17,weight:.semibold)).foregroundStyle(.white)
+                            .frame(maxWidth:.infinity).frame(height:48).contentShape(Rectangle())
+                            .onTapGesture { collect(target) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityIdentifier("capture-star")
                     }
                 }
                 .padding(.horizontal,16)
             }
         }
-        .frame(height:228)
+        .frame(height:star.isSolarDisc ? 228 : 248)
+        .contentShape(Rectangle())
+        .onTapGesture { collect(target) }
     }
 
-    private func statusText(for star: CatalogStar,checking: Bool,failed: Bool,collected: Bool) -> String {
+    private func statusText(for star: CatalogStar,checking: Bool,failed: Bool,collected: Bool,fresh: Bool) -> String {
         if collected { return "In your garden · " }
         if checking { return "Hold steady, checking its light · " }
         if failed { return "Couldn’t see it in the circle. Try again · " }
         if star.isSun { return "Visible now · Never look straight at it · " }
+        if !fresh { return "Rechecking light · " }
         return "Visible now · "
     }
     private func subtitle(for star: CatalogStar) -> String {
@@ -411,32 +505,26 @@ struct StarCollectCameraView: View {
 
     // MARK: Actions
 
-    /// Starts the check. Collecting only succeeds if, over ~1–2.5s, the same object stays in the circle
-    /// AND the camera actually sees its light there (a detected star, or a real bright source in the frame).
+    /// Capture this exact moment. Scanning already checked independent optical frames;
+    /// a retained pin without fresh evidence cannot trigger a shutter.
     private func collect(_ target: CenterTarget) {
-        guard !isChecking else { return }
-        let id = target.id
-        verification = .checking(id)
-        Task { @MainActor in
-            let start = Date()
-            var confirmations = 0
-            while Date().timeIntervalSince(start) < 2.5 {
-                guard verification == .checking(id) else { return }
-                if let current = centerTarget, current.id == id,
-                   current.detection != nil || lightIsInCircle(for:current.star) {
-                    confirmations += 1
-                    // Several consecutive confirmations, and let the spinner read as a real check.
-                    if confirmations >= 4 && Date().timeIntervalSince(start) >= (demoOn ? 1.2 : Self.verifyDuration) {
-                        save(current)
-                        return
-                    }
-                } else {
-                    confirmations = 0
-                }
-                try? await Task.sleep(for:.milliseconds(150))
-            }
-            if verification == .checking(id) { fail(id) }
+        #if DEBUG
+        if demoOn {
+            // Demo Rigel: the same path as a real collect (cekrek -> wormhole -> card), never saved.
+            guard !isChecking, captureStart == nil, handover == nil else { return }
+            verification = .checking(target.id)
+            captureDemo(target)
+            return
         }
+        #endif
+        guard !isChecking, capturedItem == nil, captureStart == nil, handover == nil, model.collected[target.id] == nil,
+              service.status == .tracking, !service.isAdjustingCamera else { return }
+        guard let current = centerTarget, current.id == target.id,
+              current.detection != nil || (current.star.isSolarDisc && lightIsInCircle(for:current.star)) else {
+            fail(target.id); return
+        }
+        verification = .checking(target.id)
+        save(current)
     }
 
     /// Soft "not this time" cue (sound + two dull taps) instead of the harsh system error buzz,
@@ -449,14 +537,12 @@ struct StarCollectCameraView: View {
     }
 
     private func save(_ target: CenterTarget) {
-        #if DEBUG
-        if demoOn { captureDemo(target); return }
-        #endif
         // The confirmed light: a detected source, or the bright source we just measured at the centre.
         let annotation = target.detection ?? CameraStarAnnotation(star:target.star,point:center,size:CGSize(width:28,height:28))
-        let note = target.detection?.estimatedSeparation.map {
+        let detail = target.detection?.estimatedSeparation.map {
             String(format:"Our best match is %@, based on direction and brightness. Direction offset: %.1f°.",target.star.title,$0)
         } ?? "Confirmed by direction, time and place, with a bright light seen in the circle."
+        let note = (service.hasReferenceAlignment ? "" : "Uncalibrated catalog estimate; identity not independently confirmed. ")+detail
         guard let draft = service.captureObservation(annotation:annotation,identificationNote:note) else {
             fail(target.id)
             return
@@ -464,17 +550,25 @@ struct StarCollectCameraView: View {
         do {
             try model.saveCameraObservation(draft,note:"")
             if onCollect != nil && !reduceMotion {
-                // Same as the demo from here: Validating holds through the capture cue, then the wormhole.
+                // From Home: cekrek -> wormhole -> land on the star -> its card (the Album opens from the card).
                 captureThenHandover(itemID:target.star.id,point:target.detection?.point ?? center,
                                     freeze:service.wormholeFreeze() ?? .placeholder(size:viewSize))
                 return
             }
-            verification = .idle
             // Celebrate: our own chime + haptic, and mute the crosshair's automatic "back" on the way to Enable.
             CrosshairFeedback.shared.suppress(.back,for:0.6)
             CrosshairFeedback.shared.play(CrosshairSound.collect)
             CrosshairFeedback.shared.play(CrosshairHaptic.collect)
-            onCollect?(.fade(itemID:target.star.id))
+            verification = .idle
+            if let onCollect {
+                // Reduce Motion: a plain fade into the garden, then the card (Album from the card).
+                onCollect(.fade(itemID:target.star.id))
+                return
+            }
+            if let record = model.collected[target.id] {
+                capturedItem = GardenCollectionItem(star:target.star,record:record)
+                service.stop()
+            }
         } catch {
             verification = .idle
             errorMessage = error.localizedDescription
@@ -549,6 +643,7 @@ struct StarCollectCameraView: View {
     /// Reads the live camera frame: is there really a light inside the circle?
     private func lightIsInCircle(for star: CatalogStar) -> Bool {
         guard let buffer = service.session.currentFrame?.capturedImage, viewSize != .zero,
+              CameraSkyContext.permits(CGPoint(x:0.5,y:0.5),in:buffer,isDisc:star.isSolarDisc),
               let sample = CenterLightProbe.measure(buffer,viewSize:viewSize,radius:captureRadius) else { return false }
         if star.isSun {
             // A saturated disc filling a good part of the circle.
@@ -608,9 +703,11 @@ nonisolated enum CenterLightProbe {
 /// Glass hint capsule used at the bottom of the camera screens.
 struct CelyxHintPill: View {
     let text: String
+    var isLoading = false
     var body: some View {
         HStack(spacing:12) {
-            Image(systemName:"scope")
+            if isLoading { ProgressView().tint(CelyxColor.primaryLabel) }
+            else { Image(systemName:"scope") }
             Text(text).lineLimit(2).multilineTextAlignment(.leading)
         }
         .font(.system(size:15,weight:.semibold)).tracking(-0.23).foregroundStyle(.white)
@@ -640,4 +737,9 @@ enum ConstellationNames {
 #Preview("Camera hint") {
     CelyxHintPill(text:"Hold steady while we compare the stars").padding().background(.black)
         .preferredColorScheme(.dark)
+}
+
+#Preview("Camera hint · scanning faint light") {
+    CelyxHintPill(text:"Scanning faint starlight… Hold steady for a moment",isLoading:true)
+        .padding().background(CelyxColor.night).preferredColorScheme(.dark)
 }

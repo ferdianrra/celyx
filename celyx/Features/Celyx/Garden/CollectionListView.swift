@@ -47,7 +47,9 @@ struct CollectionListView: View {
         .toolbar(.visible,for:.navigationBar)
         .preferredColorScheme(.dark)
         .sheet(item:$selected) { item in
-            CollectedObjectSheet(item:item,direction:currentDirection(of:item)) {
+            CollectedObjectSheet(item:item,direction:currentDirection(of:item),
+                onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
+                onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) }) {
                 model.deleteCollected(id:item.id)
                 selected = nil
             }
