@@ -334,7 +334,12 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
             }
             encoder.endEncoding()
         }
+        #if DEBUG
+        // Measuring only: launch with CELYX_NO_RIPPLES=1 to skip the ripple simulation.
+        if ProcessInfo.processInfo.environment["CELYX_NO_RIPPLES"] == nil { stepRipples(command) }
+        #else
         stepRipples(command)
+        #endif
 
         // Pass 2: sky, islands and the sea that mirrors the layer.
         if let encoder = command.makeRenderCommandEncoder(descriptor:pass) {

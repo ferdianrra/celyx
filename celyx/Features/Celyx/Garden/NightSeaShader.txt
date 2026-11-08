@@ -62,15 +62,15 @@ vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u
     float fov = 2.0 * atan(0.62 * minSide / u.cam.x) * 180.0 / PI;
     float fz = sqrt(72.0 / max(fov, 5.0));
     float R;
-    if (kind > 3.5 && kind < 5.0) {                       // background star
+    if (kind > 3.5 && kind < 5.0) {                       // background star: decoration only
         float mag = g.dirSize.w;
-        float r = clamp(3.0 - 0.55 * mag, 0.8, 5.0) * fz * 0.8;
-        float a = clamp((6.2 - mag) / 1.1 + 0.35, 0.35, 1.0) * 0.7;
-        if (mag > 5.0) { r = 0.45; a = 0.15; }            // faint dust
-        float ga = mag < 1.0 ? 0.9 * a * 0.5 : (mag < 2.0 ? 0.6 * a * 0.5 : 0.0);
-        float gr = mag < 1.0 ? r * 8.0 : r * 6.0;
-        R = ga > 0.0 ? gr : r + 1.0;
-        o.p = float4(r, R, a, ga);
+        // The kit's size and alpha, toned well down: radius x0.6 (capped at 1.3 pt), alpha x0.42, no glow,
+        // so even the brightest decorative star stays clearly smaller and dimmer than any collected star.
+        float r = min(clamp(3.0 - 0.55 * mag, 0.8, 5.0) * fz * 0.6, 1.3);
+        float a = clamp((6.2 - mag) / 1.1 + 0.35, 0.35, 1.0) * 0.42;
+        if (mag > 5.0) { r = 0.45; a = 0.12; }            // faint dust
+        R = r + 1.0;
+        o.p = float4(r, R, a, 0.0);
     } else if (kind < 0.5) {                              // collected star
         float r = g.dirSize.w * fz;
         R = max(r * 8.0, 5.0 + r + 2.0);
@@ -105,7 +105,8 @@ fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_
         float d = length(vp);
         float seed = col.r * 40.0 + col.g * 57.0 + col.b * 31.0;
         float tw = collected ? 0.92 + 0.08 * sin(u.res.w * 1.1 + seed)        // slow breathing
-                             : 0.9 + 0.1 * sin(u.res.w * 3.4 + seed);         // the kit's gentle twinkle
+                             : 0.95 + 0.05 * sin(u.res.w * 3.4 + seed);       // half the kit's twinkle
+        if (!collected) col = mix(col, float3(dot(col, float3(.299, .587, .114))), .3);   // a little desaturated
         float4 o = float4(0);
         if (ga > 0.0) o += kitGlow(d / R, col) * ga * tw;
         if (collected) {
