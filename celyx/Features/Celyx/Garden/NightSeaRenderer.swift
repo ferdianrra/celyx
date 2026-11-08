@@ -146,6 +146,7 @@ private struct SeaUniforms {
     var e0: SIMD4<Float>
     var e1: SIMD4<Float>
     var e2: SIMD4<Float>
+    var style: SIMD4<Float>
 }
 
 private struct GPUPoint {
@@ -316,7 +317,8 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         var e2 = v(basis.columns.2); e2.w = lod
         var uniforms = SeaUniforms(res:res,cam:cam,forward:v(camera.forward),right:v(camera.right),up:v(camera.up),
                                    zenith:zenith,mid:mid,horizon:horizon,moon:moonVector,flags:flags,
-                                   e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2)
+                                   e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2,
+                                   style:SIMD4(Float(SkyStyle.current.rawValue),0,0,0))
 
         // Pass 1: collected objects into the offscreen layer.
         let layerPass = MTLRenderPassDescriptor()
