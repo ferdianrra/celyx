@@ -20,9 +20,6 @@ struct CelyxHomeView: View {
     /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
     @State private var demoShowing = false
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
-    #if DEBUG
-    @AppStorage(SkyStyle.storageKey) private var skyStyle = SkyStyle.defaultStyle.rawValue
-    #endif
     @Environment(\.scenePhase) private var phase
     @AppStorage("galaxyOwnerName") private var ownerName = "Ferdiansyah"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -68,20 +65,6 @@ struct CelyxHomeView: View {
                             backgroundToggle
                         }
                         .padding(.horizontal,20)
-                        #if DEBUG
-                        // Exploring galaxy styles with the user: tap to cycle them live on the real sky.
-                        HStack {
-                            Button { skyStyle = (SkyStyle(rawValue:skyStyle) ?? .kit).next.rawValue } label: {
-                                Label("Sky: \((SkyStyle(rawValue:skyStyle) ?? .kit).title)",systemImage:"sparkles")
-                                    .font(.system(size:13,weight:.semibold)).foregroundStyle(.white)
-                                    .padding(.horizontal,12).padding(.vertical,8)
-                                    .background(Capsule().fill(Color.purple.opacity(0.45)))
-                            }
-                            .buttonStyle(.plain)
-                            Spacer()
-                        }
-                        .padding(.top,8).padding(.horizontal,20)
-                        #endif
                         Spacer(minLength:0)
                         bottomBar
                     }

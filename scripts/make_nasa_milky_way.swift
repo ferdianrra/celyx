@@ -1,15 +1,12 @@
-// TEMPORARY sky test: builds Milky Way maps from NASA's "Deep Star Maps 2020" (Milky Way only, no point stars).
+// Builds the Night Sea's Milky Way map from NASA's "Deep Star Maps 2020" (Milky Way only, no point stars).
 // Credit: NASA/Goddard Space Flight Center Scientific Visualization Studio (svs.gsfc.nasa.gov/4851).
 //
 //   curl -L -o /tmp/nasa/milkyway_2020_4k.exr https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/milkyway_2020_4k.exr
 //   swiftc -O scripts/make_nasa_milky_way.swift -o /tmp/nasamw && /tmp/nasamw /tmp/nasa/milkyway_2020_4k.exr
 //
-// Output (4096x2048, equirect RA/Dec in the shader's convention u = RA/360, v = (90 - Dec)/180), stored so that the
-// shader's m*m*1.15 is the light ADDED to the sky (display units):
-//   garden-milky-way-radec-nasa-natural.jpg   the photo as is, levels set, core not clipped
-//   garden-milky-way-radec-nasa-lavender.jpg  layered grade toward the user's reference:
-//       wide violet glow (sigma ~12 deg) + band body violet -> mauve -> pale pink-cream (peak ~1.3-1.6x the sky)
-//       + 40 % of the photo's own warm/cool chroma + the photo's dust lanes darkening (slightly brown, never black).
+// Output: celyx/Resources/sky/garden-milky-way-nasa.jpg (4096x2048, equirect RA/Dec in the shader's convention
+// u = RA/360, v = (90 - Dec)/180): the photo as is, levels set so the core never clips, stored so that the shader's
+// m*m*1.15 is the light added to the sky. The app draws it at 85 % (NightSeaRenderer.milkyWayStrength).
 
 import CoreImage
 import Foundation
@@ -57,7 +54,7 @@ func small(_ p: [Float], gamma: Bool) -> [Float] {
     let m = s.reduce(0, +) / Float(s.count)
     return s.map { log(1 + 20 * $0 / m) }
 }
-let kitURL = URL(fileURLWithPath: "\(dir)/garden-milky-way-radec.jpg")
+let kitURL = URL(fileURLWithPath: "night-sea-environment-kit/data/milky-way-radec-4096.jpg")   // reference for RA alignment
 let kitCG = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithURL(kitURL as CFURL, nil)!, 0, nil)!
 let kit = small(render(CIImage(cgImage: kitCG, options: [.colorSpace: NSNull()]), W, H), gamma: true)
 let ns = small(nasa, gamma: false)
@@ -104,7 +101,7 @@ func save(_ name: String, _ add: (Int) -> (Float, Float, Float)) {
     let img = CGImage(width: W, height: H, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: W * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue), provider: CGDataProvider(data: Data(rgba) as CFData)!,
                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-    let url = URL(fileURLWithPath: "\(dir)/garden-milky-way-radec-\(name).jpg")
+    let url = URL(fileURLWithPath: "\(dir)/garden-milky-way-\(name).jpg")
     let d = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(d, img, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary); CGImageDestinationFinalize(d)
     let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
@@ -112,37 +109,7 @@ func save(_ name: String, _ add: (Int) -> (Float, Float, Float)) {
 }
 
 // --- NASA natural: the photo, soft knee so the core never clips ---
-save("nasa-natural") { i in
+save("nasa") { i in   // the Milky Way used by the app
     func k(_ x: Float) -> Float { 0.42 * (1 - exp(-1.5 * x)) }
     return (k(nasa[i * 4]), k(nasa[i * 4 + 1]), k(nasa[i * 4 + 2]))
-}
-
-// --- NASA lavender: layered grade ---
-let glow = blur(Y, sigma: 12.0 / 360 * Double(W))          // ~137 px: lifts the sky around the band
-let body = blur(Y, sigma: 2.5)                              // the band with its texture
-let wide = blur(Y, sigma: 40), fine = blur(Y, sigma: 4)
-let gmax = glow.max() ?? 1
-func mixc(_ a: (Float, Float, Float), _ b: (Float, Float, Float), _ t: Float) -> (Float, Float, Float) {
-    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
-}
-func ss(_ a: Float, _ b: Float, _ x: Float) -> Float { let t = min(1, max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
-let violetGlow: (Float, Float, Float) = (0.050, 0.044, 0.085)     // only slightly lighter than the sky
-let violet: (Float, Float, Float) = (0.07, 0.055, 0.12)
-let mauve: (Float, Float, Float) = (0.15, 0.10, 0.15)             // reference band mid minus sky
-let cream: (Float, Float, Float) = (0.36, 0.25, 0.29)             // brightest star clouds (pale pink-cream)
-save("nasa-lavender") { i in
-    let g = pow(glow[i] / gmax, 0.8)
-    let b = pow(min(1.6, body[i]), 0.75)                         // lift the faint arms a little
-    var c = mixc(mixc(violet, mauve, ss(0.05, 0.55, b)), cream, ss(0.55, 1.25, b))
-    let amount = ss(0.0, 0.35, b)
-    c = (c.0 * amount, c.1 * amount, c.2 * amount)
-    // 40 % of the photo's own chroma (warmer core, cooler arms)
-    let y = max(1e-4, Y[i])
-    let chroma = (min(1.6, max(0.6, nasa[i * 4] / y)), min(1.6, max(0.6, nasa[i * 4 + 1] / y)), min(1.6, max(0.6, nasa[i * 4 + 2] / y)))
-    c = (c.0 * (0.6 + 0.4 * chroma.0), c.1 * (0.6 + 0.4 * chroma.1), c.2 * (0.6 + 0.4 * chroma.2))
-    // dust lanes from the photo: where the fine detail falls below its surroundings
-    let lane = min(1, max(0, (wide[i] - fine[i]) / max(1e-4, wide[i])))
-    let dark = 1 - 0.55 * ss(0.05, 0.6, lane)
-    c = (c.0 * dark, c.1 * dark * 0.97, c.2 * dark * 0.93)        // slightly brown, never black (the sky shows through)
-    return (c.0 + violetGlow.0 * g, c.1 + violetGlow.1 * g, c.2 + violetGlow.2 * g)
 }

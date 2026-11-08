@@ -20,7 +20,6 @@ struct SeaUniforms {
     float4 E0;     // horizon vectors of the equatorial X, Y, Z axes (rotate the RA/Dec Milky Way map to the sky now)
     float4 E1;
     float4 E2;     // w: Milky Way texture mip level for the current zoom
-    float4 style;  // x: sky style (0 Kit, 1 NASA lavender, 2 NASA natural) - temporary sky test
 };
 
 struct GardenPoint {
@@ -162,7 +161,7 @@ float3 mwCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     float ra = atan2(e.y, e.x);
     float2 uv = float2(fract(ra / (2.0 * PI) + 1.0), acos(clamp(e.z, -1.0, 1.0)) / PI);
     float3 m = tMW.sample(mws, uv, level(u.E2.w)).rgb;
-    return m * m * 1.15;   // the map itself carries the style (Kit, or one of the pre-softened Kit Soft maps)
+    return m * m * 1.15;   // NASA SVS Milky Way map (scripts/make_nasa_milky_way.swift)
 }
 
 constant float3 GLOW_PEACH = float3(.949, .706, .541);    // #f2b48a
@@ -173,21 +172,16 @@ float3 toSRGB(float3 c) { return pow(max(c, 0.0), 1.0 / 2.2); }
 
 float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     float h = max(d.z, 0.0);
-    // TEMPORARY sky test, style 1 (NASA lavender): the user's reference palette, a dark violet-indigo night
-    // with a soft lilac toward the horizon (no teal). Kit and NASA natural keep the kit's palette.
-    bool lav = abs(u.style.x - 1.0) < .5;
-    float3 zen = lav ? float3(.07, .06, .15) : u.zen.rgb;
-    float3 midC = lav ? float3(.17, .13, .29) : u.mid.rgb;
-    float3 hor = lav ? float3(.36, .28, .45) : u.hor.rgb;
-    float3 c = mix(zen, midC, smoothstep(0.0, 0.9, pow(1.0 - h, 2.6)));
-    c = mix(c, hor, pow(1.0 - h, lav ? 4.5 : 8.0));
+    float3 hor = u.hor.rgb;
+    float3 c = mix(u.zen.rgb, u.mid.rgb, smoothstep(0.0, 0.9, pow(1.0 - h, 2.6)));
+    c = mix(c, hor, pow(1.0 - h, 8.0));
     float cm = dot(d, u.moon.xyz);
     c += float3(.7, .76, .95) * u.moon.w * u.flags.x * (pow(max(cm, 0.0), 140.0) * .25 + pow(max(cm, 0.0), 10.0) * .05);
     c += mwCol(d, u, tMW) * u.flags.w * (.25 + .75 * smoothstep(0.0, .35, h));
     c += hor * .16 * exp(-h * 70.0);
-    c = mix(c, float3(.17, .10, .36), smoothstep(.3, .85, h) * (lav ? .12 : .42));   // violet toward the zenith
+    c = mix(c, float3(.17, .10, .36), smoothstep(.3, .85, h) * .42);                 // violet toward the zenith
     float ag = (h - .17) / .075;
-    c += float3(.025, .085, .055) * exp(-ag * ag) * (lav ? .3 : 1.0);                // airglow band ~10° up
+    c += float3(.025, .085, .055) * exp(-ag * ag);                                   // airglow band ~10° up
     float wv = pow(max(dot(normalize(d.xy + 1e-5), float2(-1.0, 0.0)), 0.0), 2.0);    // west: last light of dusk
     // Celyx horizon glow, added in linear light: warm peach close to the water, rose above it, a violet veil
     // higher still. The whole horizon gets a soft band; the dusk (west) side is richer.

@@ -69,7 +69,7 @@ private final class WormholeMTKView: MTKView {
 
 // Mirrors SeaUniforms in NightSeaShader.txt.
 private struct WormSeaUniforms {
-    var res, cam, forward, right, up, zenith, mid, horizon, moon, flags, e0, e1, e2, style: SIMD4<Float>
+    var res, cam, forward, right, up, zenith, mid, horizon, moon, flags, e0, e1, e2: SIMD4<Float>
 }
 private struct WormUniforms {
     var wh, ew, wave, fx, camT, scr: SIMD4<Float>
@@ -199,8 +199,7 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
                                   forward:v(camera.forward),right:v(camera.right),up:v(camera.up),
                                   zenith:zenith,mid:mid,horizon:horizon,moon:moonVector,
                                   flags:SIMD4(moonUp,moonUp*moonVector.w,1,scene.equatorial == nil ? 0 : milkyWayStrength),
-                                  e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2,
-                                  style:SIMD4(Float(SkyStyle.current.rawValue),0,0,0))
+                                  e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2)
         var worm = WormUniforms(wh:SIMD4(Float(f.center.x),Float(f.center.y),Float(f.R),1),
                                 ew:SIMD4(Float(f.E),Float(f.W),Float(f.swirl),Float(f.blur)),
                                 wave:SIMD4(Float(f.waveR),Float(f.waveA),Float(f.waveW),Float(f.glow)),

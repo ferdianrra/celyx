@@ -146,7 +146,6 @@ private struct SeaUniforms {
     var e0: SIMD4<Float>
     var e1: SIMD4<Float>
     var e2: SIMD4<Float>
-    var style: SIMD4<Float>
 }
 
 private struct GPUPoint {
@@ -160,13 +159,12 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     var moon: (direction: SIMD3<Double>, illumination: Double)?
     var equatorial: simd_double3x3?
     /// Subtle on purpose: the collected objects must stay the brightest things in the sky.
-    /// Kit value: the full Milky Way (colour graded in the map itself).
-    static let milkyWayStrength: Float = 1
+    /// The NASA map, just a little under full strength (the user's pick).
+    static let milkyWayStrength: Float = 0.85
     /// Kit look: crisp (a hair of softening only, to keep the map from shimmering).
     static let milkyWayLodBias = 0.3
     private let milkyWayStrength = NightSeaRenderer.milkyWayStrength
-    private var milkyWay: MTLTexture
-    private var milkyWayStyle = SkyStyle.current
+    private let milkyWay: MTLTexture
     private let queue: MTLCommandQueue
     private let seaPipeline: MTLRenderPipelineState
     private let pointPipeline: MTLRenderPipelineState
@@ -218,7 +216,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         pointPipeline = try device.makeRenderPipelineState(descriptor:points)
-        milkyWay = try Self.loadMilkyWay(device:device,style:milkyWayStyle)
+        milkyWay = try Self.loadMilkyWay(device:device)
         guard let step = library.makeFunction(name:"rippleStep"), let drop = library.makeFunction(name:"rippleDrop") else {
             throw CocoaError(.featureUnsupported)
         }
@@ -241,8 +239,10 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     /// The kit's 4096×2048 map at full size, decoded into explicit RGBA bytes.
     /// (The old path went through an XRGB thumbnail: MTKTextureLoader then read the padding byte as BLUE,
     /// so every sample had blue = 1 and the whole sky and sea got a flat blue haze.)
-    static func loadMilkyWay(device: MTLDevice,style: SkyStyle = SkyStyle.current) throws -> MTLTexture {
-        let url = try SkyAssets.url(style.textureName,extension:"jpg")
+    /// NASA/Goddard SVS "Deep Star Maps 2020" Milky Way (no point stars), aligned to RA/Dec by
+    /// scripts/make_nasa_milky_way.swift. Credit in Resources/LICENSES.md.
+    static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
+        let url = try SkyAssets.url("garden-milky-way-nasa",extension:"jpg")
         guard let source = CGImageSourceCreateWithURL(url as CFURL,nil),
               let image = CGImageSourceCreateImageAtIndex(source,0,nil) else { throw CocoaError(.fileReadCorruptFile) }
         let width = image.width, height = image.height, rowBytes = width*4
@@ -290,11 +290,6 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
-        // The Sky style chip swaps the Milky Way map (only the chosen one is kept in memory).
-        let style = SkyStyle.current
-        if style != milkyWayStyle, let map = try? Self.loadMilkyWay(device:queue.device,style:style) {
-            milkyWay = map; milkyWayStyle = style
-        }
         guard inFlight.wait(timeout:.now()) == .success else { return }
         let size = view.drawableSize
         guard size.width > 0, let drawable = view.currentDrawable, let pass = view.currentRenderPassDescriptor,
@@ -323,8 +318,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         var e2 = v(basis.columns.2); e2.w = lod
         var uniforms = SeaUniforms(res:res,cam:cam,forward:v(camera.forward),right:v(camera.right),up:v(camera.up),
                                    zenith:zenith,mid:mid,horizon:horizon,moon:moonVector,flags:flags,
-                                   e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2,
-                                   style:SIMD4(Float(SkyStyle.current.rawValue),0,0,0))
+                                   e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2)
 
         // Pass 1: collected objects into the offscreen layer.
         let layerPass = MTLRenderPassDescriptor()
