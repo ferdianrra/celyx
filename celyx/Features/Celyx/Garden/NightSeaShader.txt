@@ -173,15 +173,21 @@ float3 toSRGB(float3 c) { return pow(max(c, 0.0), 1.0 / 2.2); }
 
 float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     float h = max(d.z, 0.0);
-    float3 c = mix(u.zen.rgb, u.mid.rgb, smoothstep(0.0, 0.9, pow(1.0 - h, 2.6)));
-    c = mix(c, u.hor.rgb, pow(1.0 - h, 8.0));
+    // Kit Soft (lavender / dreamy) use the user's reference palette: a soft lavender-grey night overhead,
+    // dusty lilac in the middle and a wide pink-lilac glow toward the horizon (no teal). Kit keeps the kit's.
+    bool lav = u.style.x > 1.5;
+    float3 zen = lav ? float3(.13, .12, .21) : u.zen.rgb;
+    float3 midC = lav ? float3(.27, .23, .39) : u.mid.rgb;
+    float3 hor = lav ? float3(.58, .45, .61) : u.hor.rgb;
+    float3 c = mix(zen, midC, smoothstep(0.0, 0.9, pow(1.0 - h, 2.6)));
+    c = mix(c, hor, pow(1.0 - h, lav ? 4.5 : 8.0));
     float cm = dot(d, u.moon.xyz);
     c += float3(.7, .76, .95) * u.moon.w * u.flags.x * (pow(max(cm, 0.0), 140.0) * .25 + pow(max(cm, 0.0), 10.0) * .05);
     c += mwCol(d, u, tMW) * u.flags.w * (.25 + .75 * smoothstep(0.0, .35, h));
-    c += u.hor.rgb * .16 * exp(-h * 70.0);
-    c = mix(c, float3(.17, .10, .36), smoothstep(.3, .85, h) * .42);                 // violet toward the zenith
+    c += hor * .16 * exp(-h * 70.0);
+    c = mix(c, float3(.17, .10, .36), smoothstep(.3, .85, h) * (lav ? .12 : .42));   // violet toward the zenith
     float ag = (h - .17) / .075;
-    c += float3(.025, .085, .055) * exp(-ag * ag);                                   // airglow band ~10° up
+    c += float3(.025, .085, .055) * exp(-ag * ag) * (lav ? .3 : 1.0);                // airglow band ~10° up
     float wv = pow(max(dot(normalize(d.xy + 1e-5), float2(-1.0, 0.0)), 0.0), 2.0);    // west: last light of dusk
     // Celyx horizon glow, added in linear light: warm peach close to the water, rose above it, a violet veil
     // higher still. The whole horizon gets a soft band; the dusk (west) side is richer.
@@ -190,9 +196,8 @@ float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     // On the glow side the cold night blue gives way a little, so the warmth reads as peach, not lilac.
     c = toSRGB(toLin(c) * (1.0 - .5 * wv * exp(-h / .10)) + glow * w);
     c += float3(.10, .06, .18) * exp(-h * 10.0) * (1.0 - wv) * .5;                  // cool violet on the other side
-    if (u.style.x > .5) {
-        // Kit Soft styles: the night leans gently lavender-violet overhead and pink-lilac near the horizon
-        // (like the user's reference photo), still clearly night so the stars keep their contrast.
+    if (u.style.x > .5 && !lav) {
+        // Kit Soft (light): the night leans gently lavender-violet overhead and pink-lilac near the horizon.
         c = mix(c, float3(.16, .12, .28), smoothstep(.12, .85, h) * .22);
         c = mix(c, float3(.42, .30, .46), exp(-h * 11.0) * .16);
     }
