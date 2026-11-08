@@ -165,7 +165,8 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     /// Kit look: crisp (a hair of softening only, to keep the map from shimmering).
     static let milkyWayLodBias = 0.3
     private let milkyWayStrength = NightSeaRenderer.milkyWayStrength
-    private let milkyWay: MTLTexture
+    private var milkyWay: MTLTexture
+    private var milkyWayStyle = SkyStyle.current
     private let queue: MTLCommandQueue
     private let seaPipeline: MTLRenderPipelineState
     private let pointPipeline: MTLRenderPipelineState
@@ -217,7 +218,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         pointPipeline = try device.makeRenderPipelineState(descriptor:points)
-        milkyWay = try Self.loadMilkyWay(device:device)
+        milkyWay = try Self.loadMilkyWay(device:device,style:milkyWayStyle)
         guard let step = library.makeFunction(name:"rippleStep"), let drop = library.makeFunction(name:"rippleDrop") else {
             throw CocoaError(.featureUnsupported)
         }
@@ -240,8 +241,8 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     /// The kit's 4096×2048 map at full size, decoded into explicit RGBA bytes.
     /// (The old path went through an XRGB thumbnail: MTKTextureLoader then read the padding byte as BLUE,
     /// so every sample had blue = 1 and the whole sky and sea got a flat blue haze.)
-    static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
-        let url = try SkyAssets.url("garden-milky-way-radec",extension:"jpg")
+    static func loadMilkyWay(device: MTLDevice,style: SkyStyle = SkyStyle.current) throws -> MTLTexture {
+        let url = try SkyAssets.url(style.textureName,extension:"jpg")
         guard let source = CGImageSourceCreateWithURL(url as CFURL,nil),
               let image = CGImageSourceCreateImageAtIndex(source,0,nil) else { throw CocoaError(.fileReadCorruptFile) }
         let width = image.width, height = image.height, rowBytes = width*4
@@ -289,6 +290,11 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
+        // The Sky style chip swaps the Milky Way map (only the chosen one is kept in memory).
+        let style = SkyStyle.current
+        if style != milkyWayStyle, let map = try? Self.loadMilkyWay(device:queue.device,style:style) {
+            milkyWay = map; milkyWayStyle = style
+        }
         guard inFlight.wait(timeout:.now()) == .success else { return }
         let size = view.drawableSize
         guard size.width > 0, let drawable = view.currentDrawable, let pass = view.currentRenderPassDescriptor,

@@ -20,7 +20,7 @@ struct SeaUniforms {
     float4 E0;     // horizon vectors of the equatorial X, Y, Z axes (rotate the RA/Dec Milky Way map to the sky now)
     float4 E1;
     float4 E2;     // w: Milky Way texture mip level for the current zoom
-    float4 style;  // x: galaxy layer style (0 kit, 1 soft veil, 2 dreamy, 3 nebula wash, 4 clean)
+    float4 style;  // x: sky style (0 Kit; 1-3 Kit Soft: lavender-leaning night sky)
 };
 
 struct GardenPoint {
@@ -156,49 +156,13 @@ vertex VOut seaVertex(uint vid [[vertex_id]]) {
 float glslMod(float x, float y) { return x - y * floor(x / y); }
 
 // Milky Way map in RA/Dec (u = RA/360, v = (90 - Dec)/180), gamma-encoded, exactly as in the kit.
-float3 gnoised(float2 p);
-
-// Soft cloud field on the celestial sphere (tri-planar gradient noise, no seams), 0..1.
-float skyClouds(float3 e, float scale, float t) {
-    float3 w = pow(abs(e), float3(4.0)); w /= (w.x + w.y + w.z);
-    float3 q = e * scale;
-    float n = w.x * gnoised(q.yz + t).x + w.y * gnoised(q.zx - t).x + w.z * gnoised(q.xy + t * .7).x;
-    float n2 = w.x * gnoised(q.yz * 2.1 + 3.1).x + w.y * gnoised(q.zx * 2.1 + 5.3).x + w.z * gnoised(q.xy * 2.1 + 1.7).x;
-    return clamp(.5 + .55 * n + .25 * n2, 0.0, 1.0);
-}
-
 float3 mwCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     constexpr sampler mws(filter::linear, mip_filter::linear, s_address::repeat, t_address::clamp_to_edge);
     float3 e = float3(dot(u.E0.xyz, d), dot(u.E1.xyz, d), dot(u.E2.xyz, d));
     float ra = atan2(e.y, e.x);
     float2 uv = float2(fract(ra / (2.0 * PI) + 1.0), acos(clamp(e.z, -1.0, 1.0)) / PI);
-    int style = int(u.style.x + .5);
-    if (style == 1) {
-        // Soft Veil: the real Milky Way, heavily blurred into a calm glowing band, lilac-indigo.
-        float3 m = tMW.sample(mws, uv, level(u.E2.w + 3.6)).rgb;
-        m = m * m * 1.15;
-        float l = dot(m, float3(.299, .587, .114));
-        return mix(float3(l) * float3(.70, .66, .98), m, .25) * .75;
-    }
-    if (style == 2) {
-        // Dreamy: only the band's shape, painted with a smooth indigo -> rose -> teal gradient.
-        float3 m = tMW.sample(mws, uv, level(7.0)).rgb;
-        float band = smoothstep(.004, .06, dot(m * m * 1.15, float3(.299, .587, .114)));
-        float hue = sin(ra * 1.3 + e.z * 2.0) * .5 + .5;
-        float3 tint = mix(mix(float3(.42, .40, .86), float3(.86, .55, .72), smoothstep(.0, .55, hue)),
-                          float3(.38, .74, .80), smoothstep(.55, 1.0, hue));
-        return tint * band * .30;
-    }
-    if (style == 3) {
-        // Nebula Wash: no band; very faint soft clouds of violet and teal across the whole sky.
-        float c = skyClouds(e, 1.6, u.res.w * .002);
-        float k = skyClouds(e.zxy, 1.1, 0.0);
-        float3 tint = mix(float3(.50, .38, .86), float3(.30, .70, .78), k);
-        return tint * smoothstep(.35, .90, c) * .17;
-    }
-    if (style == 4) return float3(0);                      // Clean: no galaxy at all
     float3 m = tMW.sample(mws, uv, level(u.E2.w)).rgb;
-    return m * m * 1.15;   // like the kit: no desaturation (gold core, dust lanes, pink nebulae)
+    return m * m * 1.15;   // the map itself carries the style (Kit, or one of the pre-softened Kit Soft maps)
 }
 
 constant float3 GLOW_PEACH = float3(.949, .706, .541);    // #f2b48a
@@ -226,6 +190,12 @@ float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     // On the glow side the cold night blue gives way a little, so the warmth reads as peach, not lilac.
     c = toSRGB(toLin(c) * (1.0 - .5 * wv * exp(-h / .10)) + glow * w);
     c += float3(.10, .06, .18) * exp(-h * 10.0) * (1.0 - wv) * .5;                  // cool violet on the other side
+    if (u.style.x > .5) {
+        // Kit Soft styles: the night leans gently lavender-violet overhead and pink-lilac near the horizon
+        // (like the user's reference photo), still clearly night so the stars keep their contrast.
+        c = mix(c, float3(.16, .12, .28), smoothstep(.12, .85, h) * .22);
+        c = mix(c, float3(.42, .30, .46), exp(-h * 11.0) * .16);
+    }
     return c;
 }
 
