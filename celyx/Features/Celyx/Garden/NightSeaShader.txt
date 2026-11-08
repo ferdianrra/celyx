@@ -228,11 +228,9 @@ float4 lay(float az, float alt, float altw, float pa, float n, float hm, float s
     float3 rimCol = mix(u.hor.rgb * .6 + base, GLOW_PEACH * .75, .55 * glowSide);
     c = mix(c, rimCol, rim * (1.0 - haze));
     c = mix(c, u.hor.rgb * .85, haze * (1.0 - .35 * t));
-    // Shoreline: wet, darker rock at the waterline, and a hairline of light where water meets rock on the glow side.
-    c *= mix(1.0, .72, 1.0 - smoothstep(0.0, 3.0 * pa, a2));
-    c += GLOW_PEACH * .30 * glowSide * (1.0 - smoothstep(0.0, 1.2 * pa, a2));
-    // Low mist lying on the water, wrapped around the base (thin near, thicker far).
-    c = mix(c, u.hor.rgb * .9, (.18 + .25 * haze) * (1.0 - smoothstep(0.0, .026, a2)));
+    // Shoreline: just a touch darker where rock meets water. No light line, no mist band: the reflection
+    // below continues the silhouette directly.
+    c *= mix(1.0, .88, 1.0 - smoothstep(0.0, 3.0 * pa, a2));
     return float4(c, cov);
 }
 
@@ -289,6 +287,22 @@ float3 noised(float2 p) {
     return float3(a + k1 * w.x + k2 * w.y + k4 * w.x * w.y, dw * float2(k1 + k4 * w.y, k2 + k4 * w.x));
 }
 
+// Gradient noise with analytic derivatives (quintic): smooth, no value-noise grid. Returns (n, dn/dx, dn/dy).
+float2 ghash(float2 p) {
+    p = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
+    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+float3 gnoised(float2 p) {
+    float2 i = floor(p), f = fract(p);
+    float2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+    float2 ga = ghash(i), gb = ghash(i + float2(1, 0)), gc = ghash(i + float2(0, 1)), gd = ghash(i + float2(1, 1));
+    float va = dot(ga, f), vb = dot(gb, f - float2(1, 0)), vc = dot(gc, f - float2(0, 1)), vd = dot(gd, f - float2(1, 1));
+    float v = va + u.x * (vb - va) + u.y * (vc - va) + u.x * u.y * (va - vb - vc + vd);
+    float2 dv = ga + u.x * (gb - ga) + u.y * (gc - ga) + u.x * u.y * (ga - gb - gc + gd)
+              + du * (u.yx * (va - vb - vc + vd) + float2(vb, vc) - va);
+    return float3(v, dv);
+}
+
 float4 layerAt(float2 uv, texture2d<float> tA, texture2d<float> tB, float amtB) {
     constexpr sampler smp(filter::linear, address::clamp_to_edge);
     if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return float4(0);
@@ -316,27 +330,41 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         float T = u.res.w;
         // Metres covered by one pixel along the view (grazing makes it stretch): waves finer than that fade out.
         float fp = dist * dist / (EYE_HEIGHT * u.cam.x * u.res.z);
-        // Wind patches ("cat's paws"): the sea is calmer here, rougher there, drifting slowly.
-        float cat = smoothNoise(P * .012 + float2(T * .020, T * .011));
-        float rough = mix(.35, 1.4, smoothstep(.25, .75, cat));
-        // A spectrum of directional waves: long swell from one side, medium waves, small chop. Each runs at its
-        // own deep-water speed (omega = sqrt(g k)); slope s = k A.
+        // Calm, glassy sea (non-periodic): slow swell + three octaves of rotated, scrolling gradient noise.
+        // Gusts ("cat's paws"): large soft patches drifting across, raising the ripples for a while.
+        float gust = smoothstep(.15, .85, gnoised(P * .008 + float2(T * .015, -T * .009)).x * .5 + .5);
+        float wind = mix(.45, 1.35, gust);
         float2 gr = float2(0);
-        const float wl[7] = {34.0, 21.0, 7.5, 5.2, 3.6, 1.3, .7};
-        const float wa[7] = {.35, .55, .10, .90, -.20, .60, -.50};
-        const float ws[7] = {.05, .06, .09, .09, .10, .10, .09};
-        for (int i = 0; i < 7; i++) {
-            float2 dir = float2(cos(wa[i]), sin(wa[i]));
-            float k = 2.0 * PI / wl[i], ph = k * dot(dir, P) - sqrt(9.81 * k) * T + float(i) * 1.7;
-            float f = 1.0 - smoothstep(.15 * wl[i], .5 * wl[i], fp);
-            float m = i >= 2 ? rough : 1.0;
-            gr += ws[i] * f * m * cos(ph) * dir;
+        float lost = 0.0;                                   // slope variance filtered away -> roughness
+        // Swell: two very long, low waves breathing slowly.
+        {
+            const float sl[2] = {34.0, 22.0}; const float sa[2] = {.30, .62}; const float ss[2] = {.022, .016};
+            for (int i = 0; i < 2; i++) {
+                float2 dir = float2(cos(sa[i]), sin(sa[i]));
+                float k = 2.0 * PI / sl[i], ph = k * dot(dir, P) - sqrt(9.81 * k) * T + float(i) * 2.1;
+                float f = 1.0 - smoothstep(1.0, 3.0, 3.0 * fp / sl[i]);
+                gr += ss[i] * f * cos(ph) * dir;
+                lost += ss[i] * ss[i] * (1.0 - f) * .5;
+            }
         }
-        // Two scrolling detail layers at different scales and directions (no tiling: procedural).
-        float3 n1 = noised(P / 2.4 + float2(T * .35, T * .10));
-        float3 n2 = noised(P / .8 + float2(-T * .22, T * .31));
-        gr += n1.yz / 2.4 * .10 * rough * (1.0 - smoothstep(.3, .9, fp / 2.4));
-        gr += n2.yz / .8 * .035 * rough * (1.0 - smoothstep(.3, .9, fp / .8));
+        // Ripples: gradient-noise octaves, each rotated (no axis alignment), warped, scrolling with the wind.
+        {
+            const float ol[3] = {5.5, 2.1, .85};          // wavelengths (m), non-integer ratios
+            const float oa[3] = {.35, 1.21, -.57};          // rotations
+            const float os[3] = {.040, .032, .024};         // slope strength
+            const float ov[3] = {.55, .85, 1.2};            // drift speed (m/s)
+            float2 warp = gnoised(P * .05 + T * .02).yz * 1.6;
+            for (int i = 0; i < 3; i++) {
+                float2x2 rot = float2x2(cos(oa[i]), sin(oa[i]), -sin(oa[i]), cos(oa[i]));
+                float2 q = rot * (P + warp) / ol[i] + float2(T * ov[i] / ol[i], T * .13 * float(i + 1));
+                float3 n = gnoised(q);
+                float f = 1.0 - smoothstep(1.0, 3.0, 3.0 * fp / ol[i]);      // fade below 3x the pixel footprint
+                float st = os[i] * wind;
+                gr += transpose(rot) * n.yz * st * f;
+                lost += st * st * (1.0 - f) * .5;
+            }
+        }
+        float rough = clamp(sqrt(lost) * 9.0 + .08 * wind, 0.0, 1.0);        // drives the reflection blur
         // Touch ripples: slopes of the simulated height field add to the normals (so reflections and glints ripple).
         float2 ruv = P / RIPPLE_SPAN + .5;
         if (all(ruv > 0.0) && all(ruv < 1.0) && tRip.get_width() > 1) {
@@ -347,17 +375,22 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
             gr += float2(hx, hy) / (2.0 * cell) * 2.2 * (1.0 - smoothstep(.4, 1.2, fp / cell));
         }
         float3 sea = mix(float3(.010, .020, .046), float3(.020, .040, .085), smoothstep(-.5, -.01, d.z));   // dark navy body
-        float2 gc = gr * (u.cam.w / .14) * mix(.6, 1.0, smoothstep(6.0, 40.0, dist));
+        float2 gc = gr * (u.cam.w / .14) * mix(.7, 1.0, smoothstep(6.0, 40.0, dist)) * mix(.5, 1.0, smoothstep(.02, .2, -d.z));
         float3 N = normalize(float3(-gc, 1.0));
         float3 R = reflect(d, N); R.z = max(R.z, .003); R = normalize(R);
         float fr = .02 + .98 * pow(1.0 - max(-dot(d, N), 0.0), 5.0);              // Schlick, F0 .02
-        float3 refl = skyCol(R, u, tMW);                                         // the real sky: glow + Milky Way
+        // The real sky (glow + Milky Way), blurred along the vertical as the water roughens: soft streaks.
+        float spread = .004 + .05 * rough;
+        float3 refl = (skyCol(R, u, tMW) * 2.0
+                     + skyCol(normalize(R + float3(0, 0, spread)), u, tMW)
+                     + skyCol(normalize(float3(R.xy, max(R.z - spread, .002))), u, tMW)) * .25;
         float3 R0 = reflect(d, normalize(float3(-gc * .3, 1.0))); R0.z = max(R0.z, .0005);
         float4 il = island(normalize(R0), u, 1.0);                        // mirrored at each waterline
         if (il.a < .5) {
             float2 uv = toScreen(R, u);
             if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
-                float4 s = float4(0); float stp = 2.0 * u.res.z / u.res.y;
+                // Stars and collected stars become elongated, wobbling streaks.
+                float4 s = float4(0); float stp = (1.5 + 14.0 * rough) * u.res.z / u.res.y;
                 for (int j = -2; j <= 2; j++) s += layerAt(uv + float2(0.0, float(j) * stp * .5), tA, tB, amtB) * .2;
                 float fd = mix(.3, 1.0, smoothstep(-.55, -.02, d.z));
                 refl = refl * (1.0 - s.a * .55 * fd) + s.rgb * .55 * fd;
@@ -366,13 +399,14 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         refl = mix(refl, il.rgb * .85, il.a * .85);
         // Physical mix: dark water up close (F ~ .02–.1), mirror-like toward the horizon (grazing F -> 1).
         col = sea * (1.0 - fr) + refl * float3(.86, .91, 1.0) * fr;
+        col += refl * .05 * (1.0 - fr);                     // faint sky light in the water body: ripples stay readable up close
         float far = smoothstep(3.0, 500.0, dist);
         float sig = .06 + .33 * u.cam.w, hz = mix(.1, .75, far);
         float pM = road(d, u.moon.xyz, sig * .9);
         col += float3(.85, .88, .95) * u.flags.y * (pM * hz * .3 + sparkle(d + .001, pM * .7, u) * .6);
         // Glow road: a soft warm path on the water toward the dusk glow, with fine shimmering sparkles.
         float pG = road(d, normalize(float3(-1.0, 0.0, .04)), sig * 1.25);
-        col += GLOW_PEACH * (pG * hz * .03 + sparkle(d + .002, pG * .65 * rough, u) * .42);   // glints, not a smear
+        col += GLOW_PEACH * (pG * hz * .03 + sparkle(d + .002, pG * .55 * wind, u) * .35);   // glints, not a smear
         // Far water melts into the horizon haze, or into the island's own reflection where one stands.
         float3 up = normalize(float3(d.xy, .0015));
         float4 iu = island(normalize(float3(d.xy, -d.z)), u, 1.0);
@@ -381,7 +415,6 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         float4 ih = island(up, u);
         float3 ab = mix(skyCol(up, u, tMW), ih.rgb, ih.a) * .82;
         col = mix(col, mix(ab, fogCol, iu.a), smoothstep(-.012, -.0005, d.z) * .9 * (1.0 - iu.a));
-        col = mix(col, fogCol, .18 * smoothstep(-.03, 0.0, d.z));                // thin mist lying on the water
         // Islands whose base sits below the horizon are drawn over the water in front of it.
         float4 isd = island(d, u);
         col = mix(col, isd.rgb, isd.a);
