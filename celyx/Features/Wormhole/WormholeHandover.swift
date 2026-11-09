@@ -78,7 +78,7 @@ final class WormholeHandover: Identifiable {
     let itemID: Int?
     /// The Night Sea seen through the hole.
     let scene: WormholeScene
-    /// Debug replay only: an in-memory object (never saved) that lights up at landing and gets the sheet.
+    /// Temporary simulated placement that lights up at landing; the collection record is saved separately.
     let demo: WormholeDemo?
     /// Wall clock of the collect success.
     let start: CFTimeInterval
@@ -228,7 +228,7 @@ final class WormholeHandover: Identifiable {
     func focalLength(fieldOfView fov: Double) -> Double { focal(forFieldOfView:fov) }
 }
 
-/// A demo object for the indoor debug replay: shown in the sky and the sheet, never saved.
+/// Temporary visual placement for an indoor demo capture; its observation is saved separately.
 struct WormholeDemo {
     let item: GardenCollectionItem
     let object: NightSeaObject
@@ -242,7 +242,7 @@ struct WormholeDemo {
             direction = simd_normalize(flat*cos(15 * Double.pi/180)+SIMD3(0,0,minimum))
         }
         let record = CollectedStar(id:star.id,date:Date(),latitude:location?.latitude ?? -6.2,longitude:location?.longitude ?? 106.85,
-                                   identificationNote:"Demo star for the wormhole replay (debug build). Not saved to your collection.")
+                                   identificationNote:"Simulated constellation demo capture (debug build).")
         let radius = NightSeaObject.starRadius(magnitude:star.mag)*1.3
         return WormholeDemo(item:GardenCollectionItem(star:star,record:record),
                             object:NightSeaObject(id:star.id,direction:direction,radius:radius,color:star.rgb,kind:.star))

@@ -14,6 +14,20 @@ nonisolated enum CameraIdentityPolicy {
             headingAccuracy: nil, candidates: candidates, maximumSeparation: maximumSeparationDegrees,
             isCalibrated: true, hasOpticalEvidence: hasOpticalEvidence)
     }
+    /// A single measured point can offer a direction-based name, never a verified identity.
+    @MainActor static func suggest(direction: SIMD3<Float>, isDisc: Bool, zoom: Double,
+                                  headingAccuracy: Double?, candidates: [(CatalogStar, SIMD3<Float>)])
+        -> CameraCandidateAssessment {
+        guard let accuracy = headingAccuracy, accuracy.isFinite, accuracy >= 0, accuracy <= 15 else {
+            return .init(match: nil, issue: .compass)
+        }
+        guard direction.y > sin(5 * Float.pi / 180) else { return .init(match: nil, issue: .noCandidate) }
+        return CameraCandidateMatcher.assess(direction: direction, isDisc: isDisc, zoom: zoom,
+            headingAccuracy: accuracy, candidates: candidates.filter { !$0.0.isSolarDisc },
+            maximumSeparation: min(8, max(2, accuracy * 0.8)), minimumScoreGap: 1,
+            hasOpticalEvidence: true)
+    }
+
     static func hasPersistentEvidence(hits: Int, firstSeen: TimeInterval, lastSeen: TimeInterval) -> Bool {
         hits >= 4 && firstSeen.isFinite && lastSeen.isFinite && lastSeen - firstSeen >= 0.6
     }

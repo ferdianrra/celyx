@@ -5,6 +5,7 @@ import SwiftUI
 struct CameraReferencePickerView: View {
     let capture: CameraReferenceCapture
     let onConfirm: (CatalogStar) -> Bool
+    var suggestedID: Int? = nil
     @State private var query = ""
     @State private var selectedID: Int?
     @State private var failed = false
@@ -20,12 +21,12 @@ struct CameraReferencePickerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
-                    Text("Confirm reference star").font(.system(size: 22, weight: .bold))
+                    Text("Confirm sky object").font(.system(size: 22, weight: .bold))
                     Spacer()
                     CelyxCloseButton { dismiss() }
                 }
                 Text(
-                    "Choose the star you recognize in the camera. Confirming its name restores sky alignment. A single light cannot identify itself automatically."
+                    "Choose the star or planet you recognize. Suggested names use direction, location and time; a single light alone cannot prove its identity."
                 )
                 .font(.system(size: 15)).foregroundStyle(CelyxColor.secondaryLabel)
                 Text(
@@ -34,12 +35,12 @@ struct CameraReferencePickerView: View {
                 .font(.system(size: 13)).foregroundStyle(CelyxColor.secondaryLabel)
                 HStack {
                     Image(systemName: "magnifyingglass")
-                    TextField("Search reference stars", text: $query).autocorrectionDisabled()
+                    TextField("Search stars and planets", text: $query).autocorrectionDisabled()
                 }.padding(14).background(CelyxInfoBox())
                 Text("Candidates at the observed height").font(.system(size: 13, weight: .semibold))
                 if results.isEmpty {
                     Text(
-                        "No matching reference at this height. Check your location or aim at another known star."
+                        "No matching reference at this height. Check your location or aim at another known star or planet."
                     )
                     .font(.system(size: 13)).foregroundStyle(CelyxColor.secondaryLabel)
                 }
@@ -55,7 +56,7 @@ struct CameraReferencePickerView: View {
                                     Text(
                                         String(
                                             format: "%@ · %.1f mag · %.0f° up",
-                                            candidate.star.designation ?? "Star",
+                                            candidate.star.designation ?? (candidate.star.isPlanet ? "Planet" : "Star"),
                                             candidate.star.mag, candidate.altitude)
                                     )
                                     .font(.system(size: 12)).foregroundStyle(CelyxColor.secondaryLabel)
@@ -73,13 +74,14 @@ struct CameraReferencePickerView: View {
         .safeAreaInset(edge: .bottom) {
             let selected = capture.candidates.first(where: { $0.id == selectedID })?.star
             CelyxPillButton(
-                title: selected.map { "Confirm reference: \($0.title)" } ?? "Choose a known star",
+                title: selected.map { "Confirm reference: \($0.title)" } ?? "Choose a known object",
                 style: selected == nil ? .disabled : .primary
             ) {
                 guard let selected else { return }
                 if onConfirm(selected) { dismiss() } else { failed = true }
             }.padding(20)
         }
+        .onAppear { if selectedID == nil { selectedID = suggestedID } }
         .foregroundStyle(CelyxColor.primaryLabel).preferredColorScheme(.dark)
         .alert("Reference expired", isPresented: $failed) {
             Button("OK", role: .cancel) {}

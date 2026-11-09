@@ -16,9 +16,15 @@ The existing local-contrast point detector and foreground-context filter are ret
 
 `CameraPointStack` aligns native-resolution patches with measured intrinsics and sensor rotation. It combines up to eight frames with a trimmed mean, discarding the highest and lowest value at each pixel. A stacked source still needs support in independent raw frames; overlapping averages do not count as independent sightings.
 
-A compass-only match no longer becomes a collectible identity. Automatic alignment needs the existing unique four-star pattern plus repeated consensus, or the user must explicitly confirm a known reference. After alignment, catalog matching is limited to 0.5 degrees. Ordinary tracked sources need at least four observations spanning 0.6 seconds before name display; pin confirmation and fresh observations gate collection. A stored name alone cannot renew collection support after a contradictory match.
+A single stable optical point can suggest a star or planet without waiting for a pattern. Suggestions require a current heading accuracy of 15 degrees or better, bounded angular separation, compatible altitude, and an unambiguous catalog match. They are labeled “Likely” / “Estimated identity” and do not silently unlock collection or change alignment. A visible confirmation button opens the reference picker, which includes live planet ephemerides as well as stars. Automatic alignment still needs the unique four-star pattern plus repeated consensus; a user-confirmed single star or planet is an alternative. After alignment, catalog matching is limited to 0.5 degrees. Ordinary tracked sources need at least four observations spanning 0.6 seconds before a suggestion or confirmed name is displayed; pin confirmation and fresh observations gate collection. A stored name alone cannot renew collection support after a contradictory match.
 
 Vision and Core ML are not added: no star-specific model or measured improvement is available in this repository. A general tracker does not establish celestial identity. AR scene feature-point proximity checks have been removed because this camera pipeline does not produce depth or a world map.
+
+## Screenshot and background lifecycle
+
+Taking a screenshot and brief inactive overlays do not stop capture or invalidate calibration. Actual background entry stops capture and invalidates the reference. On return, a paused native session is restarted even if the service retained a running flag; a recent measured location can be reused while GPS updates resume.
+
+Native camera notifications are delivered asynchronously to the UI actor, avoiding a synchronous main-queue wait while AVFoundation holds camera locks during start/stop. Control restoration uses the capture queue instead of locking the device on the UI thread. Lifecycle tests use an injected driver to check stale frame rejection, delivery-slot release, background/resume and notification lock ordering without requiring a real camera.
 
 ## Validation and limits
 
@@ -34,3 +40,9 @@ A distant point-like lamp exactly aligned with a catalog star cannot always be d
 - The focused camera/recognition selection passed 76 tests (geometry, identity, optical detection, stacking, sky context, exposure gestures, pattern matching and capture enhancement).
 - The full unit suite reported seven failing test names outside the migrated camera pipeline. All seven also failed in a separate checkout of the original HEAD using the same project settings and simulator. They concern constellation rendering, magnitude/zoom behavior, search/collection metadata and garden transitions. Baseline animation tests also showed timing sensitivity.
 - No physical camera, real sky accuracy, faint-star sensitivity, battery or thermal measurements were performed here.
+
+## Single-object and screenshot fix verification
+
+- 88 selected tests passed, including single-star/planet proposals, live Jupiter reference coordinates, ambiguous/invalid direction rejection, native sensor axis orientation, screenshot inactivity, pause/resume, stale callback release, notification lock ordering, pattern matching and the merged demo/garden constellation tests.
+- Debug simulator tests and the generic iOS Release build succeeded with signing disabled.
+- Single-point names remain estimates until the observer confirms a reference; physical-device sky recognition and screenshot-editor recovery still need field verification.

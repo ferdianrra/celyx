@@ -1,43 +1,80 @@
-//  DemoSky.swift
-//  DEBUG-only "demo sky": a fake Rigel fixed in the sensor world, so the WHOLE real collect flow
-//  (aim → lock → sheet → Collect → validating → capture → wormhole) can be tried indoors.
-//  The fake star only feeds the real StarCollectCameraView code paths; it is never saved.
-
+// DEBUG-only collection override for the main Libra and Aries stars.
+// Uses real observing coordinates and time; only optical verification is bypassed.
 #if DEBUG
 import SwiftUI
 import simd
 
 enum DemoSky {
-    /// Places the demo star ~22° to the side and a little up from where the phone points (sensor world, y up).
-    static func direction(from forward: SIMD3<Float>) -> SIMD3<Float> {
-        let yaw = simd_quatf(angle:22 * .pi/180,axis:SIMD3(0,1,0))
-        var d = yaw.act(forward)
-        let side = simd_normalize(simd_cross(d,SIMD3(0,1,0)))
-        d = simd_quatf(angle:4 * .pi/180,axis:side).act(d)
-        return simd_normalize(d)
+    struct Entry: Identifiable {
+        let star: CatalogStar
+        let direction: SIMD3<Double>
+        var id: Int { star.id }
+    }
+    struct Projection: Identifiable {
+        let star: CatalogStar
+        let point: CGPoint?
+        let arrow: CGVector?
+        var id: Int { star.id }
+    }
+    static let constellationCodes = ["Lib", "Ari"]
+
+    /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
+    static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
+        guard let url = try? SkyAssets.url("constellations", extension: "json"),
+            let data = try? Data(contentsOf: url),
+            let figures = try? JSONDecoder().decode([String: Constellation].self, from: data)
+        else { return [] }
+        let ids = Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] })
+        return catalogue.filter { ids.contains($0.id) }.sorted { $0.id < $1.id }
     }
 
-    static func star(in catalogue: [CatalogStar]) -> CatalogStar? {
-        catalogue.first { $0.name == "Rigel" || $0.title == "Rigel" }
-    }
-
-    /// Paints the demo star into the frozen camera frame (so it is still there when the wormhole opens).
-    static func composite(_ image: CGImage?,star point: CGPoint,viewSize: CGSize,color: SIMD3<Double>) -> CGImage? {
-        guard let image, viewSize.width > 0 else { return image }
-        let size = CGSize(width:image.width,height:image.height)
-        let scale = size.width/viewSize.width
-        let p = CGPoint(x:point.x*scale,y:point.y*(size.height/viewSize.height))
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-        let rendered = UIGraphicsImageRenderer(size:size,format:format).image { context in
-            UIImage(cgImage:image).draw(at:.zero)
-            let cg = context.cgContext
-            let tint = UIColor(red:color.x,green:color.y,blue:color.z,alpha:1)
-            let colors = [UIColor.white.cgColor,tint.withAlphaComponent(0.55).cgColor,tint.withAlphaComponent(0).cgColor] as CFArray
-            if let gradient = CGGradient(colorsSpace:CGColorSpaceCreateDeviceRGB(),colors:colors,locations:[0,0.18,1]) {
-                cg.drawRadialGradient(gradient,startCenter:p,startRadius:0,endCenter:p,endRadius:16*scale,options:[])
-            }
+    /// The same apparent horizon coordinates used by the live sky and garden, never recentered on the phone.
+    static func entries(in catalogue: [CatalogStar], date: Date, location: ObserverLocation?) -> [Entry] {
+        guard let location else { return [] }
+        let sky = AstronomyService.snapshot(date: date, location: location)
+        return stars(in: catalogue).map { star in
+            Entry(star: star, direction: Refraction.apparent(sky.direction(ra: star.ra_deg, dec: star.dec_deg)))
         }
-        return rendered.cgImage
+    }
+
+    static func target(in projections: [Projection], collected: Set<Int>, excludedID: Int?,
+                       lockedID: Int?, center: CGPoint, radius: CGFloat, lockRadius: CGFloat) -> Projection? {
+        let candidates = projections.filter { !collected.contains($0.id) && $0.id != excludedID && $0.point != nil }
+        func distance(_ entry: Projection) -> CGFloat {
+            guard let point = entry.point else { return .infinity }
+            return hypot(point.x - center.x, point.y - center.y)
+        }
+        if let held = candidates.first(where: { $0.id == lockedID && distance($0) <= lockRadius }) { return held }
+        return candidates.filter { distance($0) <= radius }.min { distance($0) < distance($1) }
+    }
+
+    /// Paint the simulated sky into the saved frame, including when no camera is available.
+    static func composite(_ image: CGImage?, stars: [(point: CGPoint, color: SIMD3<Double>)], viewSize: CGSize) -> CGImage? {
+        guard viewSize.width > 0, viewSize.height > 0 else { return nil }
+        let size = image.map { CGSize(width: $0.width, height: $0.height) } ?? viewSize
+        let scale = size.width / viewSize.width
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor(red: 0.02, green: 0.03, blue: 0.08, alpha: 1).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            if let image { UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size)) }
+            for star in stars {
+                let point = CGPoint(x: star.point.x * scale, y: star.point.y * size.height / viewSize.height)
+                let tint = UIColor(red: star.color.x, green: star.color.y, blue: star.color.z, alpha: 1)
+                let colors = [UIColor.white.cgColor, tint.withAlphaComponent(0.55).cgColor, tint.withAlphaComponent(0).cgColor] as CFArray
+                if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.18, 1]) {
+                    context.cgContext.drawRadialGradient(gradient, startCenter: point, startRadius: 0,
+                        endCenter: point, endRadius: 16 * scale, options: [])
+                }
+            }
+        }.cgImage
+    }
+
+    static func save(star: CatalogStar, image: CGImage, date: Date, location: ObserverLocation, model: HomeViewModel) throws {
+        let draft = CameraObservationDraft(star: star, image: UIImage(cgImage: image), date: date,
+            location: location,
+            identificationNote: "Demo constellation capture (debug build). Position calculated from the catalog, observation location and time. Star overlay generated; optical verification bypassed.")
+        try model.saveCameraObservation(draft, note: "")
     }
 }
 
@@ -70,7 +107,7 @@ struct DemoStarView: View {
 /// Small capsule shown while the demo sky is on.
 struct DemoSkyPill: View {
     var body: some View {
-        Label("Demo sky on",systemImage:"sparkles")
+        Label("Demo sky · Libra & Aries",systemImage:"sparkles")
             .font(.system(size:12,weight:.semibold)).foregroundStyle(.white)
             .padding(.horizontal,10).padding(.vertical,6)
             .background(Capsule().fill(Color.purple.opacity(0.55)))

@@ -18,7 +18,7 @@ struct CameraAutomaticMappingProgress {
                 : "Hold steady while the camera looks for starlight…"
         }
         if lightCount < SkyPatternMatcher.minimumAutomaticPatternStars {
-            return "Not enough stars for a reliable pattern. Confirm a star you recognize."
+            return "One light is enough to check a name. Hold steady, or choose an object you recognize."
         }
         return "No clear star pattern yet. Scanning continues automatically."
     }

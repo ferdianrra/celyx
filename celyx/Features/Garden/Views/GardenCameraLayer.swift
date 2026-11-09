@@ -11,6 +11,7 @@ import simd
 struct GardenCameraLayer: View {
     let placed: [GardenPlacedObject]
     let selectedID: Int?
+    var connections: [GardenConstellationConnection] = []
     var isActive = true
     let onSelect: (GardenCollectionItem) -> Void
 
@@ -33,6 +34,9 @@ struct GardenCameraLayer: View {
                     let size = viewport == .zero ? geometry.size : viewport
                     let sprites = project(in:size)
                     ZStack {
+                        GardenConstellationLines(connections: connections,
+                            positions: Dictionary(uniqueKeysWithValues: sprites.map { ($0.id, $0.point) }),
+                            isActive: isActive)
                         Canvas { context, _ in
                             for sprite in sprites { draw(sprite,in:&context) }
                         }
@@ -73,7 +77,10 @@ struct GardenCameraLayer: View {
         .background(Color.black)
         .task { await start() }
         .onChange(of:isActive) { _, active in active ? run() : session.pause() }
-        .onChange(of:phase) { _, value in value == .active && isActive ? run() : session.pause() }
+        .onChange(of:phase) { _, value in
+            if value == .active && isActive { run() }
+            else if value == .background { session.pause() }
+        }
         .onDisappear { session.pause() }
     }
 
@@ -149,7 +156,7 @@ struct GardenCameraLayer: View {
         // Bright core
         let core = disc ? radius*0.24 : max(2.2,radius*0.12)
         context.fill(Path(ellipseIn:CGRect(x:p.x-core,y:p.y-core,width:core*2,height:core*2)),with:.color(.white))
-        if sprite.id == selectedID {
+        if object.kind != .star, sprite.id == selectedID {
             let ring = radius*0.55
             context.stroke(Path(ellipseIn:CGRect(x:p.x-ring,y:p.y-ring,width:ring*2,height:ring*2)),with:.color(.white.opacity(0.9)),lineWidth:1.5)
         }

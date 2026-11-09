@@ -24,7 +24,7 @@ struct CameraSessionAlignmentTests {
         #expect(progress.isSearching)
         progress.update(at: 18, lightCount: 1)
         #expect(!progress.isSearching)
-        #expect(progress.message.contains("Confirm a star"))
+        #expect(progress.message.contains("choose an object"))
         progress.update(at: 19, lightCount: 4)
         #expect(progress.message.contains("No clear star pattern"))
     }
@@ -109,7 +109,7 @@ struct CameraSessionAlignmentTests {
         let notifications = NotificationCenter()
         let alignment = CameraSkyAlignment(defaults: defaults, notifications: notifications)
         alignment.save(rotation: simd_quatf(angle: 0, axis: SIMD3(0, 1, 0)), reference: "Rigel", date: Date())
-        notifications.post(name: UIApplication.willResignActiveNotification, object: nil)
+        notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         #expect(alignment.requiresCalibration)
         #expect(alignment.reference == nil)
         let generation = alignment.generation

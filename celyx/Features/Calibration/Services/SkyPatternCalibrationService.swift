@@ -317,7 +317,7 @@ final class SkyPatternCalibrationService: NSObject, SkyCaptureSessionDelegate {
     func sessionWasInterrupted(_ session: SkyCaptureSession) {
         guard running else { return }
         resetSearch()
-        alignment.enterBackground()
+        alignment.invalidate(reason: "Camera interrupted. Reacquire the sky reference.")
         message = "Camera interrupted. Reacquire the star pattern."
     }
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {

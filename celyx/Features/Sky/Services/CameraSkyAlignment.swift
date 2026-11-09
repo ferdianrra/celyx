@@ -8,7 +8,7 @@ import simd
 /// Corrections belong to one live sensor world frame, never to a later app session.
 @MainActor @Observable
 final class CameraSkyAlignment {
-    let session = SkyCaptureSession()
+    let session: SkyCaptureSession
     private(set) var reference: String?
     private(set) var date: Date?
     private(set) var location: ObserverLocation?
@@ -19,16 +19,18 @@ final class CameraSkyAlignment {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var lifecycleObserver: AnyCancellable?
 
-    init(defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
+    init(defaults: UserDefaults = .standard, notifications: NotificationCenter = .default,
+         session: SkyCaptureSession? = nil) {
+        self.session = session ?? SkyCaptureSession()
         self.defaults = defaults
         // Every launch starts without a verified sensor world, including the first launch.
         calibrationReason = "Confirm a known star to map the sky before collecting."
         defaults.removeObject(forKey: "cameraSkyAlignment.v1")
         // Observe the whole app: the camera screen may be covered by an album or picker.
-        lifecycleObserver = notifications.publisher(for: UIApplication.willResignActiveNotification)
+        lifecycleObserver = notifications.publisher(for: UIApplication.didEnterBackgroundNotification)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.pause(reason: "The app became inactive. Rebuild the sky map with a known star.")
+                    self?.pause(reason: "The app entered the background. Rebuild the sky map with a known object.")
                 }
             }
     }

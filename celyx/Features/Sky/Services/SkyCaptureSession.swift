@@ -17,12 +17,14 @@ nonisolated struct SkyCaptureCamera: Sendable {
         // True-north reference axes: north/west/up -> east/up/south.
         let toWorld = simd_float4x4(columns: (SIMD4(0, 0, -1, 0), SIMD4(-1, 0, 0, 0),
                                             SIMD4(0, 1, 0, 0), SIMD4(0, 0, 0, 1)))
-        let sensorToDevice = simd_float4x4(simd_quatf(angle: .pi / 2, axis: SIMD3(0, 0, 1)))
+        // A native pixel step to the right becomes DOWN after the portrait
+        // clockwise image rotation. Raw camera x therefore points along device -Y.
+        let sensorToDevice = simd_float4x4(simd_quatf(angle: -.pi / 2, axis: SIMD3(0, 0, 1)))
         return toWorld * simd_float4x4(deviceToReference) * sensorToDevice
     }
 
     func viewMatrix(viewRotationAngle angle: CGFloat) -> simd_float4x4 {
-        simd_float4x4(simd_quatf(angle: Float(angle) * .pi / 180, axis: SIMD3(0, 0, 1)))
+        simd_float4x4(simd_quatf(angle: -Float(angle) * .pi / 180, axis: SIMD3(0, 0, 1)))
             * simd_inverse(transform)
     }
 
@@ -43,7 +45,7 @@ nonisolated struct SkyCaptureCamera: Sendable {
             SIMD4(Float(t.a + t.c + 2 * t.tx - 1), Float(1 - t.b - t.d - 2 * t.ty), 0, 1)))
         // Callers supply a view already rotated for the screen. Undo that rotation
         // here because the native intrinsics and display transform operate in sensor axes.
-        let undo = simd_float4x4(simd_quatf(angle: -Float(angle) * .pi / 180, axis: SIMD3(0, 0, 1)))
+        let undo = simd_float4x4(simd_quatf(angle: Float(angle) * .pi / 180, axis: SIMD3(0, 0, 1)))
         return screen * base * undo
     }
 
@@ -89,40 +91,67 @@ extension SkyCaptureSessionDelegate {
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {}
 }
 
+/// Capture operations run off the UI actor. The injectable driver also lets lifecycle
+/// regressions be tested without a physical camera or simulator motion sensors.
+nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
+    var captureSession: AVCaptureSession { get }
+    var device: AVCaptureDevice? { get }
+    func start(deliver: @escaping @Sendable (Result<SkyCaptureFrame, Error>) -> Void)
+    func stop()
+    func releaseFrame()
+    func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void)
+}
+
 /// UI-facing owner. All capture configuration/start/stop work runs on the worker queue.
 @MainActor final class SkyCaptureSession {
     weak var delegate: (any SkyCaptureSessionDelegate)?
     private(set) var currentFrame: SkyCaptureFrame?
-    private let worker = SkyCaptureWorker()
+    private let worker: any SkyCaptureDriving
+    private(set) var isRunning = false
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
+    private let notificationCenter: NotificationCenter
     var captureSession: AVCaptureSession { worker.captureSession }
     var captureDevice: AVCaptureDevice? { worker.device }
     static var isSupported: Bool { CMMotionManager().isDeviceMotionAvailable &&
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil }
 
-    init() {
-        let center = NotificationCenter.default
+    init(driver: (any SkyCaptureDriving)? = nil, notifications: NotificationCenter = .default) {
+        worker = driver ?? SkyCaptureWorker()
+        notificationCenter = notifications
+        let center = notifications
+        // Never dispatch these notifications synchronously to the main queue:
+        // start/stopRunning may post while holding native camera locks. The UI may
+        // concurrently be configuring the device, which otherwise creates a lock cycle.
         observers.append(center.addObserver(forName: AVCaptureSession.wasInterruptedNotification,
-            object: worker.captureSession, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { guard let self else { return }; self.currentFrame = nil
-                    self.delegate?.sessionWasInterrupted(self) }
+            object: worker.captureSession, queue: nil) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isRunning else { return }
+                    self.currentFrame = nil
+                    self.delegate?.sessionWasInterrupted(self)
+                }
             })
         observers.append(center.addObserver(forName: AVCaptureSession.interruptionEndedNotification,
-            object: worker.captureSession, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { guard let self else { return }
-                    self.delegate?.sessionInterruptionEnded(self) }
+            object: worker.captureSession, queue: nil) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isRunning else { return }
+                    self.delegate?.sessionInterruptionEnded(self)
+                }
             })
         observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification,
-            object: worker.captureSession, queue: .main) { [weak self] note in
+            object: worker.captureSession, queue: nil) { [weak self] note in
                 let error = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
                     ?? NSError(domain: "SkyCapture", code: 1)
-                MainActor.assumeIsolated { guard let self else { return }; self.currentFrame = nil
-                    self.delegate?.session(self, didFailWithError: error) }
+                Task { @MainActor [weak self] in
+                    guard let self, self.isRunning else { return }
+                    self.pause()
+                    self.delegate?.session(self, didFailWithError: error)
+                }
             })
     }
-    deinit { observers.forEach(NotificationCenter.default.removeObserver); worker.stop() }
+    deinit { observers.forEach(notificationCenter.removeObserver); worker.stop() }
     func run() {
+        isRunning = true
         generation += 1
         let token = generation
         worker.start { [weak self, weak worker] result in
@@ -139,12 +168,15 @@ extension SkyCaptureSessionDelegate {
         case .failure(let error): pause(); delegate?.session(self, didFailWithError: error)
         }
     }
-    func pause() { generation += 1; currentFrame = nil; worker.stop() }
+    func pause() { isRunning = false; generation += 1; currentFrame = nil; worker.stop() }
+    func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {
+        worker.configureDevice(update)
+    }
 }
 
 /// Both motion history and camera callbacks are serialized on one queue. Intrinsics
 /// come from the actual output buffer; stabilization is off to preserve that geometry.
-nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, SkyCaptureDriving, @unchecked Sendable {
     let captureSession = AVCaptureSession()
     let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     private let queue = DispatchQueue(label: "celyx.sky.capture", qos: .userInitiated)
@@ -211,6 +243,16 @@ nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOu
         deliver = nil; motion.stopDeviceMotionUpdates(); history.removeAll()
         if captureSession.isRunning { captureSession.stopRunning() }
     } }
+    func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {
+        queue.async { [self] in
+            guard let device else { return }
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                update(device)
+            } catch { /* A stopped/disconnected camera no longer needs its controls restored. */ }
+        }
+    }
     private func configure() throws {
         guard let device else { throw NSError(domain: "SkyCapture", code: 3,
             userInfo: [NSLocalizedDescriptionKey: "The back camera is unavailable."]) }

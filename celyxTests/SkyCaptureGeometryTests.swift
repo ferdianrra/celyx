@@ -39,7 +39,7 @@ struct SkyCaptureGeometryTests {
     @Test func portraitNorthAndEastHaveCorrectHorizonAndScreenAxes() {
         // A portrait phone looking north: screen-right=east, screen-up=up, back=south.
         let basis = simd_float3x3(columns: (SIMD3<Float>(0, -1, 0), SIMD3(0, 0, 1), SIMD3(-1, 0, 0)))
-        let portraitViewRotation = simd_float4x4(simd_quatf(angle: .pi / 2, axis: SIMD3(0, 0, 1)))
+        let portraitViewRotation = simd_float4x4(simd_quatf(angle: -.pi / 2, axis: SIMD3(0, 0, 1)))
         for heading: Float in [0, .pi / 2, .pi, -.pi / 2] {
             let deviceToReference = simd_quatf(angle: -heading, axis: SIMD3(0, 0, 1)) * simd_quatf(basis)
             let pose = SkyCaptureCamera.sensorPose(deviceToReference: deviceToReference)
@@ -51,6 +51,21 @@ struct SkyCaptureGeometryTests {
             #expect(simd_length(view * up - SIMD4(0, 1, 0, 0)) < 1e-5)
             #expect(simd_length(view * right - SIMD4(1, 0, 0, 0)) < 1e-5)
         }
+    }
+
+    @Test func nativePixelRightCorrespondsToPortraitDownForANorthFacingPhone() {
+        let deviceToReference = simd_float3x3(columns: (
+            SIMD3<Float>(0, -1, 0), SIMD3(0, 0, 1), SIMD3(-1, 0, 0)))
+        let pose = SkyCaptureCamera.sensorPose(deviceToReference: simd_quatf(deviceToReference))
+        // Independent physical fixture: portrait right=east, up=vertical, forward=north.
+        // Rotating the native image clockwise sends native +pixelX to portrait +pixelY.
+        #expect(simd_distance(pose * SIMD4(1, 0, 0, 0), SIMD4(0, -1, 0, 0)) < 1e-5)
+        #expect(simd_distance(pose * SIMD4(0, 1, 0, 0), SIMD4(1, 0, 0, 0)) < 1e-5)
+        let camera = SkyCaptureCamera(transform: pose, intrinsics: intrinsics,
+            imageResolution: CGSize(width: 1920, height: 1080), trackingState: .normal)
+        let view = camera.viewMatrix(viewRotationAngle: 90)
+        #expect(simd_distance(view * SIMD4(1, 0, 0, 0), SIMD4(1, 0, 0, 0)) < 1e-5)
+        #expect(simd_distance(view * SIMD4(0, 1, 0, 0), SIMD4(0, 1, 0, 0)) < 1e-5)
     }
 
     @Test func aspectFillTransformRoundTripsImageCoordinates() {
