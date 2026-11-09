@@ -63,8 +63,11 @@ nonisolated enum WormholeTimeline {
 
     /// Landing + 420 ms: the Night Sea takes over and the reframe starts.
     static let crossDelay: Double = 420
-    /// Collected-object sheet springs in this long after the cross.
-    static let sheetDelay: Double = 120
+    /// Collected-object sheet springs in this long after the cross: once the star has flown to its place.
+    static let sheetDelay: Double = 980
+    /// After T_LAND the collected star flies from just past the camera to its place in the sky (ms after T_LAND).
+    static let flyStart: Double = 110
+    static let flyEnd: Double = 1050
     /// From T_LAND the view eases onto the collected star (cubic-bezier .42,0,.12,1) over this long.
     static let landingDuration: Double = 900
     /// Field of view while resting on the star (kit convention), so some sea/horizon shows when it is low.
@@ -170,7 +173,8 @@ nonisolated enum WormholeTimeline {
         f.W = 1-ss01(seg(Rr,diag*0.3,diag*1.15))
         f.glow = min(1,bend*1.3)*(1-seg(tt,TL-100,TL+250))
         f.grain = 1-ss01(seg(tt,TL-80,TL+450))
-        f.star = ss01(seg(tt,TL,TL+350))
+        // The Night Sea's own copy of the new star lights up as the flying star arrives (see LandingStarFlight).
+        f.star = ss01(seg(tt,TL+flyEnd-100,TL+flyEnd+260))
         f.expo = 1+(tt >= TL ? 0.22*impulse((tt-TL)/1000,14,0.75) : 0)
         f.swirl = 0.9*bend*(1-seg(p,820,1000))+0.35*seg(p,900,1100)*(1-flow(seg(p,2100,2700)))+0.8*bump(seg(p,1800,2600))
         f.blur = min(28,max(0,dR*0.9))

@@ -155,7 +155,7 @@ final class WormholeHandover: Identifiable {
     }
 
     /// The collected star's direction [east, north, up] (falls back to where the frozen camera looked).
-    @ObservationIgnored private lazy var starDirection: SIMD3<Double> = {
+    @ObservationIgnored lazy var starDirection: SIMD3<Double> = {
         scene.objects.first { $0.id == scene.newID }?.direction ?? freeze.orientation.act(SIMD3(0,0,-1))
     }()
 

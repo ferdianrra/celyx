@@ -98,6 +98,7 @@ final class WormholeFeedback {
         }
         start(.swell,at:TL-Self.swellCut)   // its hard stop lands exactly on T_LAND
         start(.boom,at:TL)
+        start(.ping,at:TL+WormholeTimeline.flyEnd/1000-0.03)   // the star taking its place
         start(.sheet,at:TL+(WormholeTimeline.crossDelay+WormholeTimeline.sheetDelay)/1000)
     }
 
@@ -124,7 +125,8 @@ final class WormholeFeedback {
         let swellStart = 1.7*k
         let swellDuration = max(0.05,TL-swellStart)
         let patterns: [CHHapticPattern?] = [
-            try? CHHapticPattern(events:[transient(0,0.8,0.9),transient(0.82*k,0.75,0.55),transient(TL,1,0.2),transient(TL+0.54,0.45,0.8)],parameters:[]),
+            try? CHHapticPattern(events:[transient(0,0.8,0.9),transient(0.82*k,0.75,0.55),transient(TL,1,0.2),transient(TL+0.54,0.45,0.8),
+                transient(TL+WormholeTimeline.flyEnd/1000,0.5,0.55)],parameters:[]),
             try? CHHapticPattern(events:[continuous(0.12*k,0.7*k,0.7,0.1)],parameterCurves:[curve(.hapticIntensityControl,0.12*k,0.7*k,0.25,1)]),
             try? CHHapticPattern(events:[continuous(swellStart,swellDuration,1,0.25)],parameterCurves:[
                 curve(.hapticIntensityControl,swellStart,swellDuration,0.1,1),curve(.hapticSharpnessControl,swellStart,swellDuration,-0.2,0.3)]),

@@ -28,6 +28,7 @@ struct WormholeHandoverView: View {
             }
             WormholeMetalView(handover:handover)
             WormholeStarLight(handover:handover)
+            LandingStarFlight(handover:handover)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)

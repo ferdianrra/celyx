@@ -139,6 +139,10 @@ struct GardenSkyView: View {
                 StarAlbumView(item: demo, photo: request.photo, onSaveNote: { _ in }, onSavePlace: { _ in }, flyHome: flyHome)
             }
         }
+        .overlay {
+            // The collected star finishing its flight into place after the hand-off from the camera.
+            if let handover, handover.phase < .releasing { LandingStarFlight(handover: handover).ignoresSafeArea() }
+        }
         .overlay { landingBloom }
         .sheet(item: $viewModel.selected) { item in
             CollectedObjectSheet(
@@ -153,6 +157,15 @@ struct GardenSkyView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your garden sky")
+    }
+
+    /// Collected objects to draw; the one just collected waits until its flight lands (LandingStarFlight).
+    private var shownPlaced: [NightSeaObject] {
+        let objects = viewModel.placed.map(\.object)
+        guard let handover, let id = handover.scene.newID, handover.phase < .releasing,
+            handover.tt() < handover.landing + WormholeTimeline.flyEnd
+        else { return objects }
+        return objects.filter { $0.id != id }
     }
 
     /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
@@ -177,7 +190,7 @@ struct GardenSkyView: View {
                         .clipped()
                 } else {
                     NightSeaView(
-                        camera: shown, objects: viewModel.background + viewModel.placed.map(\.object),
+                        camera: shown, objects: viewModel.background + shownPlaced,
                         selectedID: viewModel.selected?.id, moon: viewModel.moon,
                         equatorial: viewModel.equatorial, isActive: isActive
                     ) { _ in failed = true }
