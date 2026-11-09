@@ -1,13 +1,14 @@
-import ARKit
+import UIKit
+import AVFoundation
 import Combine
 import CoreLocation
 import Observation
 import simd
 
-/// Corrections belong to one live AR world frame, never to a later app session.
+/// Corrections belong to one live sensor world frame, never to a later app session.
 @MainActor @Observable
 final class CameraSkyAlignment {
-    let session = ARSession()
+    let session = SkyCaptureSession()
     private(set) var reference: String?
     private(set) var date: Date?
     private(set) var location: ObserverLocation?
@@ -15,13 +16,12 @@ final class CameraSkyAlignment {
     var requiresCalibration: Bool { reference == nil || calibrationReason != nil }
     private(set) var generation = 0
     private(set) var rotation = simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
-    @ObservationIgnored private var configured = false
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var lifecycleObserver: AnyCancellable?
 
     init(defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
         self.defaults = defaults
-        // Every launch starts without a verified AR world, including the first launch.
+        // Every launch starts without a verified sensor world, including the first launch.
         calibrationReason = "Confirm a known star to map the sky before collecting."
         defaults.removeObject(forKey: "cameraSkyAlignment.v1")
         // Observe the whole app: the camera screen may be covered by an album or picker.
@@ -32,9 +32,8 @@ final class CameraSkyAlignment {
                 }
             }
     }
-    func run(_ configuration: ARConfiguration) {
-        session.run(configuration, options: configured ? [] : [.resetTracking, .removeExistingAnchors])
-        configured = true
+    func run() {
+        session.run()
     }
     func correct(_ direction: SIMD3<Float>) -> SIMD3<Float> { rotation.act(direction) }
     func save(rotation: simd_quatf, reference: String, date: Date, location: ObserverLocation? = nil) {
@@ -56,7 +55,6 @@ final class CameraSkyAlignment {
     }
     func invalidate(reason: String) {
         generation += 1
-        configured = false
         rotation = simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
         reference = nil
         date = nil

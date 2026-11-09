@@ -18,46 +18,15 @@ struct CameraSessionAlignmentTests {
             distance_ly: nil, con: nil, collectible_candidate: true)
     }
 
-    @Test func detectButtonCanRequestAnImmediateSingleLightMatchWithoutWeakeningDirectionChecks() {
-        var progress = CameraAutomaticMappingProgress()
-        progress.update(at: 10, lightCount: 1)
-        #expect(!progress.canEstimate(headingAccuracy: 10))
-        progress.requestImmediateMatch()
-        progress.update(at: 10.1, lightCount: 1)
-        #expect(progress.canEstimate(headingAccuracy: 10))
-        #expect(!progress.canEstimate(headingAccuracy: nil))
-        #expect(!progress.canEstimate(headingAccuracy: 30))
-        progress.update(at: 10.2, lightCount: 0)
-        #expect(!progress.canEstimate(headingAccuracy: 10))
-    }
-
-    @Test func anUnidentifiedLightStopsShowingEndlessLoading() {
+    @Test func insufficientPatternOffersManualReferenceAfterBoundedSearch() {
         var progress = CameraAutomaticMappingProgress()
         progress.update(at: 10, lightCount: 1)
         #expect(progress.isSearching)
         progress.update(at: 18, lightCount: 1)
         #expect(!progress.isSearching)
-        #expect(progress.message.contains("Checking the light"))
+        #expect(progress.message.contains("Confirm a star"))
         progress.update(at: 19, lightCount: 4)
-        #expect(!progress.isSearching)
         #expect(progress.message.contains("No clear star pattern"))
-    }
-
-    @Test func oneOrTwoLightsCanOfferEstimatesWithoutPretendingToCalibrate() {
-        for count in [1, 2] {
-            var progress = CameraAutomaticMappingProgress()
-            progress.update(at: 0, lightCount: count)
-            #expect(!progress.canEstimate(headingAccuracy: 10))
-            progress.update(at: 1.9, lightCount: count)
-            #expect(!progress.canEstimate(headingAccuracy: 10))
-            progress.update(at: 2, lightCount: count)
-            #expect(progress.canEstimate(headingAccuracy: 10))
-            #expect(!progress.canEstimate(headingAccuracy: nil))
-            #expect(!progress.canEstimate(headingAccuracy: 26))
-            #expect(!progress.canEstimate(headingAccuracy: Double.nan))
-            progress.update(at: 9, lightCount: 0)
-            #expect(!progress.canEstimate(headingAccuracy: 10))
-        }
     }
 
     @Test func sparseEstimatesCanMatchOneOrTwoStarsFromCompassDirection() throws {

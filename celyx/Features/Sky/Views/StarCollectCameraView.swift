@@ -1,9 +1,9 @@
-import ARKit
+import AVFoundation
 import SwiftUI
 
 /// Real star collecting, styled like Figma "Camera Stand by" / "Camera Scanned" / "Camera Captured".
 ///
-/// `SkyFinderService` does the work: GPS + true-north camera orientation (ARKit) project the HYG catalogue
+/// `SkyFinderService` does the work: GPS + true-north camera orientation (Core Motion) project the HYG catalogue
 /// onto the live camera image, and `CameraStarDetector` looks for an actual point of light at that spot.
 /// The crosshair never moves: only what sits inside the centre circle is scanned. Star collection needs
 /// fresh optical evidence. Tapping the camera captures the current frame immediately
@@ -32,10 +32,10 @@ struct StarCollectCameraView: View {
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
     @State private var captureImage: CGImage?
-    /// The camera feed shows only once ARKit delivers real frames (no skewed first frames).
+    /// The camera feed shows only once the camera delivers real frames (no skewed first frames).
     @State private var feedReady = false
     #if DEBUG
-    /// Demo sky: a fake Rigel fixed in the AR world (nil = off). Never saved.
+    /// Demo sky: a fake Rigel fixed in the sensor world (nil = off). Never saved.
     @State private var demoDirection: SIMD3<Float>?
     @State private var demoPoint: CGPoint?
     @State private var demoArrow: CGVector?
@@ -121,10 +121,9 @@ struct StarCollectCameraView: View {
                             onExposureDrag: { translation, _, ended in
                                 service.dragExposure(translation: translation, ended: ended)
                             },
-                            zoom: service.cameraZoom, showsTrackingCoach: true,
-                            onTrackingReset: service.resetTrackingForCalibration
+                            zoom: service.cameraZoom
                         )
-                        // Hidden behind the night colour until ARKit delivers real frames, then a quick fade.
+                        // Hidden behind the night colour until the camera delivers real frames, then a quick fade.
                         .opacity(feedReady ? 1 : 0)
                         .animation(.easeOut(duration: 0.2), value: feedReady)
                         #if DEBUG
@@ -240,7 +239,7 @@ struct StarCollectCameraView: View {
             await service.start()
         }
         .task {
-            // Wait for the first real AR frame, plus a couple more so the preview has its orientation.
+            // Wait for the first real camera frame, plus a couple more so the preview has its orientation.
             while !Task.isCancelled && service.session.currentFrame == nil { try? await Task.sleep(for: .milliseconds(40)) }
             try? await Task.sleep(for: .milliseconds(90))
             feedReady = true
@@ -659,7 +658,7 @@ struct StarCollectCameraView: View {
         if demoOn {
             demoDirection = nil; demoPoint = nil; demoArrow = nil
         } else if demoStar != nil {
-            // ~22° to the side of where the phone points now, fixed in the AR world.
+            // ~22° to the side of where the phone points now, fixed in the sensor world.
             demoDirection = DemoSky.direction(from:service.demoForwardWorld() ?? SIMD3(0,0,-1))
             if service.demoForwardWorld() == nil { demoPoint = CGPoint(x:center.x+90,y:center.y-140) }   // Simulator
         }

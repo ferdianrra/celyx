@@ -1,4 +1,4 @@
-import ARKit
+import AVFoundation
 import Observation
 
 /// Owns target selection, capture verification, feedback, and observation persistence.
@@ -78,7 +78,7 @@ final class StarCollectViewModel {
     }
 
     private var selectedTarget: CenterTarget? {
-        guard !service.alignment.requiresCalibration || service.canUseEstimatedIdentification,
+        guard !service.alignment.requiresCalibration,
             service.status == .tracking
         else {
             if let ready = service.retainedCaptureAnnotation {

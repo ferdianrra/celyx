@@ -5,22 +5,6 @@ import simd
 /// Rejects positive foreground evidence. A compact light alone cannot prove that
 /// it is astronomical, so catalog matching must never stand in for this check.
 nonisolated enum CameraSkyContext {
-    static func hasNearbySurface(
-        direction: SIMD3<Float>, origin: SIMD3<Float>, features: [SIMD3<Float>]
-    ) -> Bool {
-        var support = 0
-        for feature in features {
-            let offset = feature - origin
-            let distance = simd_length(offset)
-            guard distance > 0.2, distance < 80,
-                simd_dot(offset / distance, direction) > cos(0.8 * Float.pi / 180)
-            else { continue }
-            support += 1
-            if support >= 3 { return true }
-        }
-        return false
-    }
-
     static func permits(_ point: CGPoint, in image: CVPixelBuffer, isDisc: Bool = false) -> Bool {
         guard CVPixelBufferGetPlaneCount(image) > 0 else { return false }
         CVPixelBufferLockBaseAddress(image, .readOnly)

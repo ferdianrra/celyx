@@ -1,5 +1,5 @@
 //  DemoSky.swift
-//  DEBUG-only "demo sky": a fake Rigel fixed in the AR world, so the WHOLE real collect flow
+//  DEBUG-only "demo sky": a fake Rigel fixed in the sensor world, so the WHOLE real collect flow
 //  (aim → lock → sheet → Collect → validating → capture → wormhole) can be tried indoors.
 //  The fake star only feeds the real StarCollectCameraView code paths; it is never saved.
 
@@ -8,7 +8,7 @@ import SwiftUI
 import simd
 
 enum DemoSky {
-    /// Places the demo star ~22° to the side and a little up from where the phone points (AR world, y up).
+    /// Places the demo star ~22° to the side and a little up from where the phone points (sensor world, y up).
     static func direction(from forward: SIMD3<Float>) -> SIMD3<Float> {
         let yaw = simd_quatf(angle:22 * .pi/180,axis:SIMD3(0,1,0))
         var d = yaw.act(forward)

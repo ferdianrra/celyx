@@ -78,7 +78,7 @@ struct GardenSkyView: View {
                 viewModel.camera.azimuth = atan2(latest.object.direction.x, latest.object.direction.y)
             }
         }
-        // The camera mode orients itself with ARKit; the gyro only drives the virtual garden.
+        // The camera mode orients itself with Core Motion; the gyro only drives the virtual garden.
         .onChange(of: isActive && !usesCamera, initial: true) { _, active in
             active ? viewModel.startGyro(usesGyro: usesGyro) : viewModel.stopGyro()
         }

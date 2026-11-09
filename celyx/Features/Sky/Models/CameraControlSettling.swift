@@ -1,6 +1,6 @@
 import Foundation
 
-/// Camera controls use uptime, not AR timestamps (which restart with a new session).
+/// Camera controls use uptime, not capture timestamps (which restart with a new session).
 nonisolated struct CameraControlSettling: Sendable {
     private var deadline: TimeInterval = 0
 

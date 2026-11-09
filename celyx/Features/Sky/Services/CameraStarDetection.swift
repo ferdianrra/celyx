@@ -23,6 +23,7 @@ struct CameraOpticalTrack {
     let time: TimeInterval
     var isDisc = false
     var screenPoint: CGPoint? = nil
+    var firstSeen: TimeInterval = 0
 }
 struct CameraStarAnnotation: Identifiable {
     let star: CatalogStar

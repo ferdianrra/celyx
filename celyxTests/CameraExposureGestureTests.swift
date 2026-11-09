@@ -1,4 +1,4 @@
-import ARKit
+import UIKit
 import Testing
 
 @testable import celyx
@@ -10,9 +10,8 @@ struct CameraExposureGestureTests {
         #expect(CameraExposureGesture.isVerticalDrag(CGPoint(x: 1, y: -12)))
         #expect(!CameraExposureGesture.isVerticalDrag(CGPoint(x: 20, y: 5)))
     }
-    @MainActor @Test func inactiveARCoachingDoesNotBlockCameraTouchesOrExposureDrags() throws {
+    @MainActor @Test func nativePreviewDoesNotBlockCameraTouchesOrExposureDrags() throws {
         let container = FinderCameraContainer(frame: CGRect(x: 0, y: 0, width: 200, height: 400))
-        container.configureCoaching(session: ARSession(), enabled: true, onReset: nil)
         container.cameraView.exposureDragged = { _, _, _ in }
         container.cameraView.installCameraGestures()
         container.layoutIfNeeded()

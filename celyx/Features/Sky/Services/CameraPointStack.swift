@@ -2,7 +2,7 @@ import CoreVideo
 import Foundation
 import simd
 
-/// A small native-resolution patch, aligned by AR rotation before averaging.
+/// A small native-resolution patch, aligned by sensor rotation before averaging.
 /// Owned by the serial analysis worker; each result returns its value to the main actor.
 nonisolated struct CameraPointStack: Sendable {
     private struct Frame: Sendable {
@@ -154,7 +154,16 @@ nonisolated struct CameraPointStack: Sendable {
         let row = CVPixelBufferGetBytesPerRowOfPlane(image, 0)
         for y in 0..<height {
             for x in 0..<width {
-                let value = frames.reduce(Float(0)) { $0 + $1.pixels[y * width + x] } / Float(frames.count)
+                // A trimmed mean keeps one-frame bright/dark outliers from polluting
+                // the stack while retaining independent raw-frame support checks.
+                var sum: Float = 0
+                var low = Float.greatestFiniteMagnitude
+                var high = -Float.greatestFiniteMagnitude
+                for frame in frames {
+                    let pixel = frame.pixels[y * width + x]
+                    sum += pixel; low = min(low, pixel); high = max(high, pixel)
+                }
+                let value = (sum - low - high) / Float(frames.count - 2)
                 bytes[y * row + x] = UInt8(clamping: Int(value.rounded()))
             }
         }

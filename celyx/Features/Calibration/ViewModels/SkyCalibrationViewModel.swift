@@ -1,4 +1,4 @@
-import ARKit
+import AVFoundation
 import Observation
 import simd
 
@@ -223,7 +223,7 @@ final class SkyCalibrationViewModel {
             motionAim().map { SkyCalibration.wrap(ar.azimuth + offset - $0) }
         }
         SkyCalibration.save(arOffset: offset, motionOffset: garden, target: label)
-        // Replace the old local quaternion without resetting the AR world we just calibrated.
+        // Replace the old local quaternion without resetting the sensor world we just calibrated.
         engine.alignment.save(
             rotation: simd_quatf(angle: 0, axis: SIMD3(0, 1, 0)), reference: label, date: Date(),
             location: location)

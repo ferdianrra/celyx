@@ -18,8 +18,8 @@ struct CameraLightPinTests {
         let alternate = CameraCandidateMatch(star: other, separation: 0.1, score: 0.1)
         var pin = CameraLightPin(direction: ray, time: 10, observations: 2, opticalID: 17)
         pin.assess(.init(match: match, issue: .stabilizing))
-        let ready = try #require(pin.observedMatch(at: 10))
-        pin.identify(using: ready)  // Same transition as retaining a collectible photograph.
+        #expect(pin.observedMatch(at: 10) == nil)
+        pin.identify(using: match)  // Same transition as retaining a collectible photograph.
         let shifted = simd_normalize(SIMD3<Float>(0.03, 0, -1))
         pin.observe(direction: shifted, time: 10.2, identifiedAs: alternate, opticalID: 17)
         pin.assess(.init(match: alternate, issue: .stabilizing))
@@ -31,15 +31,32 @@ struct CameraLightPinTests {
         #expect(pin.canBeReplaced(by: separate, identifiedAs: alternate))
     }
 
-    @Test func aNamedObservedLightCanOfferCollectWithoutWaitingForIdentityConfirmation() throws {
+    @Test func aCandidateCannotOfferCollectBeforeIdentityConfirmation() throws {
         var pin = CameraLightPin(direction: ray, time: 10, observations: 1)
         pin.assess(.init(match: match, issue: .stabilizing))
         #expect(pin.observedMatch(at: 10) == nil)
         pin.observe(direction: ray, time: 10.2)
         pin.assess(.init(match: match, issue: .stabilizing))
         #expect(!pin.isIdentified)
+        #expect(pin.observedMatch(at: 10.3) == nil)
+        pin.confirm(.init(match: match, issue: .stabilizing), observedAt: 10.2, insideReticle: true)
+        pin.confirm(.init(match: match, issue: .stabilizing), observedAt: 10.3, insideReticle: true)
         #expect(try #require(pin.observedMatch(at: 10.3)).star.id == match.star.id)
         #expect(pin.observedMatch(at: 11) == nil)
+    }
+
+    @Test func aRememberedNameCannotRenewCollectionAfterContradictoryEvidence() {
+        var pin = CameraLightPin(direction: ray, time: 10, observations: 4)
+        let supported = CameraCandidateAssessment(match: match, issue: .stabilizing)
+        pin.assess(supported)
+        pin.confirm(supported, observedAt: 10, insideReticle: true)
+        pin.confirm(supported, observedAt: 10.2, insideReticle: true)
+        #expect(pin.observedMatch(at: 10.2) != nil)
+        let unsupported = CameraCandidateAssessment(match: nil, issue: .ambiguous)
+        pin.assess(unsupported)
+        pin.confirm(unsupported, observedAt: 10.3, insideReticle: true)
+        #expect(pin.isIdentified, "The remembered identity may remain for navigation")
+        #expect(pin.observedMatch(at: 10.3) == nil, "It must not authorize a new photograph")
     }
 
     @Test func anUnsupportedSuggestionDoesNotAcquireANewPhoto() {

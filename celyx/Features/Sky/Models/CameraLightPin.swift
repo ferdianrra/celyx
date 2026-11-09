@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-/// One real optical source retained in the current AR world. A remembered source is
+/// One real optical source retained in the current sensor world. A remembered source is
 /// navigation evidence only; collection still needs fresh light inside the reticle.
 struct CameraLightPin {
     private(set) var direction: SIMD3<Float>
@@ -23,12 +23,11 @@ struct CameraLightPin {
         lastSeen = time
         observationCount = observations
     }
-    /// A repeat optical sighting with a supported candidate is enough to offer a photo.
-    /// Pattern calibration and long-lived identity confirmation can continue independently.
+    /// A candidate alone cannot unlock collection; require fresh identity confirmation.
     func observedMatch(at time: TimeInterval) -> CameraCandidateMatch? {
         guard observationCount >= 2, time >= lastSeen, time - lastSeen < 0.65 else { return nil }
-        if let identifiedMatch { return identifiedMatch }
-        return issue == .stabilizing ? match : nil
+        guard issue == .stabilizing, isDetected(at: time) else { return nil }
+        return identifiedMatch
     }
     func stableMatch(for opticalID: Int, direction: SIMD3<Float>) -> CameraCandidateMatch? {
         guard let identifiedMatch, self.opticalID == opticalID || isSameSource(direction) else { return nil }

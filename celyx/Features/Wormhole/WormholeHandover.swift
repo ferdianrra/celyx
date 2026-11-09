@@ -8,7 +8,7 @@ import simd
 
 /// The camera frame frozen at the moment the collect succeeded, oriented and cropped like the screen.
 struct WormholeFreeze {
-    /// Frozen camera image (nil on the Simulator or when ARKit has no frame yet).
+    /// Frozen camera image (nil on the Simulator or when the camera has no frame yet).
     var image: CGImage?
     /// Screen size in points.
     var size: CGSize
@@ -18,7 +18,7 @@ struct WormholeFreeze {
     var focal: Double
 
     /// Builds the orientation from an AR view matrix (with the interface rotation applied)
-    /// and the alignment that maps horizon directions into the AR world.
+    /// and the alignment that maps horizon directions into the sensor world.
     static func make(image: CGImage?,size: CGSize,view: simd_float4x4,projection: simd_float4x4,alignment: simd_quatf) -> WormholeFreeze {
         let inverse = simd_inverse(view)
         func horizon(_ c: SIMD4<Float>) -> SIMD3<Double> {
@@ -47,7 +47,7 @@ struct WormholeFreeze {
 }
 
 extension SkyFinderProjection {
-    /// Inverse of `worldDirection`: AR world direction → horizon [east, north, up].
+    /// Inverse of `worldDirection`: sensor world direction → horizon [east, north, up].
     static func horizonDirection(_ world: SIMD3<Float>) -> SIMD3<Double> {
         let c = SkyCalibration.arCos, s = SkyCalibration.arSin
         let east1 = Double(world.x), up = Double(world.y), north1 = -Double(world.z)
