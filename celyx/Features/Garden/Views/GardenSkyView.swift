@@ -4,17 +4,17 @@ import SwiftUI
 
 /// The personal garden behind Home: the Night Sea environment (sky, islands, reflective sea) whose sky
 /// only holds what the user has collected, each at its REAL position right now for the user's location.
-/// The phone's gyro + compass (true north) drive the view; dragging adds an offset. Tap an object for details.
+/// The phone's gyro + compass (true north) drive the view; swiping switches to touch mode. Tap an object for details.
 struct GardenSkyView: View {
     let model: HomeViewModel
     @Binding var camera: NightSeaCamera
     var isActive = true
-    /// Bump to face north (no gyro) or clear the drag offset (gyro).
+    /// Bump to face north (no gyro) or keep the real direction (gyro).
     var resetRequest = 0
     /// Live camera behind the collected objects instead of the virtual Night Sea.
     var usesCamera = false
     var usesGyro = true
-    var onUseTouch: (() -> Void)?
+    var onModeChange: ((Bool) -> Void)?
     /// Wormhole handover from the collect camera: drives the view during landing + reframe.
     var handover: WormholeHandover?
     /// Shows a collected object's album after a handover (or the Reduce Motion fade).
@@ -33,7 +33,7 @@ struct GardenSkyView: View {
     init(
         model: HomeViewModel, camera: Binding<NightSeaCamera>, isActive: Bool = true,
         resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
-        onUseTouch: (() -> Void)? = nil, handover: WormholeHandover? = nil,
+        onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
         sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {}
     ) {
         self.handover = handover
@@ -45,7 +45,7 @@ struct GardenSkyView: View {
         self.resetRequest = resetRequest
         self.usesCamera = usesCamera
         self.usesGyro = usesGyro
-        self.onUseTouch = onUseTouch
+        self.onModeChange = onModeChange
         _viewModel = State(initialValue: GardenViewModel(model: model, camera: camera.wrappedValue))
     }
 
@@ -61,29 +61,6 @@ struct GardenSkyView: View {
             }
         }
         .animation(.easeInOut(duration: 0.35), value: usesCamera)
-        .overlay(alignment: .bottom) {
-            if let gyroMessage = viewModel.gyroMessage, isActive, !usesCamera, usesGyro,
-                !viewModel.gyroLive
-            {
-                VStack(spacing: 10) {
-                    HStack(spacing: 10) {
-                        if viewModel.gyroStage != .blocked { ProgressView().tint(.white) }
-                        Text(gyroMessage).font(.system(size: 13, weight: .medium))
-                            .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-                    }
-                    if viewModel.gyroStage == .settling {
-                        ProgressView(value: viewModel.gyroProgress).tint(.white)
-                    }
-                    if let onUseTouch {
-                        Button("Use Touch instead", action: onUseTouch).font(.subheadline.weight(.semibold))
-                    }
-                }
-                .foregroundStyle(.white).padding(14)
-                .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 20))
-                .padding(.horizontal, 28).padding(.bottom, 135)
-                .accessibilityIdentifier("garden-gyro-status")
-            }
-        }
         // Real positions: recomputed every second from GPS + clock (the sky turns ~0.25° a minute).
         .task(id: isActive) {
             guard isActive else { return }
@@ -106,8 +83,9 @@ struct GardenSkyView: View {
             active ? viewModel.startGyro(usesGyro: usesGyro) : viewModel.stopGyro()
         }
         .onChange(of: usesGyro) { _, _ in
-            if isActive && !usesCamera { viewModel.startGyro(usesGyro: usesGyro) }
+            if isActive && !usesCamera { viewModel.setGyroMode(usesGyro) }
         }
+        .onChange(of: viewModel.usesGyro) { _, enabled in onModeChange?(enabled) }
         .onChange(of: resetRequest) { _, _ in viewModel.resetCamera() }
         .onChange(of: viewModel.camera) { _, value in if camera != value { camera = value } }
         .onChange(of: camera) { _, value in if viewModel.camera != value { viewModel.camera = value } }
@@ -310,7 +288,6 @@ struct GardenSkyView: View {
     private func prepareRelease() {
         guard let handover else { return }
         if viewModel.camera.orientation != nil {
-            viewModel.offset = (0, 0)
             viewModel.camera.zoom = 1
         } else {
             let forward = handover.restingCamera.forward

@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Testing
 import simd
 
@@ -51,6 +52,82 @@ struct FeatureViewModelTests {
         viewModel.stopGyro()
         #expect(viewModel.camera.orientation == nil)
         #expect(simd_distance(direction, viewModel.camera.forward) < 0.000001)
+    }
+
+    private func attitude(altitude: Double, yaw: Double = 0) -> simd_double3x3 {
+        simd_double3x3(
+            simd_quatd(angle: yaw, axis: SIMD3(0, 0, 1))
+            * simd_quatd(angle: (90 + altitude) * .pi / 180, axis: SIMD3(1, 0, 0)))
+    }
+
+    @Test func swipingSwitchesToTouchAndSensorUpdatesCannotMoveTheView() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.receiveAttitude(attitude(altitude: 10), at: 0)
+        let direction = viewModel.camera.forward
+        let size = CGSize(width: 402, height: 874)
+        let focal = viewModel.camera.focalLength(in: size)
+        viewModel.drag(.zero, in: CGSize(width: 402, height: 874))
+        #expect(!viewModel.usesGyro)
+        #expect(viewModel.camera.orientation == nil)
+        #expect(simd_distance(direction, viewModel.camera.forward) < 0.000001)
+        #expect(abs(viewModel.camera.focalLength(in: size) - focal) < 0.000001)
+        viewModel.drag(CGSize(width: 80, height: 30), in: CGSize(width: 402, height: 874))
+        let dragged = viewModel.camera.forward
+        viewModel.receiveAttitude(attitude(altitude: 40, yaw: 1), at: 1)
+        #expect(simd_distance(dragged, viewModel.camera.forward) < 0.000001)
+        viewModel.dragStart = nil
+        viewModel.receiveAttitude(attitude(altitude: 40, yaw: 1), at: 2)
+        viewModel.receiveAttitude(attitude(altitude: 40, yaw: 1), at: 3)
+        #expect(!viewModel.usesGyro)
+        #expect(simd_distance(dragged, viewModel.camera.forward) < 0.000001)
+    }
+
+    @Test func loweringThenRaisingReactivatesGyroAfterABriefStableThreshold() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.setGyroMode(false)
+        viewModel.receiveAttitude(attitude(altitude: -35), at: 0)
+        viewModel.receiveAttitude(attitude(altitude: -5), at: 1)
+        viewModel.receiveAttitude(attitude(altitude: -5), at: 1.2)
+        #expect(!viewModel.usesGyro)
+        viewModel.receiveAttitude(attitude(altitude: -12), at: 1.3)
+        viewModel.receiveAttitude(attitude(altitude: 15), at: 2)
+        #expect(!viewModel.usesGyro)
+        viewModel.receiveAttitude(attitude(altitude: 15), at: 2.4)
+        #expect(viewModel.usesGyro && viewModel.gyroLive)
+        #expect(viewModel.camera.orientation != nil)
+        #expect(abs(asin(viewModel.camera.forward.z) * 180 / .pi - 15) < 0.000001)
+    }
+
+    @Test func raisingDuringADragCannotStealTouchControl() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.receiveAttitude(attitude(altitude: -35), at: 0)
+        viewModel.drag(CGSize(width: 50, height: 0), in: CGSize(width: 402, height: 874))
+        viewModel.receiveAttitude(attitude(altitude: 10), at: 1)
+        viewModel.receiveAttitude(attitude(altitude: 10), at: 2)
+        #expect(!viewModel.usesGyro)
+        viewModel.dragStart = nil
+        viewModel.receiveAttitude(attitude(altitude: 10), at: 3)
+        #expect(!viewModel.usesGyro)
+        viewModel.receiveAttitude(attitude(altitude: 10), at: 3.4)
+        #expect(viewModel.usesGyro)
+    }
+
+    @Test func manuallySelectingGyroReturnsToThePhoneDirection() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.setGyroMode(false)
+        viewModel.drag(CGSize(width: 100, height: 20), in: CGSize(width: 402, height: 874))
+        viewModel.dragStart = nil
+        viewModel.setGyroMode(true)
+        viewModel.receiveAttitude(attitude(altitude: 25), at: 0)
+        #expect(viewModel.usesGyro && viewModel.gyroLive)
+        #expect(abs(asin(viewModel.camera.forward.z) * 180 / .pi - 25) < 0.000001)
+    }
+
+    @Test func touchCanExploreBelowTheHorizon() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.drag(CGSize(width: 0, height: -1000), in: CGSize(width: 402, height: 874))
+        #expect(viewModel.camera.altitude < -80 * .pi / 180)
+        #expect(!viewModel.usesGyro)
     }
 
     @Test func choosingAKnownReferenceLeavesPatternModeWithoutSavingAnIdentity() {

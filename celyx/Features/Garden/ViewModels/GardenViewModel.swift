@@ -7,7 +7,10 @@ import SwiftUI
 final class GardenViewModel {
     let model: HomeViewModel
     var camera: NightSeaCamera
-    private var usesGyro = true
+    private(set) var usesGyro = true
+    private var automaticGyroArmed = true
+    private var raisedSince: TimeInterval?
+    private var lastPhoneAltitude: Double?
 
     var placed: [GardenPlacedObject] = []
     /// Decorative background star field (not tappable, no labels).
@@ -20,10 +23,6 @@ final class GardenViewModel {
     /// Created once when the garden starts (not on every view update).
     var motion: MotionService?
     var gyroLive = false
-    var gyroMessage: String?
-    var gyroStage: MotionCalibrationStage = .location
-    var gyroProgress: Double = 0
-    var offset = (azimuth: 0.0, altitude: 0.0)
     var dragStart: (azimuth: Double, altitude: Double)?
     var zoomStart: Double?
     var selected: GardenCollectionItem?
@@ -39,7 +38,6 @@ final class GardenViewModel {
     }
 
     func resetCamera() {
-        offset = (0, 0)
         if camera.orientation == nil {
             camera.azimuth = 0
             camera.altitude = 18 * .pi / 180
@@ -141,7 +139,6 @@ final class GardenViewModel {
     // MARK: Gyro
 
     func startGyro(usesGyro: Bool) {
-        self.usesGyro = usesGyro
         motion?.stop()
         let service = motion ?? MotionService()
         motion = service
@@ -150,36 +147,54 @@ final class GardenViewModel {
             self?.gpsLocation = fix
             self?.place()
         }
-        service.onCalibration = { [weak self] ready, progress, message, stage in
-            guard let self, self.usesGyro else { return }
-            self.gyroLive = ready
-            self.gyroStage = stage
-            self.gyroProgress = progress
-            self.gyroMessage = ready ? nil : message
+        service.onCalibration = { [weak self] ready, _, _, _ in
+            guard let self else { return }
+            self.gyroLive = ready && self.usesGyro
             if !ready { self.preserveTouchView() }
         }
         service.onAttitude = { [weak self] attitude in
-            guard let self, self.usesGyro else { return }
-            self.follow(attitude)
+            self?.receiveAttitude(attitude, at: ProcessInfo.processInfo.systemUptime)
         }
-        if usesGyro {
+        // Keep north tracking alive in touch mode so raising the phone needs no new setup.
+        setGyroMode(usesGyro)
+        service.start(quiet: true) { _, _, _ in }
+    }
+    func setGyroMode(_ enabled: Bool) {
+        guard enabled != usesGyro else { return }
+        usesGyro = enabled
+        raisedSince = nil
+        if !enabled {
+            automaticGyroArmed = (lastPhoneAltitude ?? 0) < -20 * .pi / 180
             gyroLive = false
-            gyroMessage = "Preparing gyro. You can still drag the sky."
-            gyroStage = .location
-            gyroProgress = 0
-            service.start { _, _, _ in }
-        } else {
-            gyroLive = false
-            gyroMessage = nil
             preserveTouchView()
-            service.startLocationUpdates()
         }
     }
     func stopGyro() {
         motion?.stop()
         gyroLive = false
-        gyroMessage = nil
+        dragStart = nil
+        zoomStart = nil
+        raisedSince = nil
         preserveTouchView()
+    }
+    /// A swipe owns the view until a deliberate lower-and-raise gesture rearms tracking.
+    func receiveAttitude(_ attitude: simd_double3x3, at time: TimeInterval) {
+        let altitude = asin(min(1, max(-1, -attitude.columns.2.z)))
+        lastPhoneAltitude = altitude
+        guard dragStart == nil, zoomStart == nil else { raisedSince = nil; return }
+        if !usesGyro {
+            if altitude < -20 * .pi / 180 { automaticGyroArmed = true }
+            guard automaticGyroArmed, altitude >= -8 * .pi / 180 else {
+                raisedSince = nil
+                return
+            }
+            if raisedSince == nil { raisedSince = time }
+            guard time - (raisedSince ?? time) >= 0.35 else { return }
+            usesGyro = true
+            raisedSince = nil
+        }
+        gyroLive = true
+        follow(attitude)
     }
     private func preserveTouchView() {
         guard camera.orientation != nil else { return }
@@ -188,19 +203,12 @@ final class GardenViewModel {
         camera.altitude = asin(min(1, max(-1, direction.z)))
         camera.orientation = nil
     }
-    /// Phone attitude -> camera orientation, plus the user's drag offset (turn left/right, tilt up/down).
+    /// Follow the real viewing direction without a drag offset or artificial upward tilt.
     private func follow(_ attitude: simd_double3x3) {
         var sensor = simd_quatd(attitude)
         // Calibrated compass error (see SkyCalibration): turn the sensor's north to true north.
         let correction = SkyCalibration.motionHeadingOffset
         if correction != 0 { sensor = simd_quatd(angle: -correction, axis: SIMD3(0, 0, 1)) * sensor }
-        // A few degrees of extra upward tilt by default, so the horizon rests lower and the sky dominates.
-        let tilt = offset.altitude + Self.restingTilt
-        if offset.azimuth != 0 || tilt != 0 {
-            let yaw = simd_quatd(angle: -offset.azimuth, axis: SIMD3(0, 0, 1))  // around the world's vertical
-            let pitch = simd_quatd(angle: tilt, axis: SIMD3(1, 0, 0))  // around the phone's own right axis
-            sensor = yaw * sensor * pitch
-        }
         guard let current = camera.orientation, !reduceMotion else {
             camera.orientation = sensor
             return
@@ -208,8 +216,6 @@ final class GardenViewModel {
         // Light smoothing against sensor jitter; still follows the phone within a few frames.
         camera.orientation = simd_slerp(current, sensor, 0.45)
     }
-    /// Default upward tilt of the gyro view (radians).
-    private static let restingTilt = 4 * Double.pi / 180
     /// Horizontal (long-side) field of view of the back wide camera, used for the 1:1 window.
     private static let backCameraFieldOfView: Double = {
         guard
@@ -222,26 +228,23 @@ final class GardenViewModel {
     // MARK: Gestures
 
     func drag(_ translation: CGSize, in size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
         if dragStart == nil {
-            dragStart = camera.orientation != nil ? offset : (camera.azimuth, camera.altitude)
+            if camera.orientation != nil {
+                // Preserve the apparent zoom and optical centre when the finger takes over.
+                let focal = camera.focalLength(in: size)
+                camera.fieldOfView = 2 * atan(Double(min(size.width, size.height)) * 0.62 / focal) * 180 / .pi
+                camera.centerYFraction = 0.5
+            }
+            setGyroMode(false)
+            preserveTouchView()
+            dragStart = (camera.azimuth, camera.altitude)
         }
         guard let start = dragStart else { return }
-        // Degrees per point of the current view, so the sky follows the finger.
-        let k =
-            camera.orientation != nil
-            ? 1 / camera.focalLength(in: size)
-            : camera.fieldOfView / Double(min(size.width, size.height)) * 1.15 * .pi / 180
-        let azimuth = start.azimuth - translation.width * k
-        if camera.orientation != nil {
-            offset = (
-                atan2(sin(azimuth), cos(azimuth)),
-                min(60 * .pi / 180, max(-60 * .pi / 180, start.altitude + translation.height * k))
-            )
-        } else {
-            camera.azimuth = azimuth
-            camera.altitude = min(
-                88 * .pi / 180, max(-35 * .pi / 180, start.altitude + translation.height * k))
-        }
+        let k = camera.fieldOfView / Double(min(size.width, size.height)) * 1.15 * .pi / 180
+        camera.azimuth = start.azimuth - translation.width * k
+        camera.altitude = min(
+            88 * .pi / 180, max(-88 * .pi / 180, start.altitude + translation.height * k))
     }
     /// Selects the tapped collected object; false when the tap hit no object.
     @discardableResult func tap(at point: CGPoint, in size: CGSize) -> Bool {
