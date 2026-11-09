@@ -5,20 +5,19 @@ struct CollectedObjectSheet: View {
     let item: GardenCollectionItem
     /// Where it is in the sky right now (horizon frame), if it could be placed.
     let direction: SIMD3<Double>?
+    var collection: HomeViewModel? = nil
     var onSaveNote: ((String) -> Void)? = nil
     var onSavePlace: ((String) -> Void)? = nil
     let onDelete: () -> Void
     @State private var confirmsDelete = false
-    @State private var showsAlbum = false
-    @State private var editedNote: String?
+    @State private var showsShare = false
     @State private var placeName: String?
     @Environment(\.dismiss) private var dismiss
 
     private var star: CatalogStar { item.star }
     private var photo: UIImage? { StarPhotoStore.load(item.record.photoFilename) }
-    private var albumItem: GardenCollectionItem {
+    private var displayedItem: GardenCollectionItem {
         var record = item.record
-        if let editedNote { record.note = editedNote }
         record.placeName = placeName ?? record.placeName
         return GardenCollectionItem(star: item.star, record: record)
     }
@@ -46,18 +45,18 @@ struct CollectedObjectSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .accessibilityLabel("Your photo of \(star.title)")
                     }
-                    Button("Open sky album", systemImage: "photo.on.rectangle.angled") { showsAlbum = true }
+                    Button("Share", systemImage: "square.and.arrow.up") { showsShare = true }
                         .buttonStyle(.bordered).tint(.white)
-                        .accessibilityIdentifier("open-star-album")
+                        .accessibilityIdentifier("share-collected-star")
 
                     infoRow(
                         symbol: "calendar", label: "Collected",
                         value: item.record.date.formatted(
                             .dateTime.day().month(.wide).year().hour().minute().locale(
                                 Locale(identifier: "en_US"))))
-                    infoRow(symbol: "location", label: "Where you were", value: albumItem.albumLocation)
+                    infoRow(symbol: "location", label: "Where you were", value: displayedItem.albumLocation)
                     infoRow(symbol: "safari", label: "In the sky right now", value: skyPosition)
-                    if let note = editedNote ?? item.record.note, !note.isEmpty {
+                    if let note = item.record.note, !note.isEmpty {
                         infoRow(symbol: "note.text", label: "Your note", value: note)
                     }
                     if let identification = item.record.identificationNote {
@@ -110,15 +109,8 @@ struct CollectedObjectSheet: View {
                 onSavePlace?(name)
             }
         }
-        .fullScreenCover(isPresented: $showsAlbum) {
-            StarAlbumView(
-                item: albumItem,
-                onSaveNote: onSaveNote == nil
-                    ? nil
-                    : { note in
-                        editedNote = note
-                        onSaveNote?(note)
-                    }, onSavePlace: onSavePlace)
+        .fullScreenCover(isPresented: $showsShare) {
+            StarShareView(item: displayedItem, collection: collection)
         }
     }
 

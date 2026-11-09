@@ -20,7 +20,7 @@ struct CollectionListView: View {
         .preferredColorScheme(.dark)
         .sheet(item: $selected) { item in
             CollectedObjectSheet(
-                item: item, direction: currentDirection(of: item),
+                item: item, direction: currentDirection(of: item), collection: model,
                 onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                 onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) }
             ) {

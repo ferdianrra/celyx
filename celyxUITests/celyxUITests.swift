@@ -9,6 +9,86 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testCollectedStarOpensSharePageAndSwitchesLayouts() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-share-flow"]
+        app.launch()
+        let star = app.buttons["share-flow-star"]
+        XCTAssertTrue(star.waitForExistence(timeout: 20))
+        star.tap()
+        let share = app.buttons["share-collected-star"]
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["open-star-album"].exists)
+        share.tap()
+        let close = app.buttons["close-star-share"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["share-layout-polaroid"].exists)
+        XCTAssertFalse(app.buttons["share-layout-fullPhoto"].exists)
+        for destination in ["instagram", "whatsapp", "copy", "save", "more"] {
+            let button = app.buttons["share-destination-\(destination)"]
+            XCTAssertTrue(button.exists)
+            XCTAssertTrue(button.isEnabled)
+        }
+        try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/celyx-share-polaroid.png"))
+        let pager = app.descendants(matching: .any).matching(identifier: "share-layout-pager").firstMatch
+        pager.swipeLeft()
+        let fullPhoto = app.descendants(matching: .any).matching(identifier: "share-card-fullPhoto").firstMatch
+        XCTAssertTrue(fullPhoto.waitForExistence(timeout: 5))
+        XCTAssertTrue(fullPhoto.label.contains("Light Pollution 6.2/9"))
+        try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/celyx-share-full-photo.png"))
+        pager.swipeRight()
+        let card = app.descendants(matching: .any).matching(identifier: "share-card-polaroid").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertEqual(card.value as? String, "Star 3")
+        let cardFrameBeforeCopy = card.frame
+        app.buttons["share-destination-copy"].tap()
+        XCTAssertTrue(app.staticTexts["Card copied"].waitForExistence(timeout: 10))
+        XCTAssertEqual(card.frame.minY, cardFrameBeforeCopy.minY, accuracy: 0.5)
+        XCTAssertEqual(card.frame.width, cardFrameBeforeCopy.width, accuracy: 0.5)
+        XCTAssertEqual(card.frame.height, cardFrameBeforeCopy.height, accuracy: 0.5)
+        close.tap()
+        XCTAssertTrue(share.waitForExistence(timeout: 5))
+        share.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        close.tap()
+        XCTAssertTrue(share.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testSocialSharingCancelLeavesFooterUsable() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-share-flow"]
+        app.launch()
+        let star = app.buttons["share-flow-star"]
+        XCTAssertTrue(star.waitForExistence(timeout: 20))
+        star.tap()
+        let share = app.buttons["share-collected-star"]
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        share.tap()
+        XCTAssertTrue(app.buttons["close-star-share"].waitForExistence(timeout: 10))
+        app.buttons["share-destination-instagram"].tap()
+        let alert = app.alerts["Couldn’t share card"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        alert.buttons["OK"].tap()
+
+        // Exercise the real sheet lifecycle even without WhatsApp installed in the simulator.
+        for _ in 0..<2 {
+            app.buttons["share-destination-whatsapp"].tap()
+            let cancel = app.buttons["header.closeButton"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+            cancel.tap()
+            let copy = app.buttons["share-destination-copy"]
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND enabled == true"), object: copy)
+            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed)
+            copy.tap()
+            XCTAssertTrue(app.staticTexts["Card copied"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["share-destination-more"].isEnabled)
+        }
+
+    }
+
+    @MainActor
     func testCalendarListAndMonthControls() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

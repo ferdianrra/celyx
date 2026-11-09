@@ -83,7 +83,7 @@ struct StarStoryExportView: View {
         let authorization = await PHPhotoLibrary.requestAuthorization(for:.addOnly)
         guard authorization == .authorized || authorization == .limited else {
             permissionDenied = authorization == .denied
-            errorMessage = "Allow Celyx to add photos to save your story template to the gallery."; return
+            errorMessage = "Allow Asterra to add photos to save your story template to the gallery."; return
         }
         if item.record.placeName == nil, placeName == nil {
             placeName = await ObservationPlaceName.shared.resolve(latitude:item.record.latitude,longitude:item.record.longitude)
@@ -96,7 +96,7 @@ struct StarStoryExportView: View {
                 let request = PHAssetCreationRequest.forAsset()
                 let options = PHAssetResourceCreationOptions()
                 options.uniformTypeIdentifier = UTType.png.identifier
-                options.originalFilename = "Celyx-\(item.star.title).png"
+                options.originalFilename = "Asterra-\(item.star.title).png"
                 request.addResource(with:.photo,data:data,options:options)
             }
             saved = true; errorMessage = "Your story template has been saved to your photo library."

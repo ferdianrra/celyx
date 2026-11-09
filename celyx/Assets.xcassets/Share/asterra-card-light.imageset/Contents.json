@@ -1,0 +1,12 @@
+{
+  "images": [
+    {
+      "filename": "asterra-card-light.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}
