@@ -41,6 +41,11 @@ struct StarCollectCameraView: View {
     @State private var showsFilteredStars = false
     @State private var capturedItem: GardenCollectionItem?
     @State private var settledID: Int?
+    /// Aim lock: once a star is collectible it stays the target while it's within `lockRadius` of the
+    /// centre, even if a neighbour drifts closer, so small hand moves don't swap stars.
+    @State private var lockedID: Int?
+    /// A star the user closed with X: skipped until it leaves the lock radius, so a neighbour can be picked.
+    @State private var dismissedID: Int?
     @State private var isLocking = false
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
@@ -64,6 +69,8 @@ struct StarCollectCameraView: View {
     enum Verification: Equatable { case idle, checking(Int), failed(Int) }
     /// Crosshair radius plus a little slack for hand shake.
     private let captureRadius: CGFloat = 28
+    /// Hold radius for a locked star: covers hand shake, small enough that a deliberate move releases it.
+    private let lockRadius: CGFloat = 56
     private var isChecking: Bool { if case .checking = verification { true } else { false } }
 
     init(model: HomeViewModel,handover: WormholeHandover? = nil,onCollect: ((CollectResult) -> Void)? = nil,onClose: @escaping () -> Void) {
@@ -80,10 +87,53 @@ struct StarCollectCameraView: View {
     /// Predictions use visibility estimates. A repeatedly observed, identified night-sky
     /// light can still be collected when a cloud or light-pollution estimate disagrees.
     private var centerTarget: CenterTarget? {
+        if let lockedID, let held = lockedTarget(lockedID) { return held }
+        return rawCenterTarget
+    }
+
+    /// The locked star, if it's still in view within the hold radius.
+    private func lockedTarget(_ id: Int) -> CenterTarget? {
+        #if DEBUG
+        if demoOn {
+            guard let star = demoStar, star.id == id, let point = demoPoint, viewSize != .zero, distance(point) <= lockRadius else { return nil }
+            return CenterTarget(star:star,detection:CameraStarAnnotation(star:star,point:point,size:CGSize(width:28,height:28)))
+        }
+        #endif
+        guard service.status == .tracking, viewSize != .zero else { return nil }
+        let observations = service.annotations + (service.reacquiredPinnedAnnotation.map { [$0] } ?? [])
+        if let seen = observations.first(where:{ $0.id == id && distance($0.point) <= lockRadius }) {
+            return CenterTarget(star:seen.star,detection:seen)
+        }
+        let tolerance = min(25,max(10,(service.cameraHeadingAccuracy ?? 15)+5))
+        if let body = service.brightBodiesNearAim().first(where:{ $0.star.id == id && $0.separation <= tolerance }) {
+            return CenterTarget(star:body.star,detection:nil)
+        }
+        return nil
+    }
+
+    /// How far the locked star sits from the screen centre (zero when nothing is locked, or for a body
+    /// matched by angle with no light on screen).
+    private var lockOffset: CGSize {
+        guard let point = shownTarget?.detection?.point, viewSize != .zero else { return .zero }
+        return CGSize(width:point.x-center.x,height:point.y-center.y)
+    }
+
+    /// Is the star the user dismissed still near the centre?
+    private var dismissedIsNear: Bool {
+        guard let dismissedID else { return false }
+        #if DEBUG
+        if demoOn { return demoStar?.id == dismissedID && demoPoint.map { distance($0) <= lockRadius } == true }
+        #endif
+        return (service.annotations+(service.reacquiredPinnedAnnotation.map { [$0] } ?? []))
+            .contains { $0.id == dismissedID && distance($0.point) <= lockRadius }
+            || service.brightBodiesNearAim().contains { $0.star.id == dismissedID && $0.separation <= 25 }
+    }
+
+    private var rawCenterTarget: CenterTarget? {
         #if DEBUG
         if demoOn {
             // The demo star feeds the real flow: it counts as a detected light only while it sits in the circle.
-            guard let star = demoStar, let point = demoPoint, viewSize != .zero, distance(point) <= captureRadius else { return nil }
+            guard let star = demoStar, star.id != dismissedID, let point = demoPoint, viewSize != .zero, distance(point) <= captureRadius else { return nil }
             return CenterTarget(star:star,detection:CameraStarAnnotation(star:star,point:point,size:CGSize(width:28,height:28)))
         }
         #endif
@@ -100,7 +150,8 @@ struct StarCollectCameraView: View {
             .filter({ annotation in
                 let observedAtNight = (service.sunAltitude ?? 90) < -6 && !annotation.star.isSolarDisc
                     && (annotation.sourceDirection?.y ?? -1) > sin(5 * Float.pi/180)
-                return (visible.contains(annotation.id) || observedAtNight) && distance(annotation.point) <= captureRadius
+                return annotation.id != dismissedID
+                    && (visible.contains(annotation.id) || observedAtNight) && distance(annotation.point) <= captureRadius
             })
             .min(by:{ distance($0.point) < distance($1.point) }) {
             return CenterTarget(star:seen.star,detection:seen)
@@ -112,7 +163,7 @@ struct StarCollectCameraView: View {
         // The Collect check then demands the real bright light inside the circle.
         let tolerance = min(25,max(10,(service.cameraHeadingAccuracy ?? 15)+5))
         if let body = service.brightBodiesNearAim()
-            .filter({ visible.contains($0.star.id) && $0.separation <= tolerance })
+            .filter({ $0.star.id != dismissedID && visible.contains($0.star.id) && $0.separation <= tolerance })
             .min(by:{ $0.separation < $1.separation }) {
             return CenterTarget(star:body.star,detection:nil)
         }
@@ -177,8 +228,22 @@ struct StarCollectCameraView: View {
                     if let shutter, shutter < CaptureFlash.duration { CaptureFlashView(image:captureImage,t:shutter) }
                     if let handover { WormholeHandoverView(handover:handover) }
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
-                    reticle.position(x:geometry.size.width/2,y:geometry.size.height/2+10).allowsHitTesting(false)
+                    // Gimbal lock: once a star is collectible the crosshair, its label and the pill ride on the
+                    // star itself; they glide over on a spring when it locks and glide home when it lets go.
+                    let lock = lockOffset
+                    reticle.position(x:geometry.size.width/2+lock.width,y:geometry.size.height/2+10+lock.height).allowsHitTesting(false)
                         .opacity(crosshair)
+                        .animation(.spring(duration:0.45,bounce:0.12),value:shownTarget?.id)
+                    // "Collect Rigel" hangs just under the crosshair's star label (reticle centre + 80pt).
+                    if let target = shownTarget, !isChecking, handover == nil, captureStart == nil,
+                       model.collected[target.star.id] == nil || demoOn {
+                        CollectPill(title:"Collect \(target.star.title)") { collect(target) }
+                            .id(target.star.id)
+                            .position(x:geometry.size.width/2+lock.width,y:geometry.size.height/2+80+lock.height)
+                            .animation(.spring(duration:0.45,bounce:0.12),value:shownTarget?.id)
+                            .opacity(crosshair)
+                            .transition(.opacity.combined(with:.scale(scale:0.9,anchor:.top)))
+                    }
                     if service.pinnedLight != nil, let guide = service.pinnedLightGuide {
                         CameraPinnedLightOverlay(guide:guide,title:pinnedLightTitle,isRecognizing:isAnalyzingLight,
                             subtitle:service.pinnedLight?.match == nil ? nil : "Estimated identity")
@@ -222,7 +287,7 @@ struct StarCollectCameraView: View {
             Group {
                 if let target = shownTarget { sheet(for:target) } else { Color.clear.frame(height:1) }
             }
-            .presentationDetents([.height(shownTarget?.star.isSolarDisc == true ? 208 : 228)])
+            .presentationDetents([.height(targetSheetHeight)])
             .presentationDragIndicator(.hidden)
             .presentationBackgroundInteraction(.enabled)
             .presentationBackground { CelyxBluePanel(cornerRadius:34) }
@@ -253,6 +318,10 @@ struct StarCollectCameraView: View {
             await service.start()
         }
         .onDisappear { service.stop() }
+        // Lock the star the moment it becomes collectible; release it once it leaves the hold radius.
+        .onChange(of:shownTarget?.id) { _, id in if let id { lockedID = id } }
+        .onChange(of:centerTarget?.id) { _, id in if id == nil || id != lockedID { lockedID = nil } }
+        .onChange(of:dismissedIsNear) { _, near in if !near { dismissedID = nil } }
         .task(id:centerTarget?.id) {
             guard let target = centerTarget else { isLocking = false; settledID = nil; return }
             if settledID == target.id { return }
@@ -452,6 +521,13 @@ struct StarCollectCameraView: View {
         return "No clear identity yet. Return to the pin or aim at another light. Check calibration if needed."
     }
 
+    /// Ferdi's sheet heights, minus the 48pt action row that moved onto the crosshair (kept for "Collected").
+    private var targetSheetHeight: CGFloat {
+        guard let star = shownTarget?.star else { return 228 }
+        let base: CGFloat = star.isSolarDisc ? 208 : 228
+        return model.collected[star.id] != nil && !demoOn ? base : base-48
+    }
+
     private func sheet(for target: CenterTarget) -> some View {
         let star = target.star
         let isCollected = model.collected[star.id] != nil && !demoOn
@@ -471,6 +547,13 @@ struct StarCollectCameraView: View {
                     }
                     .padding(.horizontal,16)
                     Spacer(minLength:0)
+                    // Several stars close together: X lets go of this one so the next can lock.
+                    CelyxCloseButton {
+                        withAnimation(.smooth(duration:0.3)) {
+                            dismissedID = star.id; lockedID = nil; settledID = nil
+                        }
+                    }
+                    .accessibilityLabel("Not this star")
                 }
                 .padding(.horizontal,16).frame(height:64).padding(.top,24).padding(.bottom,8)
                 if !star.isSolarDisc {
@@ -486,20 +569,12 @@ struct StarCollectCameraView: View {
                     Spacer(minLength:0)
                 }
                 .frame(height:16).padding(16)
-                Group {
-                    if isCollected {
-                        CelyxPillButton(title:"Collected",systemImage:"checkmark",style:.collected) {}
-                            .allowsHitTesting(false)
-                    } else {
-                        Text(checking ? "Capturing…" : "Tap anywhere to capture")
-                            .font(.system(size:17,weight:.semibold)).foregroundStyle(.white)
-                            .frame(maxWidth:.infinity).frame(height:48).contentShape(Rectangle())
-                            .onTapGesture { collect(target) }
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityIdentifier("capture-star")
-                    }
+                // The capture action lives on the crosshair ("Collect Rigel"); the sheet only says what it is.
+                if isCollected {
+                    CelyxPillButton(title:"Collected",systemImage:"checkmark",style:.collected) {}
+                        .allowsHitTesting(false)
+                        .padding(.horizontal,16)
                 }
-                .padding(.horizontal,16)
             }
         }
         .frame(maxWidth:.infinity,alignment:.top)

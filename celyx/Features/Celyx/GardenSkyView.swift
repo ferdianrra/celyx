@@ -44,6 +44,8 @@ struct GardenSkyView: View {
     @State private var demo: WormholeDemo?
     /// Decorative background star field (not tappable, no labels).
     @State private var background: [NightSeaObject] = []
+    /// The card has just flown home: a small bloom where the star lands.
+    @State private var landing: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let fallbackLocation = ObserverLocation(latitude:-6.2,longitude:106.85,isManual:true)   // Jakarta
@@ -106,11 +108,13 @@ struct GardenSkyView: View {
             if let item = model.collectionItems.first(where:{ $0.id == request.itemID }) {
                 StarAlbumView(item:item,photo:request.photo,
                     onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
-                    onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) })
+                    onSavePlace:{ model.updateObservationPlace(id:item.id,name:$0) },
+                    flyHome:flyHome)
             } else if let demo = request.demoItem {
-                StarAlbumView(item:demo,photo:request.photo,onSaveNote:{ _ in },onSavePlace:{ _ in })   // demo: never saved
+                StarAlbumView(item:demo,photo:request.photo,onSaveNote:{ _ in },onSavePlace:{ _ in },flyHome:flyHome)   // demo: never saved
             }
         }
+        .overlay { landingBloom }
         .sheet(item:$selected) { item in
             CollectedObjectSheet(item:item,direction:placed.first(where:{ $0.id == item.id })?.object.direction,
                 onSaveNote:{ model.updateObservationNote(id:item.id,note:$0) },
@@ -263,6 +267,33 @@ struct GardenSkyView: View {
 
     /// The card closed: line the garden's own camera up with the star view (no gyro offset, no zoom), so the
     /// 600 ms blend back to gyro/drag has no jump.
+    /// While the card is open the wormhole holds the collected star at (0.5, sheetStarY) of the screen.
+    /// Closing the card shrinks it into a point of light that arcs there; then the cover goes without its slide.
+    private var flyHome: StarAlbumView.FlyHome? {
+        guard handover != nil, !reduceMotion else { return nil }
+        return .init(target:UnitPoint(x:0.5,y:WormholeTimeline.sheetStarY)) {
+            var transaction = Transaction(); transaction.disablesAnimations = true
+            withTransaction(transaction) { albumRequest = nil }
+            landing = (landing ?? 0)+1
+        }
+    }
+
+    @ViewBuilder private var landingBloom: some View {
+        if let landing {
+            GeometryReader { geometry in
+                LandingBloom()
+                    .id(landing)
+                    .position(x:geometry.size.width*0.5,y:geometry.size.height*WormholeTimeline.sheetStarY)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .task(id:landing) {
+                try? await Task.sleep(for:.seconds(1.2))
+                if self.landing == landing { self.landing = nil }
+            }
+        }
+    }
+
     private func prepareRelease() {
         guard let handover else { return }
         if camera.orientation != nil {

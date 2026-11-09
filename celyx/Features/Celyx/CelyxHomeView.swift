@@ -11,23 +11,22 @@ struct CelyxHomeView: View {
     @State private var gardenCamera = NightSeaCamera()
     @State private var gardenReset = 0
     @State private var showsCalibration = false
-    @State private var showsFilteredStars = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
     @State private var handover: WormholeHandover?
     @State private var sheetRequest: GardenSheetRequest?
     /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
     @State private var demoShowing = false
+    @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @Environment(\.scenePhase) private var phase
-    @AppStorage("galaxyOwnerName") private var ownerName = "Ferdiansyah"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack(path:$path) {
             ZStack(alignment:.bottom) {
                 GardenSkyView(model:model,camera:$gardenCamera,
-                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration && !showsFilteredStars
+                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
@@ -41,31 +40,9 @@ struct CelyxHomeView: View {
                     .foregroundStyle(.white).multilineTextAlignment(.center)
                     .frame(maxWidth:.infinity,maxHeight:.infinity).allowsHitTesting(false)
                 }
-
-
-                // Home UI: hidden under the camera, fading in over the wormhole after landing.
-                TimelineView(.animation(paused:handover == nil)) { _ in
-                    VStack(spacing:0) {
-                        topBar
-                        HStack {
-                            CelyxGlassButton(width:156,action:{ showsFilteredStars = true }) {
-                                Label("Filtered Stars",systemImage:"list.star")
-                                    .font(.system(size:15,weight:.semibold)).foregroundStyle(CelyxColor.primaryLabel)
-                            }
-                            .accessibilityIdentifier("open-filtered-stars")
-                            Spacer()
-                            backgroundToggle
-                        }
-                        .padding(.horizontal,20)
-                        Spacer(minLength:0)
-                        bottomBar
-                    }
-                    .opacity(homeUIOpacity)
-                }
-                .allowsHitTesting(handover == nil)
-                .zIndex(2)
             }
             .background(CelyxColor.night)
+            .onGeometryChange(for:CGFloat.self) { $0.size.width } action:{ screenWidth = $0 }
             .onChange(of:handover?.phase) { _, phase in
                 guard let phase else { return }
                 switch phase {
@@ -85,7 +62,10 @@ struct CelyxHomeView: View {
                     sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo)
                 }
             }
-            .toolbar(.hidden,for:.navigationBar)
+            // Figma "Home Screen" (998:2689): native top toolbar (compass, then a button group with the
+            // collection and the calendar) and a native bottom toolbar (Start Collecting, real-sky camera).
+            .toolbar { homeToolbar }
+            .toolbarVisibility(showsChrome ? .visible : .hidden,for:.navigationBar,.bottomBar)
             .navigationDestination(for:CelyxRoute.self) { route in
                 switch route {
                 case .calendar:
@@ -107,9 +87,6 @@ struct CelyxHomeView: View {
             .presentationDragIndicator(.visible)
             .presentationBackground { CelyxBluePanel() }
         }
-        .fullScreenCover(isPresented:$showsFilteredStars) {
-            FilteredStarsView(model:model)
-        }
         .fullScreenCover(isPresented:$showsCalibration) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
         }
@@ -124,71 +101,47 @@ struct CelyxHomeView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing:12) {
+    @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
+        ToolbarItem(placement:.topBarLeading) {
             Menu {
                 Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
                 Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
             } label: {
                 CompassBadge().rotationEffect(.radians(-gardenCamera.heading))
-                    .frame(width:48,height:48).contentShape(Circle())
+                    .frame(width:44,height:44).contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            // HIG: a fixed 44×44 round Liquid Glass button of its own, not the toolbar's shared capsule.
+            .frame(width:44,height:44)
             .glassEffect(.regular.interactive(),in:Circle())
             .accessibilityLabel("Direction options")
-            TimelineView(.everyMinute) { context in
-                VStack(spacing:0) {
-                    Text("\(ownerName) Galaxy").font(.system(size:15)).tracking(-0.23).lineSpacing(0).frame(height:20)
-                    Text(Self.dateText(context.date)).font(.system(size:12)).opacity(0.5).frame(height:16)
-                }
-                .foregroundStyle(.white).lineLimit(1)
-                .frame(maxWidth:.infinity)
-            }
-            CelyxGlassButton(width:56,action:{ showsCollection = true }) {
-                Image(systemName:"text.book.closed").font(.system(size:17,weight:.medium)).foregroundStyle(CelyxColor.primaryLabel)
-            }
-            .accessibilityLabel("Your Collection")
         }
-        .padding(.horizontal,20).padding(.vertical,12)
-    }
-
-    /// Switches the garden between the virtual Night Sea and the live camera.
-    private var backgroundToggle: some View {
-        CelyxGlassButton(width:56,action:{ gardenUsesCamera.toggle() }) {
-            Image(systemName:gardenUsesCamera ? "moon.stars.fill" : "camera.fill")
-                .font(.system(size:18,weight:.medium)).foregroundStyle(CelyxColor.primaryLabel)
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarItemGroup(placement:.topBarTrailing) {
+            Button("Your Collection",systemImage:"book.fill") { showsCollection = true }
+            Button("Sky Calendar",systemImage:"calendar") { path.append(.calendar) }
+        }
+        ToolbarItem(placement:.bottomBar) {
+            // Figma: 284pt on a 402pt screen, i.e. the width minus 28pt margins, 12pt gap and the 50pt AR button.
+            StartCollectingButton(action:openStarCamera)
+                .frame(width:max(160,screenWidth-118))
+        }
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarSpacer(.flexible,placement:.bottomBar)
+        ToolbarItem(placement:.bottomBar) {
+            // Switches the garden between the virtual Night Sea and the live camera (gyro + real sky).
+            Button(gardenUsesCamera ? "Show virtual sky" : "Show real sky through the camera",
+                   systemImage:gardenUsesCamera ? "moon.stars.fill" : "arkit") { gardenUsesCamera.toggle() }
                 .contentTransition(.symbolEffect(.replace))
         }
-        .accessibilityLabel(gardenUsesCamera ? "Show virtual sky" : "Show real sky through the camera")
     }
 
-    private var bottomBar: some View {
-        HStack(spacing:12) {
-            Button(action:openStarCamera) {
-                HStack(spacing:12) {
-                    Image("celyx-icon-telescope").resizable().frame(width:28,height:28)
-                    Text("Start Collecting").font(.system(size:17,weight:.semibold)).tracking(-0.43).foregroundStyle(CelyxColor.primaryLabel)
-                }
-                .frame(maxWidth:.infinity).frame(height:50)
-                .background(StartCollectingBackground())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("start-collecting")
-            CelyxGlassButton(action:{ path.append(.calendar) }) {
-                Image(systemName:"calendar").font(.system(size:24,weight:.medium)).foregroundStyle(.white)
-            }
-            .accessibilityLabel("Sky Calendar")
-        }
-        .padding(.horizontal,28).padding(.bottom,4)
+    /// Hidden under the star camera and the wormhole; fades back in right after the landing.
+    private var showsChrome: Bool {
+        guard let handover else { return true }
+        return handover.phase >= .landed
     }
 
     // MARK: Star camera + wormhole handover
-
-    private var homeUIOpacity: Double {
-        if let handover { return handover.frame(handover.tt()).envUI }
-        return 1
-    }
 
     /// The star camera is presented like dev does (a full-screen cover), so Ferdi's toolbar renders.
     private func openStarCamera() { showsStarCamera = true }
@@ -251,27 +204,22 @@ private struct CompassBadge: View {
     }
 }
 
-/// Blue Liquid Glass fill of the "Start Collecting" button (inner shadows #7459DF / #0066E2 / #062277).
-private struct StartCollectingBackground: View {
+/// "Start Collecting" (Figma 998:2695): native Liquid Glass tinted with the Figma inner-shadow stack.
+private struct StartCollectingButton: View {
+    let action: () -> Void
     var body: some View {
-        Capsule().fill(LinearGradient(stops:[
-            .init(color:Color(hex:0xBCADF9),location:0),
-            .init(color:Color(hex:0x7B6CDE),location:0.07),
-            .init(color:Color(hex:0x766DDE),location:0.24),
-            .init(color:Color(hex:0x636ED9),location:0.30),
-            .init(color:Color(hex:0x4069CF),location:0.36),
-            .init(color:Color(hex:0x1661BF),location:0.42),
-            .init(color:Color(hex:0x0359AF),location:0.48),
-            .init(color:Color(hex:0x0351A1),location:0.54),
-            .init(color:Color(hex:0x074995),location:0.60),
-            .init(color:Color(hex:0x0A438C),location:0.66),
-            .init(color:Color(hex:0x103F85),location:0.72),
-            .init(color:Color(hex:0x133D80),location:0.84),
-            .init(color:Color(hex:0x184285),location:0.90),
-            .init(color:Color(hex:0x214D90),location:1)
-        ],startPoint:.top,endPoint:.bottom))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.18),lineWidth:1))
-        .shadow(color:.black.opacity(0.04),radius:15,x:0,y:8)
+        Button(action:action) {
+            HStack(spacing:12) {
+                Image("celyx-icon-telescope").resizable().frame(width:28,height:28)
+                Text("Start Collecting").font(.system(size:17,weight:.semibold)).tracking(-0.43)
+                    .foregroundStyle(CelyxColor.primaryLabel)
+            }
+            .padding(.horizontal,20)
+            .frame(maxWidth:.infinity).frame(height:50)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(CelyxTintedGlassButtonStyle())
+        .accessibilityIdentifier("start-collecting")
     }
 }
 
@@ -368,8 +316,8 @@ private struct CollectionTile<Art: View>: View {
         .preferredColorScheme(.dark)
 }
 
-#Preview("Collecting background") {
-    StartCollectingBackground().frame(height:64).padding().background(.black)
+#Preview("Start Collecting") {
+    StartCollectingButton {}.padding(28).background(.black)
         .preferredColorScheme(.dark)
 }
 

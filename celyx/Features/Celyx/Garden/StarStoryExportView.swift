@@ -14,12 +14,15 @@ enum StarStoryRenderer {
 struct StarStoryExportView: View {
     let item: GardenCollectionItem
     let photo: UIImage?
+    /// Closes the whole flow (this preview and the card under it) in one tap; defaults to just this screen.
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var isSaving = false
     @State private var saved = false
     @State private var permissionDenied = false
     @State private var errorMessage: String?
     @State private var placeName: String?
+    @State private var storyImage: Image?
     private var displayedItem: GardenCollectionItem {
         var record = item.record
         record.placeName = placeName ?? record.placeName
@@ -29,20 +32,24 @@ struct StarStoryExportView: View {
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-                let scale = min((geometry.size.width-32)/360,(geometry.size.height-24)/640)
+                let scale = min((geometry.size.width-32)/StarStoryTemplate.size.width,(geometry.size.height-24)/StarStoryTemplate.size.height)
                 StarStoryTemplate(item:displayedItem,photo:photo)
-                    .clipShape(RoundedRectangle(cornerRadius:20))
+                    .clipShape(RoundedRectangle(cornerRadius:34,style:.continuous))
                     .scaleEffect(max(0.1,scale))
                     .frame(width:geometry.size.width,height:geometry.size.height)
             }
             .background(CelyxColor.night)
-            .navigationTitle("Story preview")
+            .navigationTitle("Share")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement:.cancellationAction) {
-                    Button("Close",systemImage:"xmark") { dismiss() }.labelStyle(.iconOnly)
+                    Button("Close",systemImage:"xmark") { if let onClose { onClose() } else { dismiss() } }.labelStyle(.iconOnly)
                 }
-                ToolbarItem(placement:.primaryAction) {
+                ToolbarItemGroup(placement:.primaryAction) {
+                    if let storyImage {
+                        ShareLink(item:storyImage,preview:SharePreview("\(item.star.title) · Celyx",image:storyImage))
+                            .accessibilityIdentifier("share-story")
+                    }
                     Button(action:{ Task { await saveToPhotos() } }) {
                         if isSaving { ProgressView().accessibilityLabel("Saving to Photos") }
                         else { Label("Save to Photos",systemImage:"square.and.arrow.down") }
@@ -55,6 +62,9 @@ struct StarStoryExportView: View {
         .task {
             if item.record.placeName == nil {
                 placeName = await ObservationPlaceName.shared.resolve(latitude:item.record.latitude,longitude:item.record.longitude)
+            }
+            if let data = StarStoryRenderer.png(item:displayedItem,photo:photo), let image = UIImage(data:data) {
+                storyImage = Image(uiImage:image)
             }
         }
         .alert(saved ? "Saved to Photos" : "Couldn’t save photo",isPresented:Binding(get:{ errorMessage != nil },set:{ if !$0 { errorMessage = nil } })) {

@@ -112,8 +112,8 @@ public final class CrosshairFeedback: @unchecked Sendable {
         switch h {
         case .acquire:  // soft selection tick
             return [transient(0, 0.45, 0.6)]
-        case .lock:     // "ka-chunk": hard hit, body, and a bright second click
-            return [transient(0, 1.0, 0.85), continuous(0, 0.08, 0.35, 0.15), transient(0.045, 0.5, 1.0)]
+        case .lock:     // Apple Pay "done": one crisp, sharp tap, then a soft rounded one as "Collect" settles in
+            return [transient(0, 1.0, 0.95), transient(0.14, 0.55, 0.15)]
         case .validate: // Celyx: a soft swell with the breath-in, no tap
             return [continuous(0, 0.5, 0.4, 0.15)]
         case .fail:     // "not this time": two soft, dull taps that step down, matching the falling two-note sound

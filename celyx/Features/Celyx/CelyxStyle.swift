@@ -12,6 +12,8 @@ enum CelyxColor {
     static let screen = Color(hex:0x1C1C1E)
     static let panelBase = Color(hex:0x222222)
     static let accent = Color(hex:0x4E58C9)
+    /// Body colour of the primary "Start Collecting" button (its 0066E2 inner shadow over the navy floor).
+    static let primary = Color(hex:0x1F4FD0)
     static let ready = Color(hex:0x30D158)
     static let secondaryLabel = Color(hex:0xEBEBF5,opacity:0.7)
     static let subtitle = Color(hex:0x8A8A8A)
@@ -60,6 +62,153 @@ struct CelyxBluePanel: View {
             .clipShape(shape)
             .overlay(shape.strokeBorder(LinearGradient(colors:[.white.opacity(0.35),.white.opacity(0.04),.white.opacity(0.14)],startPoint:.top,endPoint:.bottom),lineWidth:1))
             .shadow(color:.black.opacity(0.45),radius:24,x:0,y:8)
+    }
+}
+
+// MARK: Tinted Liquid Glass (Figma "Fill + Shadow" inner-shadow stacks over the native glass)
+
+/// One Figma inner shadow: colour pulled in from the edge, `y` down, blurred by `blur`, grown by `spread`.
+struct CelyxInnerShadow {
+    var color: Color
+    var y: CGFloat
+    var blur: CGFloat
+    var spread: CGFloat = 0
+}
+
+extension [CelyxInnerShadow] {
+    /// "Start Collecting" (998:2696): deep navy floor, blue body, violet rim, white lip.
+    static let celyxPrimary: Self = [
+        .init(color:Color(hex:0x062277),y:40,blur:96),
+        .init(color:Color(hex:0x0066E2),y:24,blur:24),
+        .init(color:Color(hex:0x7459DF),y:12,blur:4.5,spread:6),
+        .init(color:.white,y:4,blur:4)
+    ]
+    /// Selected segment of the List / Calendar control (998:2108).
+    static let celyxSegment: Self = [
+        .init(color:Color(hex:0x062277,opacity:0.4),y:24,blur:96,spread:12),
+        .init(color:Color(hex:0x0066E2,opacity:0.6),y:12,blur:24,spread:8),
+        .init(color:Color(hex:0x7459DF,opacity:0.8),y:8,blur:6,spread:6),
+        .init(color:.white,y:4,blur:4,spread:2)
+    ]
+    /// Large surfaces: the Sky Events top section and the collected-star card (998:2109, 1001:4101).
+    static let celyxSheet: Self = [
+        .init(color:Color(hex:0x062277,opacity:0.6),y:40,blur:120,spread:48),
+        .init(color:Color(hex:0x0066E2,opacity:0.8),y:24,blur:80,spread:24),
+        .init(color:Color(hex:0x7459DF,opacity:0.9),y:12,blur:48,spread:16),
+        .init(color:.white.opacity(0.64),y:4,blur:12,spread:2)
+    ]
+    /// Sky event card background (998:2116 "Rectangle 43").
+    static let celyxCard: Self = [
+        .init(color:Color(hex:0x062277,opacity:0.6),y:60,blur:60,spread:20),
+        .init(color:Color(hex:0x0066E2,opacity:0.8),y:40,blur:40,spread:8),
+        .init(color:Color(hex:0x7459DF),y:20,blur:20,spread:4),
+        .init(color:.white,y:8,blur:8,spread:2)
+    ]
+    /// Green "Collect Rigel" pill (1000:3473).
+    static let celyxCollect: Self = [
+        .init(color:Color(hex:0x0B3215),y:32,blur:40),
+        .init(color:Color(hex:0x30D158),y:20,blur:24),
+        .init(color:.white,y:6,blur:2)
+    ]
+}
+
+/// Paints a stack of Figma inner shadows inside `shape`, in order. Works in `ImageRenderer` too.
+struct CelyxInnerGlow<S: InsettableShape>: View {
+    let shape: S
+    let layers: [CelyxInnerShadow]
+    var base: Color? = nil
+
+    var body: some View {
+        Canvas { context,size in
+            let rect = CGRect(origin:.zero,size:size)
+            context.clip(to:shape.path(in:rect))
+            if let base { context.fill(Path(rect),with:.color(base)) }
+            for layer in layers {
+                context.drawLayer { layerContext in
+                    // Figma blur radius ≈ 2σ.
+                    layerContext.addFilter(.blur(radius:layer.blur/2))
+                    let pad = layer.blur*2+abs(layer.y)+layer.spread+4
+                    var path = Path(rect.insetBy(dx:-pad,dy:-pad))
+                    path.addPath(shape.inset(by:layer.spread).path(in:rect).offsetBy(dx:0,dy:layer.y))
+                    layerContext.fill(path,with:.color(layer.color),style:FillStyle(eoFill:true))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Figma's two layers, in Figma's order: "Fill + Shadow" (the inner-shadow gradient) underneath, and the
+    /// native Liquid Glass "Glass Effect" on top of it, so the glass refracts and softens the colour.
+    func celyxGlass<S: InsettableShape>(_ glow: [CelyxInnerShadow],in shape: S) -> some View {
+        glassEffect(.regular,in:shape)
+            .background { CelyxInnerGlow(shape:shape,layers:glow) }
+    }
+}
+
+/// Primary tinted-glass button: the gradient + glass stack from `celyxGlass`, pressed as one piece
+/// (a soft squash and a brief brighten), like the system glass buttons.
+struct CelyxTintedGlassButtonStyle: ButtonStyle {
+    var glow: [CelyxInnerShadow] = .celyxPrimary
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .celyxGlass(glow,in:Capsule())
+            .brightness(configuration.isPressed ? 0.06 : 0)
+            .scaleEffect(configuration.isPressed ? 0.965 : 1)
+            .animation(.spring(duration:0.32,bounce:0.35),value:configuration.isPressed)
+            .environment(\.colorScheme,.dark)
+    }
+}
+
+/// Segmented control from Figma (998:2108): grey track, tinted-glass thumb, SF Symbol + title per segment.
+/// The system segmented picker can't show a symbol next to its title or take this thumb, so it is drawn here;
+/// VoiceOver still gets the native segmented control through `accessibilityRepresentation`.
+struct CelyxSegmentedControl<Value: Hashable>: View {
+    struct Segment {
+        let value: Value
+        let title: String
+        let systemImage: String
+    }
+    @Binding var selection: Value
+    let segments: [Segment]
+    @Namespace private var thumb
+
+    var body: some View {
+        HStack(spacing:4) {
+            ForEach(segments,id:\.value) { segment in
+                let isOn = segment.value == selection
+                Button {
+                    guard !isOn else { return }
+                    withAnimation(.spring(duration:0.42,bounce:0.2)) { selection = segment.value }
+                } label: {
+                    Label(segment.title,systemImage:segment.systemImage)
+                        .font(.system(size:13.33,weight:isOn ? .semibold : .medium))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth:.infinity).frame(height:34)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .background {
+                    if isOn {
+                        // Figma export "SegmentedControlActive" (glass over the segment gradient), incl. its rim glow.
+                        Image("celyx-segment-active").resizable()
+                            .padding(.horizontal,-8.5).padding(.vertical,-2)
+                            .matchedGeometryEffect(id:"thumb",in:thumb)
+                    }
+                }
+            }
+        }
+        .padding(2)
+        .sensoryFeedback(.selection,trigger:selection)
+        .background(Capsule().fill(Color(hex:0x767680,opacity:0.24)))
+        .accessibilityRepresentation {
+            Picker("View",selection:$selection) {
+                ForEach(segments,id:\.value) { Text($0.title).tag($0.value) }
+            }
+            .pickerStyle(.segmented)
+        }
     }
 }
 
