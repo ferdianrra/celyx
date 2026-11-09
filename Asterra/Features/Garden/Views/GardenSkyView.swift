@@ -54,7 +54,8 @@ struct GardenSkyView: View {
             if usesCamera {
                 GardenCameraLayer(
                     placed: viewModel.placed, selectedID: viewModel.selected?.id,
-                    connections: shownConnections, isActive: isActive
+                    connections: shownConnections, zodiacFigures: shownZodiacFigures,
+                    equatorial: viewModel.equatorial, isActive: isActive
                 ) { viewModel.selected = $0 }
                 .transition(.opacity)
             } else {
@@ -156,6 +157,13 @@ struct GardenSkyView: View {
         return viewModel.constellationConnections.filter { $0.startID != id && $0.endID != id }
     }
 
+    private var shownZodiacFigures: [GardenZodiacFigure] {
+        guard let handover, handover.phase < .releasing, let id = handover.itemID else {
+            return viewModel.completedZodiacFigures
+        }
+        return viewModel.completedZodiacFigures.filter { !$0.requiredStarIDs.contains(id) }
+    }
+
     /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
     private func viewCamera() -> NightSeaCamera {
         guard let handover, handover.phase >= .landed, handover.phase < .done else { return viewModel.camera }
@@ -183,6 +191,15 @@ struct GardenSkyView: View {
                         equatorial: viewModel.equatorial, isActive: isActive
                     ) { _ in failed = true }
                 }
+                GardenZodiacFigures(unlocked: shownZodiacFigures,
+                    projected: GardenZodiacFigure.project(shownZodiacFigures, basis: viewModel.equatorial,
+                        size: geometry.size, point: { shown.project($0, in: geometry.size) }),
+                    skyClip: GardenZodiacFigure.skyClip(size: geometry.size) { point in
+                        let center = shown.center(in: geometry.size)
+                        let focal = shown.focalLength(in: geometry.size)
+                        return shown.forward.z + Double(point.x - center.x) / focal * shown.right.z
+                            + Double(center.y - point.y) / focal * shown.up.z
+                    }, isActive: isActive)
                 GardenConstellationLines(connections: shownConnections,
                     positions: Dictionary(uniqueKeysWithValues: shownPlaced.compactMap { object in
                         guard object.isAboveHorizon,

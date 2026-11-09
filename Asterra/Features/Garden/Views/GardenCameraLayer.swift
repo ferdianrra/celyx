@@ -12,6 +12,8 @@ struct GardenCameraLayer: View {
     let placed: [GardenPlacedObject]
     let selectedID: Int?
     var connections: [GardenConstellationConnection] = []
+    var zodiacFigures: [GardenZodiacFigure] = []
+    var equatorial: simd_double3x3?
     var isActive = true
     let onSelect: (GardenCollectionItem) -> Void
 
@@ -34,6 +36,9 @@ struct GardenCameraLayer: View {
                     let size = viewport == .zero ? geometry.size : viewport
                     let sprites = project(in:size)
                     ZStack {
+                        GardenZodiacFigures(unlocked: zodiacFigures,
+                            projected: projectZodiac(in: size), skyClip: zodiacSkyClip(in: size),
+                            isActive: isActive)
                         GardenConstellationLines(connections: connections,
                             positions: Dictionary(uniqueKeysWithValues: sprites.map { ($0.id, $0.point) }),
                             isActive: isActive)
@@ -128,6 +133,33 @@ struct GardenCameraLayer: View {
     }
 
     // MARK: Drawing
+
+    private func projectZodiac(in size: CGSize) -> [ProjectedConstellationFigure] {
+        guard size.width > 0, size.height > 0, let frame = session.currentFrame,
+            case .normal = frame.camera.trackingState else { return [] }
+        let view = frame.camera.viewMatrix(viewRotationAngle: 90)
+        let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
+        return GardenZodiacFigure.project(zodiacFigures, basis: equatorial, size: size) { direction in
+            let world = SkyFinderProjection.worldDirection(direction)
+            let local = view * SIMD4(world.x, world.y, world.z, 0)
+            guard local.z < -0.06 else { return nil }
+            let clip = projection * SIMD4(local.x * 1000, local.y * 1000, local.z * 1000, 1)
+            guard clip.w > 0 else { return nil }
+            return CGPoint(x: Double(clip.x / clip.w + 1) * size.width / 2,
+                           y: Double(1 - clip.y / clip.w) * size.height / 2)
+        }
+    }
+
+    private func zodiacSkyClip(in size: CGSize) -> [CGPoint] {
+        guard size.width > 0, size.height > 0, let frame = session.currentFrame else { return [] }
+        let inverse = simd_inverse(frame.camera.viewMatrix(viewRotationAngle: 90))
+        let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
+        return GardenZodiacFigure.skyClip(size: size) { point in
+            let x = Float(2 * point.x / size.width - 1) / projection.columns.0.x
+            let y = Float(1 - 2 * point.y / size.height) / projection.columns.1.y
+            return Double((inverse * SIMD4(x, y, -1, 0)).y)
+        }
+    }
 
     private func draw(_ sprite: Sprite,in context: inout GraphicsContext) {
         let object = sprite.entry.object

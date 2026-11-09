@@ -15,6 +15,8 @@ final class GardenViewModel {
     var placed: [GardenPlacedObject] = []
     private let constellationFigures = GardenConstellationConnection.loadFigures()
     private(set) var constellationConnections: [GardenConstellationConnection] = []
+    private let zodiacFigures = GardenZodiacFigure.load()
+    private(set) var completedZodiacFigures: [GardenZodiacFigure] = []
     /// Decorative background star field (not tappable, no labels).
     var background: [NightSeaObject] = []
     /// Temporary demo placement stays in the sky until its sheet closes.
@@ -39,6 +41,7 @@ final class GardenViewModel {
         self.camera = camera
         constellationConnections = GardenConstellationConnection.resolve(
             figures: constellationFigures, items: model.collectionItems)
+        completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(model.collected.keys))
     }
 
     func resetCamera() {
@@ -60,6 +63,7 @@ final class GardenViewModel {
         placed = scene.placed
         constellationConnections = GardenConstellationConnection.resolve(
             figures: constellationFigures, items: model.collectionItems)
+        completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(model.collected.keys))
         if let demo {
             placed.removeAll { $0.id == demo.item.id }
             placed.append(GardenPlacedObject(item: demo.item, object: demo.object))
