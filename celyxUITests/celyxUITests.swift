@@ -9,6 +9,30 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testCalendarListAndMonthControls() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+        let calendar = app.buttons["Sky Calendar"]
+        XCTAssertTrue(calendar.waitForExistence(timeout:30))
+        calendar.tap()
+        XCTAssertTrue(app.navigationBars["Sky Calendar"].waitForExistence(timeout:10))
+        app.segmentedControls.buttons["Calendar"].tap()
+        let next = app.buttons["Next month"]
+        XCTAssertTrue(next.waitForExistence(timeout:5))
+        next.tap()
+        app.buttons["Previous month"].tap()
+        XCTAssertTrue(app.staticTexts["Tap a marked date to view its events."].exists)
+        app.segmentedControls.buttons["List"].tap()
+        XCTAssertTrue(app.buttons["Moon"].exists)
+        let screenshot = XCTAttachment(screenshot:app.screenshot())
+        screenshot.name = "Calendar after MVVM refactor"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     func testAlbumShowsCityAndSavesStoryPNGToPhotos() throws {
         continueAfterFailure = false
         let permissions = addUIInterruptionMonitor(withDescription:"Allow adding album photos") { alert in
