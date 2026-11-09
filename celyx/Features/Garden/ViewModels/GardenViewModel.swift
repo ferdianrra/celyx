@@ -13,6 +13,8 @@ final class GardenViewModel {
     private var touchReferenceDirection: SIMD3<Double>?
 
     var placed: [GardenPlacedObject] = []
+    private let constellationFigures = GardenConstellationConnection.loadFigures()
+    private(set) var constellationConnections: [GardenConstellationConnection] = []
     /// Decorative background star field (not tappable, no labels).
     var background: [NightSeaObject] = []
     /// Temporary demo placement stays in the sky until its sheet closes.
@@ -35,6 +37,8 @@ final class GardenViewModel {
     init(model: HomeViewModel, camera: NightSeaCamera = NightSeaCamera()) {
         self.model = model
         self.camera = camera
+        constellationConnections = GardenConstellationConnection.resolve(
+            figures: constellationFigures, items: model.collectionItems)
     }
 
     func resetCamera() {
@@ -54,6 +58,8 @@ final class GardenViewModel {
             excluding: demo.map { [$0.item.id] } ?? [])
         background = scene.background
         placed = scene.placed
+        constellationConnections = GardenConstellationConnection.resolve(
+            figures: constellationFigures, items: model.collectionItems)
         if let demo {
             placed.removeAll { $0.id == demo.item.id }
             placed.append(GardenPlacedObject(item: demo.item, object: demo.object))
