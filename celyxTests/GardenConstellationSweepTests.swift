@@ -7,18 +7,23 @@ import Testing
 struct GardenConstellationSweepTests {
     private let edge = GardenConstellationConnection(constellation: "Lib", startID: 125, endID: 222)
 
-    @Test func bothStarsHaveStaggeredFiveSecondTimers() throws {
+    @Test func firstStarStartsImmediatelyAndBothRepeatOnStaggeredFiveSecondTimers() throws {
         var scheduler = GardenConstellationSweepScheduler(connections: [edge], start: 0)
-        scheduler.update(at: 4.9)
-        #expect(scheduler.active.isEmpty)
+        scheduler.update(at: 0)
+        #expect(scheduler.active.first?.sourceID == 125)
+        scheduler.update(at: 2.5)
+        #expect(scheduler.active.first?.sourceID == 222)
         scheduler.update(at: 5)
         #expect(scheduler.active.first?.sourceID == 125)
         scheduler.update(at: 7.5)
         #expect(scheduler.active.first?.sourceID == 222)
-        scheduler.update(at: 10)
+    }
+
+    @Test func returningToTheFrameHasNoInitialFiveSecondWait() {
+        var scheduler = GardenConstellationSweepScheduler(connections: [edge], start: 42)
+        scheduler.update(at: 42)
+        #expect(scheduler.active.first?.startedAt == 42)
         #expect(scheduler.active.first?.sourceID == 125)
-        scheduler.update(at: 12.5)
-        #expect(scheduler.active.first?.sourceID == 222)
     }
 
     @Test func overdueNeighborsWaitInsteadOfSendingOpposingSweepsOnTheSameLine() throws {
@@ -61,8 +66,9 @@ struct GardenConstellationSweepTests {
 
     @Test func idleSchedulerSleepsUntilTheNextTimerOrCompletion() {
         var scheduler = GardenConstellationSweepScheduler(connections: [edge], start: 0)
-        #expect(scheduler.nextUpdate(after: 0) == 5)
-        scheduler.update(at: 5)
-        #expect(abs(scheduler.nextUpdate(after: 5) - 7.4) < 0.00001)
+        scheduler.update(at: 0)
+        #expect(abs(scheduler.nextUpdate(after: 0) - 2.4) < 0.00001)
+        scheduler.update(at: 2.4)
+        #expect(scheduler.nextUpdate(after: 2.4) == 2.5)
     }
 }
