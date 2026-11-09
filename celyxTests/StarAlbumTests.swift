@@ -3,7 +3,8 @@ import Testing
 @testable import celyx
 
 @MainActor struct StarAlbumTests {
-    @Test func storyExportsAnOpaque1080By1920PNG() throws {
+    /// The share image follows the Figma frame (402×874 pt at 3×).
+    @Test func storyExportsAnOpaque1206By2622PNG() throws {
         var record = AppPreviewData.record
         record.identificationNote = "Uncalibrated catalog estimate."
         record.note = String(repeating:"A moment under the night sky. ",count:80)
@@ -11,8 +12,8 @@ import Testing
         let data = try #require(StarStoryRenderer.png(item:item,photo:AppPreviewData.albumPhoto))
         #expect(Array(data.prefix(8)) == [137,80,78,71,13,10,26,10])
         let image = try #require(UIImage(data:data)?.cgImage)
-        #expect(image.width == 1080)
-        #expect(image.height == 1920)
+        #expect(image.width == 1206)
+        #expect(image.height == 2622)
     }
 
     @Test func userNotesPersistWithoutChangingIdentificationMetadata() throws {

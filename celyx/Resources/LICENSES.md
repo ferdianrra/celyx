@@ -8,7 +8,8 @@
 | sky/constellations.json line segments | d3-celestial, Copyright (c) 2015 Olaf Frohn | BSD 3-Clause, see LICENSE-d3-celestial.txt |
 | Positions and sky events in the app | Astronomy Engine | MIT |
 | Meteor shower dates and rates | IMO 2026 meteor shower calendar | Facts; credit the IMO |
-| Milky Way, galaxy, sky gradient, islands, sea | Generated for this project | Free to use |
+| sky/garden-milky-way-nasa.jpg (Milky Way in the Night Sea) | Milky Way: NASA/Goddard Space Flight Center Scientific Visualization Studio, "Deep Star Maps 2020" (https://svs.gsfc.nasa.gov/4851) | NASA media, free to use with credit |
+| Galaxy, sky gradient, islands, sea | Generated for this project | Free to use |
 | environment/boat-360*.png | The project owner's Gemini panorama, upscaled | Check Google's terms for generated images |
 
 CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/

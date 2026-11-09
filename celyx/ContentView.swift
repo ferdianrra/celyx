@@ -9,18 +9,19 @@ struct ContentView: View {
 
     var body: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-ui-testing-album") {
-            StarAlbumView(item:AppPreviewData.item,photo:AppPreviewData.albumPhoto,onSaveNote:{ _ in })
-        } else {
-            home
-        }
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing-album") {
+                StarAlbumView(
+                    item: AppPreviewData.item, photo: AppPreviewData.albumPhoto, onSaveNote: { _ in })
+            } else {
+                home
+            }
         #else
-        home
+            home
         #endif
     }
     private var home: some View {
-        CelyxHomeView(model:model)
-            .environment(\.locale,Locale(identifier:"en"))
+        HomeView(model: model)
+            .environment(\.locale, Locale(identifier: "en"))
     }
 }
 
