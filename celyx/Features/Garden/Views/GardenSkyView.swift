@@ -53,7 +53,8 @@ struct GardenSkyView: View {
         Group {
             if usesCamera {
                 GardenCameraLayer(
-                    placed: viewModel.placed, selectedID: viewModel.selected?.id, isActive: isActive
+                    placed: viewModel.placed, selectedID: viewModel.selected?.id,
+                    connections: shownConnections, isActive: isActive
                 ) { viewModel.selected = $0 }
                 .transition(.opacity)
             } else {
@@ -146,6 +147,14 @@ struct GardenSkyView: View {
         return objects.filter { $0.id != id }
     }
 
+    /// Let the star land and its album close before drawing the new threads into the garden.
+    private var shownConnections: [GardenConstellationConnection] {
+        guard let handover, handover.phase < .releasing, let id = handover.itemID else {
+            return viewModel.constellationConnections
+        }
+        return viewModel.constellationConnections.filter { $0.startID != id && $0.endID != id }
+    }
+
     /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
     private func viewCamera() -> NightSeaCamera {
         guard let handover, handover.phase >= .landed, handover.phase < .done else { return viewModel.camera }
@@ -173,6 +182,13 @@ struct GardenSkyView: View {
                         equatorial: viewModel.equatorial, isActive: isActive
                     ) { _ in failed = true }
                 }
+                GardenConstellationLines(connections: shownConnections,
+                    positions: Dictionary(uniqueKeysWithValues: shownPlaced.compactMap { object in
+                        guard object.isAboveHorizon,
+                            let point = shown.project(object.direction, in: geometry.size)
+                        else { return nil }
+                        return (object.id, point)
+                    }), isActive: isActive)
                 labels(in: geometry.size, camera: shown)
             }
             .contentShape(Rectangle())
@@ -240,8 +256,8 @@ struct GardenSkyView: View {
 
 
     /// The Night Sea as the wormhole should show it (see GardenViewModel.wormholeScene).
-    static func wormholeScene(model: HomeViewModel, newID: Int?, demo: WormholeDemo? = nil) -> WormholeScene {
-        GardenViewModel.wormholeScene(model: model, newID: newID, demo: demo)
+    static func wormholeScene(model: HomeViewModel, newID: Int?, demo: WormholeDemo? = nil, location: ObserverLocation? = nil) -> WormholeScene {
+        GardenViewModel.wormholeScene(model: model, newID: newID, demo: demo, location: location)
     }
 
     /// Where a screen point's view ray meets the water plane (horizon frame metres), if it's on the water.

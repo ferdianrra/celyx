@@ -548,17 +548,14 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                                    projection:screenProjection(frame),alignment:alignment.rotation)
     }
     #if DEBUG
-    /// Demo sky: the camera's forward direction in the AR world right now.
-    func demoForwardWorld() -> SIMD3<Float>? {
-        guard let frame = session.currentFrame else { return nil }
-        let back = frame.camera.transform.columns.2
-        return simd_normalize(-SIMD3(back.x,back.y,back.z))
-    }
-    /// Demo sky: where a fixed AR-world direction appears on screen (point, or an arrow when off screen).
-    func demoProjection(world direction: SIMD3<Float>) -> SkyFinderProjection? {
-        guard let frame = session.currentFrame, viewport.width > 0, viewport.height > 0 else { return nil }
-        return SkyFinderProjection.project(direction:direction,view:frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle),
-                                           projection:screenProjection(frame),size:viewport)
+    /// Project a real horizon position, including below the horizon for demo collection.
+    func demoProjection(horizon direction: SIMD3<Double>) -> SkyFinderProjection? {
+        guard running, hasLocationFix, status == .tracking,
+            let frame = session.currentFrame, viewport.width > 0, viewport.height > 0
+        else { return nil }
+        return SkyFinderProjection.project(direction: alignedDirection(direction),
+            view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
+            projection: screenProjection(frame), size: viewport)
     }
     #endif
 

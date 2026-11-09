@@ -34,8 +34,7 @@ constant float PI = 3.14159265;
 //  - Background stars (kind 4, dirSize.w = magnitude) are the kit's, toned down: radius x0.8, alpha x0.7, a glow only
 //    below mag 2 at half alpha, NO diffraction spikes, faint dust (mag > 5) at alpha .15.
 //  - Collected stars (kind 0, dirSize.w = core radius in pt, already x1.3) get the kit's brightest-star treatment:
-//    coloured glow, 4-point spikes, white-hot core, true colour, plus a gold ring (255,222,160 @ .8, 1 pt,
-//    radius 5 + r) and a slow breathing, so they always read as "yours".
+//    coloured glow, 4-point spikes, white-hot core, true colour and slow breathing.
 //  - Planets, Moon, Sun: unchanged (dirSize.w = sprite radius in pt).
 struct PointOut {
     float4 position [[position]];
@@ -115,9 +114,6 @@ fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_
             float sy = smoothstep(0.45, 0.15, abs(vp.x)) * max(0.0, 1.0 - abs(vp.y) / L);
             float sp = max(sx, sy) * 0.28 * tw;
             o += float4(col * sp, sp);
-            float ring = smoothstep(0.7, 0.2, abs(d - (5.0 + core))) * 0.8;   // gold ring, 1 pt
-            o += float4(float3(1.0, 0.87, 0.63) * ring, ring);
-            if (selected) { float s2 = smoothstep(0.7, 0.2, abs(d - (8.0 + core))) * 0.9; o += float4(float3(s2), s2); }
         }
         float disc = smoothstep(core + 0.5, core - 0.5, d) * alpha * (collected ? 1.0 : tw);
         o = o * (1.0 - disc) + float4(col * disc, disc);
