@@ -27,7 +27,8 @@ struct GardenConstellationSweepScheduler {
         self.neighbors = neighbors.mapValues { $0.sorted() }
         let stars = neighbors.keys.sorted()
         self.nextDue = Dictionary(uniqueKeysWithValues: stars.enumerated().map { index, id in
-            (id, start + Self.interval + Double(index) * Self.interval / Double(stars.count))
+            // Start the first visible star immediately; stagger the others within the first cycle.
+            (id, start + Double(index) * Self.interval / Double(stars.count))
         })
     }
 

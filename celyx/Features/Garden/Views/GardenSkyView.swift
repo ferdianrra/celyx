@@ -127,6 +127,7 @@ struct GardenSkyView: View {
             CollectedObjectSheet(
                 item: item,
                 direction: viewModel.placed.first(where: { $0.id == item.id })?.object.direction,
+                collection: model,
                 onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                 onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) }
             ) {

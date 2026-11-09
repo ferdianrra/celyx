@@ -22,7 +22,7 @@ extension GardenCollectionItem {
     }
     var albumNote: String {
         let note = record.note?.trimmingCharacters(in:.whitespacesAndNewlines) ?? ""
-        return note.isEmpty ? "A sky observation captured with Celyx." : note
+        return note.isEmpty ? "A sky observation captured with Asterra." : note
     }
 }
 
@@ -279,7 +279,7 @@ struct StarStoryTemplate: View {
             .padding(.top,164).padding(.bottom,20)
             StarAlbumPaper(item:item,photo:photo,limitsNote:true).padding(.horizontal,40)
             Spacer(minLength:16)
-            Text("Celyx").font(.system(size:28,weight:.bold)).foregroundStyle(Color(hex:0xF5F5F5)).padding(.bottom,48)
+            Text("Asterra").font(.system(size:28,weight:.bold)).foregroundStyle(Color(hex:0xF5F5F5)).padding(.bottom,48)
         }
         .frame(width:Self.size.width,height:Self.size.height)
         .background { Image("celyx-share-bg").resizable() }
