@@ -19,7 +19,7 @@ struct HomeView: View {
     @State private var demoShowing = false
     @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
-    @AppStorage("gardenUsesGyro") private var gardenUsesGyro = true
+    @State private var gardenUsesGyro = true
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -30,7 +30,7 @@ struct HomeView: View {
                               isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
-                              onUseTouch:{ gardenUsesGyro = false },
+                              onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
                     .ignoresSafeArea()
 

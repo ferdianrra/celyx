@@ -19,6 +19,7 @@ Each feature uses `Models`, `Views`, `ViewModels`, and `Services` as needed. Gar
 
 - `HomeView` composes the main screen using the existing `HomeViewModel` for observation settings and collection data.
 - `GardenViewModel` owns object placement, sensor lifecycle and camera gestures.
+- Garden gyro tracking follows true north without touch offsets. A swipe preserves the current direction and zoom, then switches to touch; motion tracking continues quietly in the background. After a swipe, lower the back camera below −20° and raise it to −8° or higher for 0.35 seconds to resume gyro. The separate thresholds prevent accidental switching around the horizon, and an active drag or pinch postpones automatic activation. The direction menu can also select either mode. GPS/compass readiness still gates real-world tracking, without displaying setup progress or calibration prompts in the garden.
 - `StarCollectViewModel` owns target selection, capture verification, feedback and saving observations. `SkyFinderService` owns live camera analysis, matching and retained camera frames.
 - `EventCollectionViewModel` owns the existing event-camera prototype state; it does not turn that prototype into real event detection.
 - `SkyCalendarViewModel` owns date navigation and shared filtering rules for the list and month grid. `SkyEventStore` owns reminder and collected-event persistence.

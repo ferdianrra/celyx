@@ -13,6 +13,7 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
     private let compass = CLLocationManager()
     private var running = false
     private var usesMotion = true
+    private var quiet = false
     private var heading: CLHeading?
     private var hasLocation = false
     private var goodSince: TimeInterval?
@@ -31,9 +32,10 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
 
     override init() { super.init(); compass.delegate = self }
 
-    func start(onChange: @escaping (Double,Double,Bool) -> Void) {
+    func start(quiet: Bool = false, onChange: @escaping (Double,Double,Bool) -> Void) {
         guard !AppPreviewData.isRunning else { return }
         stop()
+        self.quiet = quiet
         running = true; usesMotion = true
         report(false,0,"Waiting for GPS location…",stage:.location)
         guard isAvailable, CMMotionManager.availableAttitudeReferenceFrames().contains(.xTrueNorthZVertical) else {
@@ -41,7 +43,7 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
             return
         }
         authorize()
-        manager.showsDeviceMovementDisplay = true
+        manager.showsDeviceMovementDisplay = !quiet
         manager.deviceMotionUpdateInterval = 1/60
         manager.startDeviceMotionUpdates(using:.xTrueNorthZVertical,to:.main) { [weak self] motion,error in
             guard let self, self.running else { return }
@@ -69,18 +71,20 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
                     self.report(false,0.25,quality+"Move your phone slowly, away from magnets or metal.",stage:.compass)
                     return
                 }
-                let rotation = motion.rotationRate
-                let turning = sqrt(rotation.x*rotation.x+rotation.y*rotation.y+rotation.z*rotation.z)
-                if turning > 0.5 {
-                    self.goodSince = nil
-                    self.report(false,0.5,"Compass acquired. Hold steady to finish gyro setup.",stage:.settling)
-                    return
-                }
-                if self.goodSince == nil { self.goodSince = time }
-                let progress = min(1,(time-(self.goodSince ?? time))/1.2)
-                guard progress >= 1 else {
-                    self.report(false,0.5+progress*0.5,"Compass acquired. Hold steady to finish gyro setup.",stage:.settling)
-                    return
+                if !quiet {
+                    let rotation = motion.rotationRate
+                    let turning = sqrt(rotation.x*rotation.x+rotation.y*rotation.y+rotation.z*rotation.z)
+                    if turning > 0.5 {
+                        self.goodSince = nil
+                        self.report(false,0.5,"Compass acquired. Hold steady to finish gyro setup.",stage:.settling)
+                        return
+                    }
+                    if self.goodSince == nil { self.goodSince = time }
+                    let progress = min(1,(time-(self.goodSince ?? time))/1.2)
+                    guard progress >= 1 else {
+                        self.report(false,0.5+progress*0.5,"Compass acquired. Hold steady to finish gyro setup.",stage:.settling)
+                        return
+                    }
                 }
                 self.ready = true
             }
@@ -138,7 +142,7 @@ final class MotionService: NSObject, CLLocationManagerDelegate {
         }
     }
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) { authorize() }
-    func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool { true }
+    func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool { !quiet }
     func locationManager(_ manager: CLLocationManager,didUpdateHeading newHeading: CLHeading) { heading = newHeading }
     func locationManager(_ manager: CLLocationManager,didUpdateLocations locations: [CLLocation]) {
         guard running, let fix = locations.last, fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 5_000,
