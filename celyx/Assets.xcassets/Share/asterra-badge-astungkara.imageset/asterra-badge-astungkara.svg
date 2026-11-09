@@ -1,0 +1,22 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="55.7443" height="64.368" viewBox="0 0 55.7443 64.368" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="Polygon 2">
+<path d="M27.8721 1.62842L54.334 16.9062V47.4618L27.8721 62.7395L1.41026 47.4618V16.9062L27.8721 1.62842Z" fill="url(#paint0_radial_0_4)"/>
+<use xlink:href="#stroke0_0_4" stroke="#D9D9D9"/>
+<use xlink:href="#stroke0_0_4" stroke="url(#paint1_linear_0_4)"/>
+</g>
+<defs>
+<radialGradient id="paint0_radial_0_4" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(28.3422 18.5515) rotate(90.6095) scale(44.1905 41.4436)">
+<stop stop-color="white"/>
+<stop offset="1" stop-color="#6F6AC8"/>
+</radialGradient>
+<linearGradient id="paint1_linear_0_4" x1="58.4277" y1="3.50877" x2="12.806" y2="88.5147" gradientUnits="userSpaceOnUse">
+<stop stop-color="#E8E7FF"/>
+<stop offset="0.137237" stop-color="#A7A4E9"/>
+<stop offset="0.290881" stop-color="#5057CF"/>
+<stop offset="0.440636" stop-color="#14377A"/>
+<stop offset="0.593926" stop-color="#0A1C3D"/>
+<stop offset="0.907408"/>
+</linearGradient>
+<path id="stroke0_0_4" d="M27.8721 1.62842L54.334 16.9062V47.4618L27.8721 62.7395L1.41026 47.4618V16.9062L27.8721 1.62842Z" stroke-width="2.82051"/>
+</defs>
+</svg>
