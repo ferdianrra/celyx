@@ -49,15 +49,15 @@ private struct WormholeStarLight: View {
                 ZStack {
                     // Soft halo in the star's own colour.
                     Circle()
-                        .fill(RadialGradient(colors:[tint.opacity(0.75),tint.opacity(0.18),.clear],
+                        .fill(RadialGradient(colors:[tint.opacity(0.55),tint.opacity(0.12),.clear],
                                              center:.center,startRadius:0,endRadius:light.size*0.9))
                         .frame(width:light.size*1.8,height:light.size*1.8)
                     // Diffraction spikes stretch as it swells.
                     ForEach(0..<2) { i in
                         Capsule()
-                            .fill(LinearGradient(colors:[.clear,.white.opacity(0.85),.clear],startPoint:.leading,endPoint:.trailing))
-                            .frame(width:min(520,light.size*(2.2+1.2*light.flare)),height:max(1.2,min(5,light.size*0.035)))
-                            .rotationEffect(.degrees(Double(i)*90))
+                            .fill(LinearGradient(colors:[.clear,.white.opacity(0.8),.clear],startPoint:.leading,endPoint:.trailing))
+                            .frame(width:light.size*(2.4+0.6*light.flare),height:1.2)
+                            .rotationEffect(.degrees(Double(i)*90+light.spin))
                             .opacity(light.spikes)
                     }
                     // White-hot core.
@@ -65,7 +65,7 @@ private struct WormholeStarLight: View {
                         .fill(RadialGradient(colors:[.white,.white.opacity(0.9),tint.opacity(0)],
                                              center:.center,startRadius:0,endRadius:light.size*0.32))
                         .frame(width:light.size*0.7,height:light.size*0.7)
-                        .scaleEffect(1+0.25*light.flare)
+                        .scaleEffect(1+light.flare)
                 }
                 .blendMode(.plusLighter)
                 .opacity(light.opacity)

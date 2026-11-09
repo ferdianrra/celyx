@@ -106,24 +106,30 @@ nonisolated enum WormholeTimeline {
 
     // MARK: The star going in
 
-    /// The collected star as a light that the wormhole swallows: it swells as space bends toward it,
-    /// sits glowing at the mouth while the hole breathes, then rushes up past the camera as the hole opens
-    /// (we fly into it), thinning out just before landing. Size is a diameter in points.
-    static func starLight(_ tt: Double,size: CGSize,radius R: Double) -> (size: Double, opacity: Double, flare: Double, spikes: Double) {
-        let diag = hypot(size.width,size.height)
+    /// The collected star being taken by the wormhole, kept small and calm: it brightens a touch as space
+    /// bends toward it, sits in the mouth when the hole pops open, then is drawn in (shrinking, its spikes
+    /// turning with the swirl) and is gone before the hole sweeps the screen. Size is a diameter in points.
+    static func starLight(_ tt: Double,size: CGSize,radius R: Double)
+        -> (size: Double, opacity: Double, flare: Double, spikes: Double, spin: Double) {
         let p = proto(tt)
-        // One continuous approach, no plateau: drawn in with the bend, keeps creeping closer while the hole
-        // breathes, then the opening hole carries it past the camera (size follows the hole, accelerating).
-        let approach = ss01(seg(p,40,1500))                    // steady approach, no plateau
-        let near = 18+90*approach
-        let rushT = seg(p,1450,2250)                           // then it comes at us, accelerating
-        let rush = near*(1+11*grow(rushT))
-        let d = max(rush,R*1.6)
-        let fadeIn = ss01(seg(p,0,90))                         // no pop over the real star in the photo
-        let through = 1-ss01(seg(p,1800,2250))                 // dissolving as we pass through it (~360 ms)
-        let flare = bump(seg(p,780,1050))                      // brief bloom at the pop
-        let spikes = 1-ss01(seg(p,1550,1950))                  // spikes go first, then the glow
-        return (d,fadeIn*through,flare,spikes)
+        let swell = flow(seg(p,40,850))                        // a little brighter as space bends
+        let drawnIn = grow(seg(p,950,1720))                    // then pulled into the hole, accelerating
+        let d = (16+8*swell)*(1-drawnIn)
+        let fadeIn = ss01(seg(p,0,120))                        // no pop over the real star in the photo
+        let gone = 1-ss01(seg(p,1560,1760))
+        let flare = 0.35*bump(seg(p,780,1100))                 // a soft breath when the hole opens
+        let spikes = 1-ss01(seg(p,1200,1600))
+        let spin = 50*flow(seg(p,850,1720))                    // degrees, with the swirl
+        return (d,fadeIn*gone,flare,spikes,spin)
+    }
+
+    /// Flying in: the Night Sea is first seen a little wide and from slightly below, then the view glides
+    /// forward and up onto the star. Velocity is zero at both ends and continuous through T_LAND.
+    static func flight(_ tt: Double,landing TL: Double) -> (fov: Double, pitch: Double) {
+        let before = ss01(seg(tt,TL-380,TL))
+        let after = 1-reframe(seg(tt,TL,TL+1500))
+        let k = tt < TL ? before : after
+        return (14*k,-5*k)
     }
 
     // MARK: Frame

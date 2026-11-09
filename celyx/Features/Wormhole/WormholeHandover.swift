@@ -181,8 +181,11 @@ final class WormholeHandover: Identifiable {
         let ease = WormholeTimeline.reframe
         let lock = ease(WormholeTimeline.seg(tt,landing,landing+WormholeTimeline.landingDuration))
         let base = lock > 0 ? simd_slerp(freeze.orientation,starView,lock) : freeze.orientation
-        let shaken = simd_quatd(angle:-az,axis:SIMD3(0,0,1))*base*simd_quatd(angle:alt,axis:SIMD3(1,0,0))
-        let fov = WormholeTimeline.mix(baseFieldOfView,WormholeTimeline.landingFieldOfView,lock)+f.pull
+        // Flying in: a touch wide and from slightly below at the crossing, gliding forward and up onto the star.
+        let flight = WormholeTimeline.flight(tt,landing:landing)
+        let glide = alt+flight.pitch * .pi/180
+        let shaken = simd_quatd(angle:-az,axis:SIMD3(0,0,1))*base*simd_quatd(angle:glide,axis:SIMD3(1,0,0))
+        let fov = WormholeTimeline.mix(baseFieldOfView,WormholeTimeline.landingFieldOfView,lock)+f.pull+flight.fov
         let pinFocal = focal(forFieldOfView:fov)
         var centerY = 0.5
         if let sheetAt { centerY = WormholeTimeline.mix(0.5,WormholeTimeline.sheetStarY,ease(WormholeTimeline.seg(tt,sheetAt,sheetAt+500))) }
