@@ -88,9 +88,14 @@ final class WormholeFeedback {
             player.volume = volume
             player.play(atTime:now+max(0,t))
         }
+        let k = 1/WormholeTimeline.pace   // run-up cues follow the faster timeline
         start(.ping,at:0)
-        start(.bend,at:0.12)            // fades itself out at T_LAND (iPhone 15 timing)
-        start(.pop,at:0.82)
+        start(.bend,at:0.12*k)
+        start(.pop,at:0.82*k)
+        // The bend tail was timed for the slower run-up: duck it out right at T_LAND.
+        DispatchQueue.main.asyncAfter(deadline:.now()+max(0,TL-0.12)) { [weak self] in
+            self?.players[.bend]?.setVolume(0,fadeDuration:0.18)
+        }
         start(.swell,at:TL-Self.swellCut)   // its hard stop lands exactly on T_LAND
         start(.boom,at:TL)
         start(.sheet,at:TL+(WormholeTimeline.crossDelay+WormholeTimeline.sheetDelay)/1000)
@@ -115,12 +120,14 @@ final class WormholeFeedback {
             CHHapticParameterCurve(parameterID:id,controlPoints:[.init(relativeTime:0,value:from),.init(relativeTime:d,value:to)],relativeTime:t)
         }
         // Each continuous layer gets its own player, so its curves never dim the transients.
-        let swellDuration = max(0.05,TL-1.7)
+        let k = 1/WormholeTimeline.pace
+        let swellStart = 1.7*k
+        let swellDuration = max(0.05,TL-swellStart)
         let patterns: [CHHapticPattern?] = [
-            try? CHHapticPattern(events:[transient(0,0.8,0.9),transient(0.82,0.75,0.55),transient(TL,1,0.2),transient(TL+0.54,0.45,0.8)],parameters:[]),
-            try? CHHapticPattern(events:[continuous(0.12,0.7,0.7,0.1)],parameterCurves:[curve(.hapticIntensityControl,0.12,0.7,0.25,1)]),
-            try? CHHapticPattern(events:[continuous(1.7,swellDuration,1,0.25)],parameterCurves:[
-                curve(.hapticIntensityControl,1.7,swellDuration,0.1,1),curve(.hapticSharpnessControl,1.7,swellDuration,-0.2,0.3)]),
+            try? CHHapticPattern(events:[transient(0,0.8,0.9),transient(0.82*k,0.75,0.55),transient(TL,1,0.2),transient(TL+0.54,0.45,0.8)],parameters:[]),
+            try? CHHapticPattern(events:[continuous(0.12*k,0.7*k,0.7,0.1)],parameterCurves:[curve(.hapticIntensityControl,0.12*k,0.7*k,0.25,1)]),
+            try? CHHapticPattern(events:[continuous(swellStart,swellDuration,1,0.25)],parameterCurves:[
+                curve(.hapticIntensityControl,swellStart,swellDuration,0.1,1),curve(.hapticSharpnessControl,swellStart,swellDuration,-0.2,0.3)]),
             try? CHHapticPattern(events:[continuous(TL+0.02,0.6,0.6,0.08)],parameterCurves:[curve(.hapticIntensityControl,TL+0.02,0.6,1,0)]),
         ]
         do {

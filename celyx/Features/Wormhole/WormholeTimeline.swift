@@ -55,6 +55,12 @@ nonisolated enum WormholeTimeline {
 
     // MARK: Constants
 
+    /// Pace of the run-up to landing: the prototype's keyframes (bend, pop, breathe, grow) play this much
+    /// faster. Everything measured from T_LAND keeps real time, so the landing itself feels the same.
+    static let pace: Double = 1.25
+    /// Prototype time for a real elapsed time.
+    static func proto(_ tt: Double) -> Double { tt*pace }
+
     /// Landing + 420 ms: the Night Sea takes over and the reframe starts.
     static let crossDelay: Double = 420
     /// Collected-object sheet springs in this long after the cross.
@@ -92,10 +98,32 @@ nonisolated enum WormholeTimeline {
             let c = center(tt,star:star)
             let far = [CGPoint.zero,CGPoint(x:size.width,y:0),CGPoint(x:0,y:size.height),CGPoint(x:size.width,y:size.height)]
                 .map { hypot($0.x-c.x,$0.y-c.y) }.max() ?? diag
-            if radius(tt,diag:diag) >= far+4 { return tt }
+            if radius(tt,diag:diag) >= far+4 { return tt/pace }
             tt += 2
         }
-        return 2760
+        return 2760/pace
+    }
+
+    // MARK: The star going in
+
+    /// The collected star as a light that the wormhole swallows: it swells as space bends toward it,
+    /// sits glowing at the mouth while the hole breathes, then rushes up past the camera as the hole opens
+    /// (we fly into it), thinning out just before landing. Size is a diameter in points.
+    static func starLight(_ tt: Double,size: CGSize,radius R: Double) -> (size: Double, opacity: Double, flare: Double, spikes: Double) {
+        let diag = hypot(size.width,size.height)
+        let p = proto(tt)
+        // One continuous approach, no plateau: drawn in with the bend, keeps creeping closer while the hole
+        // breathes, then the opening hole carries it past the camera (size follows the hole, accelerating).
+        let approach = ss01(seg(p,40,1500))                    // steady approach, no plateau
+        let near = 18+90*approach
+        let rushT = seg(p,1450,2250)                           // then it comes at us, accelerating
+        let rush = near*(1+11*grow(rushT))
+        let d = max(rush,R*1.6)
+        let fadeIn = ss01(seg(p,0,90))                         // no pop over the real star in the photo
+        let through = 1-ss01(seg(p,1800,2250))                 // dissolving as we pass through it (~360 ms)
+        let flare = bump(seg(p,780,1050))                      // brief bloom at the pop
+        let spikes = 1-ss01(seg(p,1550,1950))                  // spikes go first, then the glow
+        return (d,fadeIn*through,flare,spikes)
     }
 
     // MARK: Frame
@@ -111,23 +139,26 @@ nonisolated enum WormholeTimeline {
         var waveR = 0.0, waveA = 0.0, waveW = 22.0
     }
 
+    /// `tt` and `TL` are real milliseconds; the run-up keyframes read prototype time `p` (see `pace`),
+    /// anything measured from T_LAND reads real time.
     static func frame(_ tt: Double,size: CGSize,star: CGPoint,landing TL: Double) -> Frame {
         let diag = hypot(size.width,size.height)
+        let p = proto(tt)
         var f = Frame()
-        f.crossAlpha = 1-seg(tt,0,180)
-        f.cameraUI = 1-seg(tt,0,260)
-        let bend = flow(seg(tt,120,850))
-        let sp = tt >= 820 ? spring(max(0,tt-820)/1000,17,0.38) : 0
-        let breathe = out(seg(tt,1100,1750))+0.025*sin((tt-1100)/1000*5.2)*seg(tt,1100,1300)*(1-seg(tt,1650,1800))
-        let dip = 0.07*bump(seg(tt,1700,1900)), g = grow(seg(tt,1820,2760))
+        f.crossAlpha = 1-seg(p,0,180)
+        f.cameraUI = 1-seg(p,0,260)
+        let bend = flow(seg(p,120,850))
+        let sp = p >= 820 ? spring(max(0,p-820)/1000,17,0.38) : 0
+        let breathe = out(seg(p,1100,1750))+0.025*sin((p-1100)/1000*5.2)*seg(p,1100,1300)*(1-seg(p,1650,1800))
+        let dip = 0.07*bump(seg(p,1700,1900)), g = grow(seg(p,1820,2760))
         let r0 = 50*sp+12*breathe
         let Rr = r0*(1-dip)+(diag*1.45-62)*g
-        let dR = (diag*1.45-62)*(grow(seg(tt+16,1820,2760))-g)
-        f.pull = -2.4*bend*(1-seg(tt,820,950))
-            +(tt >= 820 ? spring(max(0,tt-820)/1000,14,0.45)*2.4 : 0)-(tt >= 820 ? 2.4 : 0)
+        let dR = (diag*1.45-62)*(grow(seg(p+16*pace,1820,2760))-g)
+        f.pull = -2.4*bend*(1-seg(p,820,950))
+            +(p >= 820 ? spring(max(0,p-820)/1000,14,0.45)*2.4 : 0)-(p >= 820 ? 2.4 : 0)
             +(tt >= TL ? impulse((tt-TL)/1000,12,0.72)*2.8 : 0)
-        f.waveR = tt >= 820 ? Rr+(tt-820)*0.75 : 0
-        f.waveA = tt >= 820 ? 16*exp(-(tt-820)/380) : 0
+        f.waveR = p >= 820 ? Rr+(p-820)*0.75 : 0
+        f.waveA = p >= 820 ? 16*exp(-(p-820)/380) : 0
         f.R = max(0,Rr)
         f.E = 20*bend*(1-seg(tt,820,900))+max(0,Rr)*1.18
         f.W = 1-ss01(seg(Rr,diag*0.3,diag*1.15))
@@ -135,9 +166,9 @@ nonisolated enum WormholeTimeline {
         f.grain = 1-ss01(seg(tt,TL-80,TL+450))
         f.star = ss01(seg(tt,TL,TL+350))
         f.expo = 1+(tt >= TL ? 0.22*impulse((tt-TL)/1000,14,0.75) : 0)
-        f.swirl = 0.9*bend*(1-seg(tt,820,1000))+0.35*seg(tt,900,1100)*(1-flow(seg(tt,2100,2700)))+0.8*bump(seg(tt,1800,2600))
+        f.swirl = 0.9*bend*(1-seg(p,820,1000))+0.35*seg(p,900,1100)*(1-flow(seg(p,2100,2700)))+0.8*bump(seg(p,1800,2600))
         f.blur = min(28,max(0,dR*0.9))
-        f.center = center(tt,star:star)
+        f.center = center(p,star:star)
         f.shake = tt >= TL ? impulse((tt-TL)/1000,11,0.74) : 0
         f.jitter = 0.55*(1-ss01(seg(tt,TL-250,TL+300)))
         f.envUI = ss01(seg(tt,TL+100,TL+500))

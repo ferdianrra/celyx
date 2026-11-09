@@ -27,10 +27,51 @@ struct WormholeHandoverView: View {
                 CelyxColor.night
             }
             WormholeMetalView(handover:handover)
+            WormholeStarLight(handover:handover)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The collected star, drawn over the frozen frame, being pulled into the wormhole (see `starLight`).
+private struct WormholeStarLight: View {
+    let handover: WormholeHandover
+    var body: some View {
+        let object = handover.scene.objects.first { $0.id == handover.scene.newID }
+        let tint = object.map { Color(red:$0.color.x,green:$0.color.y,blue:$0.color.z) } ?? Color(hex:0xCFE0FF)
+        TimelineView(.animation(paused:handover.phase >= .landed)) { context in
+            let tt = handover.tt()
+            let f = handover.frame(tt)
+            let light = WormholeTimeline.starLight(tt,size:handover.freeze.size,radius:f.R)
+            if light.opacity > 0.002 {
+                ZStack {
+                    // Soft halo in the star's own colour.
+                    Circle()
+                        .fill(RadialGradient(colors:[tint.opacity(0.75),tint.opacity(0.18),.clear],
+                                             center:.center,startRadius:0,endRadius:light.size*0.9))
+                        .frame(width:light.size*1.8,height:light.size*1.8)
+                    // Diffraction spikes stretch as it swells.
+                    ForEach(0..<2) { i in
+                        Capsule()
+                            .fill(LinearGradient(colors:[.clear,.white.opacity(0.85),.clear],startPoint:.leading,endPoint:.trailing))
+                            .frame(width:min(520,light.size*(2.2+1.2*light.flare)),height:max(1.2,min(5,light.size*0.035)))
+                            .rotationEffect(.degrees(Double(i)*90))
+                            .opacity(light.spikes)
+                    }
+                    // White-hot core.
+                    Circle()
+                        .fill(RadialGradient(colors:[.white,.white.opacity(0.9),tint.opacity(0)],
+                                             center:.center,startRadius:0,endRadius:light.size*0.32))
+                        .frame(width:light.size*0.7,height:light.size*0.7)
+                        .scaleEffect(1+0.25*light.flare)
+                }
+                .blendMode(.plusLighter)
+                .opacity(light.opacity)
+                .position(f.center)
+            }
+        }
     }
 }
 
