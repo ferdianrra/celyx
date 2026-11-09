@@ -15,7 +15,7 @@ final class GardenViewModel {
     var placed: [GardenPlacedObject] = []
     /// Decorative background star field (not tappable, no labels).
     var background: [NightSeaObject] = []
-    /// Debug replay: the demo object stays in the sky until its sheet closes (never saved).
+    /// Temporary demo placement stays in the sky until its sheet closes.
     var demo: WormholeDemo?
     var moon: (direction: SIMD3<Double>, illumination: Double)?
     var equatorial: simd_double3x3?
@@ -54,7 +54,8 @@ final class GardenViewModel {
             excluding: demo.map { [$0.item.id] } ?? [])
         background = scene.background
         placed = scene.placed
-        if let demo, !placed.contains(where: { $0.id == demo.item.id }) {
+        if let demo {
+            placed.removeAll { $0.id == demo.item.id }
             placed.append(GardenPlacedObject(item: demo.item, object: demo.object))
         }
         moon = scene.moon
@@ -124,9 +125,9 @@ final class GardenViewModel {
     static let backgroundLimit = 6.2
 
     /// The Night Sea as the wormhole should show it.
-    static func wormholeScene(model: HomeViewModel, newID: Int?, demo: WormholeDemo? = nil) -> WormholeScene {
+    static func wormholeScene(model: HomeViewModel, newID: Int?, demo: WormholeDemo? = nil, location: ObserverLocation? = nil) -> WormholeScene {
         let scene = placement(
-            items: model.collectionItems, location: model.location ?? fallbackLocation, catalogue: model.stars,
+            items: model.collectionItems, location: location ?? model.location ?? fallbackLocation, catalogue: model.stars,
             excluding: demo.map { [$0.object.id] } ?? [])
         var objects = scene.background + scene.placed.map(\.object)
         if let demo {

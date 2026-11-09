@@ -240,8 +240,8 @@ struct GardenSkyView: View {
 
 
     /// The Night Sea as the wormhole should show it (see GardenViewModel.wormholeScene).
-    static func wormholeScene(model: HomeViewModel, newID: Int?, demo: WormholeDemo? = nil) -> WormholeScene {
-        GardenViewModel.wormholeScene(model: model, newID: newID, demo: demo)
+    static func wormholeScene(model: HomeViewModel, newID: Int?, demo: WormholeDemo? = nil, location: ObserverLocation? = nil) -> WormholeScene {
+        GardenViewModel.wormholeScene(model: model, newID: newID, demo: demo, location: location)
     }
 
     /// Where a screen point's view ray meets the water plane (horizon frame metres), if it's on the water.

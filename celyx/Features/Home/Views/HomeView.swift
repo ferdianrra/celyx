@@ -59,7 +59,7 @@ struct HomeView: View {
             }
             .onChange(of:handover?.showsSheet == true) { _, shows in
                 if shows, let handover, let id = handover.itemID {
-                    // The demo isn't saved, so its album shows the frozen frame (with the demo star painted in).
+                    // Demo albums use the same composited frame that was saved with the observation.
                     let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
                     sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo)
                 }
