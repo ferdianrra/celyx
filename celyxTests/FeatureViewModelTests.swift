@@ -87,7 +87,7 @@ struct FeatureViewModelTests {
         viewModel.setGyroMode(false)
         viewModel.receiveAttitude(attitude(altitude: -35), at: 0)
         viewModel.receiveAttitude(attitude(altitude: -5), at: 1)
-        viewModel.receiveAttitude(attitude(altitude: -5), at: 1.2)
+        viewModel.receiveAttitude(attitude(altitude: -5), at: 1.1)
         #expect(!viewModel.usesGyro)
         viewModel.receiveAttitude(attitude(altitude: -12), at: 1.3)
         viewModel.receiveAttitude(attitude(altitude: 15), at: 2)
@@ -109,6 +109,56 @@ struct FeatureViewModelTests {
         viewModel.receiveAttitude(attitude(altitude: 10), at: 3)
         #expect(!viewModel.usesGyro)
         viewModel.receiveAttitude(attitude(altitude: 10), at: 3.4)
+        #expect(!viewModel.usesGyro)
+        viewModel.receiveAttitude(attitude(altitude: 20), at: 4)
+        viewModel.receiveAttitude(attitude(altitude: 20), at: 4.2)
+        #expect(viewModel.usesGyro)
+    }
+
+    @Test func movingThePhoneNearTheHorizonRestoresGyroWithoutLoweringIt() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.receiveAttitude(attitude(altitude: -5), at: 0)
+        viewModel.drag(CGSize(width: 80, height: 0), in: CGSize(width: 402, height: 874))
+        viewModel.dragStart = nil
+        viewModel.receiveAttitude(attitude(altitude: -5, yaw: 0.15), at: 1)
+        #expect(!viewModel.usesGyro)
+        viewModel.receiveAttitude(attitude(altitude: -5, yaw: 0.15), at: 1.2)
+        #expect(viewModel.usesGyro && viewModel.gyroLive)
+        #expect(viewModel.camera.orientation != nil)
+    }
+
+    @Test func smallHandMovementsKeepTouchModeActive() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.receiveAttitude(attitude(altitude: 20), at: 0)
+        viewModel.setGyroMode(false)
+        for index in 1...30 {
+            viewModel.receiveAttitude(attitude(altitude: 21, yaw: index.isMultiple(of: 2) ? 0.02 : -0.02), at: Double(index))
+        }
+        #expect(!viewModel.usesGyro)
+        #expect(viewModel.camera.orientation == nil)
+    }
+
+    @Test func movingBelowTheHorizonDoesNotRestoreGyro() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.receiveAttitude(attitude(altitude: -30), at: 0)
+        viewModel.setGyroMode(false)
+        viewModel.receiveAttitude(attitude(altitude: -25, yaw: 0.5), at: 1)
+        viewModel.receiveAttitude(attitude(altitude: -25, yaw: 0.5), at: 2)
+        #expect(!viewModel.usesGyro)
+    }
+
+    @Test func pinchingResetsTheAutomaticGyroMovementReference() {
+        let viewModel = GardenViewModel(model: AppPreviewData.model)
+        viewModel.receiveAttitude(attitude(altitude: 20), at: 0)
+        viewModel.setGyroMode(false)
+        viewModel.zoomStart = 1
+        viewModel.receiveAttitude(attitude(altitude: 40), at: 1)
+        viewModel.zoomStart = nil
+        viewModel.receiveAttitude(attitude(altitude: 40), at: 2)
+        viewModel.receiveAttitude(attitude(altitude: 40), at: 3)
+        #expect(!viewModel.usesGyro)
+        viewModel.receiveAttitude(attitude(altitude: 50), at: 4)
+        viewModel.receiveAttitude(attitude(altitude: 50), at: 4.2)
         #expect(viewModel.usesGyro)
     }
 

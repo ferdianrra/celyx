@@ -8,9 +8,9 @@ final class GardenViewModel {
     let model: HomeViewModel
     var camera: NightSeaCamera
     private(set) var usesGyro = true
-    private var automaticGyroArmed = true
     private var raisedSince: TimeInterval?
-    private var lastPhoneAltitude: Double?
+    private var lastPhoneDirection: SIMD3<Double>?
+    private var touchReferenceDirection: SIMD3<Double>?
 
     var placed: [GardenPlacedObject] = []
     /// Decorative background star field (not tappable, no labels).
@@ -164,7 +164,7 @@ final class GardenViewModel {
         usesGyro = enabled
         raisedSince = nil
         if !enabled {
-            automaticGyroArmed = (lastPhoneAltitude ?? 0) < -20 * .pi / 180
+            touchReferenceDirection = lastPhoneDirection
             gyroLive = false
             preserveTouchView()
         }
@@ -175,21 +175,35 @@ final class GardenViewModel {
         dragStart = nil
         zoomStart = nil
         raisedSince = nil
+        touchReferenceDirection = nil
+        lastPhoneDirection = nil
         preserveTouchView()
     }
-    /// A swipe owns the view until a deliberate lower-and-raise gesture rearms tracking.
+    /// Swiping owns the view until the user deliberately points the phone elsewhere.
     func receiveAttitude(_ attitude: simd_double3x3, at time: TimeInterval) {
-        let altitude = asin(min(1, max(-1, -attitude.columns.2.z)))
-        lastPhoneAltitude = altitude
-        guard dragStart == nil, zoomStart == nil else { raisedSince = nil; return }
+        let direction = -attitude.columns.2
+        let altitude = asin(min(1, max(-1, direction.z)))
+        lastPhoneDirection = direction
+        guard dragStart == nil, zoomStart == nil else {
+            // Movement while touching must not count toward automatic reactivation.
+            touchReferenceDirection = direction
+            raisedSince = nil
+            return
+        }
         if !usesGyro {
-            if altitude < -20 * .pi / 180 { automaticGyroArmed = true }
-            guard automaticGyroArmed, altitude >= -8 * .pi / 180 else {
+            guard altitude >= -8 * .pi / 180, let reference = touchReferenceDirection else {
+                touchReferenceDirection = direction
+                raisedSince = nil
+                return
+            }
+            // Ignore hand tremor and screen-axis roll; use a change in aim, not attitude.
+            let change = acos(min(1, max(-1, simd_dot(reference, direction))))
+            guard change >= 5 * .pi / 180 else {
                 raisedSince = nil
                 return
             }
             if raisedSince == nil { raisedSince = time }
-            guard time - (raisedSince ?? time) >= 0.35 else { return }
+            guard time - (raisedSince ?? time) >= 0.15 else { return }
             usesGyro = true
             raisedSince = nil
         }
