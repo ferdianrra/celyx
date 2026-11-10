@@ -17,6 +17,9 @@ enum DemoSky {
         var id: Int { star.id }
     }
     static let constellationCodes = ["Lib", "Ari", "Cap"]
+    /// Existing catalog IDs around Capricornus: Sadalsuud, 62 Sagittarii, Albali,
+    /// Bunda, Terebellum, Ancha and Aldhanab. Coordinates always come from the catalog.
+    static let nearbyStarIDs: Set<Int> = [160, 843, 404, 1115, 1134, 619, 174]
 
     /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
     static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
@@ -24,7 +27,7 @@ enum DemoSky {
             let data = try? Data(contentsOf: url),
             let figures = try? JSONDecoder().decode([String: Constellation].self, from: data)
         else { return [] }
-        let ids = Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] })
+        let ids = Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] }).union(nearbyStarIDs)
         return catalogue.filter { ids.contains($0.id) }.sorted { $0.id < $1.id }
     }
 
@@ -43,6 +46,18 @@ enum DemoSky {
         }
         try model.seedDemoObservations(records)
         return last
+    }
+
+    /// Adds the surrounding demo sky without replacing any saved observations.
+    @discardableResult
+    static func prepareCollection(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
+        let finalStar = try prepareCapricornus(model: model, date: date, location: location)
+        let records = model.stars.filter { nearbyStarIDs.contains($0.id) && model.collected[$0.id] == nil }.map {
+            CollectedStar(id: $0.id, date: date, latitude: location.latitude, longitude: location.longitude,
+                identificationNote: "Pre-collected nearby demo star (debug build). Added around Capricornus; no camera capture was performed.")
+        }
+        try model.seedDemoObservations(records)
+        return finalStar
     }
 
     /// The same apparent horizon coordinates used by the live sky and garden, never recentered on the phone.

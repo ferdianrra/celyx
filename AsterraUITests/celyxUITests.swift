@@ -56,6 +56,79 @@ final class celyxUITests: XCTestCase {
     }
 
     @MainActor
+    func testCaptureNoteKeyboardSubmissionPersistenceAndSharing() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-note-flow"]
+        app.launch()
+        let capture = app.buttons["preview-finish-capture"]
+        XCTAssertTrue(capture.waitForExistence(timeout: 15)); capture.tap()
+        let editor = app.descendants(matching: .any).matching(identifier: "collection-note-editor").firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/asterra-note-entry.png"))
+        editor.tap()
+        editor.typeText("A clear night above Jakarta.")
+        editor.typeText("\n")
+        let note = app.buttons["collected-star-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
+        XCTAssertTrue(note.label.contains("A clear night above Jakarta."))
+        XCTAssertTrue(app.descendants(matching: .any)["collected-star-photo"].exists)
+        try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/asterra-collected-details.png"))
+        app.buttons["close-collected-star"].tap()
+        app.buttons["preview-collected-star"].tap()
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        XCTAssertTrue(note.label.contains("A clear night above Jakarta."))
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "collection-note-editor").firstMatch.exists)
+        let share = app.buttons["share-collected-star"]
+        for _ in 0..<5 {
+            if share.isHittable { break }
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(share.isHittable)
+        XCTAssertLessThanOrEqual(share.frame.height, 56)
+        try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/asterra-detail-actions.png"))
+        share.tap()
+        let card = app.descendants(matching: .any)["share-card-polaroid"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("A clear night above Jakarta."))
+        app.buttons["close-star-share"].tap()
+        app.buttons["close-collected-star"].tap()
+    }
+
+    @MainActor
+    func testCollectedDetailsDeletionRequiresConfirmation() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-note-flow"]
+        app.launch()
+        let star = app.buttons["preview-collected-star"]
+        XCTAssertTrue(star.waitForExistence(timeout: 15)); star.tap()
+        let remove = app.buttons["delete-collected-star"]
+        for _ in 0..<5 {
+            if remove.isHittable { break }
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        remove.tap()
+        try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/asterra-delete-confirm.png"))
+        let confirmation = app.sheets["Delete Rigel?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        if app.buttons["Cancel"].exists {
+            app.buttons["Cancel"].tap()
+        } else {
+            // Native compact popovers cancel by tapping outside rather than adding a Cancel row.
+            let point = CGPoint(x: confirmation.frame.midX, y: confirmation.frame.minY - 24)
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+        }
+        XCTAssertTrue(app.buttons["close-collected-star"].exists)
+        remove.tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Delete"].tap()
+        let deleted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: star)
+        XCTAssertEqual(XCTWaiter.wait(for: [deleted], timeout: 5), .completed)
+    }
+
+    @MainActor
     func testSocialSharingCancelLeavesFooterUsable() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-ui-testing-share-flow"]

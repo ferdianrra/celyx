@@ -842,7 +842,7 @@ id,ra_deg,dec_deg,mag,bv,distance_ly,con,name,designation,collectible_candidate
 840,311.934,-5.028,4.43,1.64,586,Aqr,,,False
 841,74.322,53.752,4.43,-0.02,372,Cam,,7 Camelopardalis,True
 842,310.8645,15.075,4.43,0.3,223,Del,,δ Delphini,True
-843,300.6645,-27.71,4.43,1.64,449,Sgr,,,False
+843,300.6645,-27.71,4.43,1.64,449,Sgr,,62 Sagittarii,False
 844,305.9655,32.19,4.43,1.33,250,Cyg,,,False
 845,56.535,-12.102,4.43,1.6,481,Eri,,π Eridani,True
 846,63.8175,-7.653,4.43,0.82,16,Eri,Keid,ο Eridani,True

@@ -275,11 +275,12 @@ struct StarCollectCameraView: View {
             // Inactive includes screenshot editors and Control Center. Native capture
             // interruptions handle those; do not stop a live session for a brief overlay.
         }
-        .fullScreenCover(item: $viewModel.capturedItem, onDismiss: { Task { await service.start() } }) {
+        .sheet(item: $viewModel.capturedItem, onDismiss: { Task { await service.start() } }) {
             item in
-            StarAlbumView(
-                item: item, onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-                onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) })
+            CollectedObjectSheet(item: item, direction: nil, collection: model, startsWithNoteEntry: true,
+                onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
+                onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
+                onDelete: { model.deleteCollected(id: item.id); viewModel.capturedItem = nil })
         }
         .alert(
             "Camera",
@@ -314,7 +315,7 @@ struct StarCollectCameraView: View {
         if demoOn {
             guard service.observerLocation != nil else { return "Waiting for your location to map Libra and Aries" }
             if !demoStars.isEmpty, demoStars.allSatisfy({ model.collected[$0.id] != nil }) {
-                return "Libra, Aries and Capricornus demo stars collected"
+                return "All demo stars collected"
             }
             guard let guide = demoGuide else {
                 return "Waiting for camera tracking to map Libra and Aries"
@@ -499,6 +500,15 @@ struct StarCollectCameraView: View {
             return
         }
         let now = Date()
+        if !didPrepareCapricornus {
+            do {
+                try DemoSky.prepareCollection(model: model, date: now, location: location)
+                didPrepareCapricornus = true
+            } catch {
+                viewModel.errorMessage = error.localizedDescription
+                return
+            }
+        }
         if demoDate == nil || now.timeIntervalSince(demoDate ?? now) >= 1 || demoLocation != location {
             demoStars = DemoSky.entries(in: model.stars, date: now, location: location)
             demoDate = now

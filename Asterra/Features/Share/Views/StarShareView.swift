@@ -4,6 +4,7 @@ import UIKit
 struct StarShareView: View {
     let item: GardenCollectionItem
     var collection: HomeViewModel? = nil
+    var capturedPhoto: UIImage? = nil
     @State private var photo: UIImage?
     @State private var isPreparing = false
     @State private var isLoadingPhoto = true
@@ -64,7 +65,7 @@ struct StarShareView: View {
         .preferredColorScheme(.dark)
         .task(id: item.record.photoFilename) {
             isLoadingPhoto = true
-            photo = StarPhotoStore.load(item.record.photoFilename)
+            photo = capturedPhoto ?? StarPhotoStore.load(item.record.photoFilename)
             isLoadingPhoto = false
         }
         .task(id: message) {

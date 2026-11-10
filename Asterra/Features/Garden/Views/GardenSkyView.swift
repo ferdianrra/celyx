@@ -117,16 +117,18 @@ struct GardenSkyView: View {
             else { return }
             albumRequest = request
         }
-        .fullScreenCover(item: $albumRequest, onDismiss: { endDemo(); handover?.finish() }) { request in
+        .sheet(item: $albumRequest, onDismiss: { endDemo(); handover?.finish() }) { request in
             if let item = model.collectionItems.first(where: { $0.id == request.itemID }) {
-                StarAlbumView(
-                    item: item, photo: request.photo,
+                CollectedObjectSheet(item: item, direction: nil, collection: model,
+                    capturedPhoto: request.photo, startsWithNoteEntry: true,
                     onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                     onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
-                    flyHome: nil)
+                    onDelete: { model.deleteCollected(id: item.id); albumRequest = nil })
+                    .id(request.id)
             } else if let demo = request.demoItem {
-                // Demo: never saved.
-                StarAlbumView(item: demo, photo: request.photo, onSaveNote: { _ in }, onSavePlace: { _ in }, flyHome: nil)
+                CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
+                    startsWithNoteEntry: true, onDelete: { albumRequest = nil })
+                    .id(request.id)
             }
         }
         .overlay {
