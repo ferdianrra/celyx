@@ -9,7 +9,9 @@ struct ContentView: View {
 
     var body: some View {
         #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-ui-testing-share-flow") {
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing-note-flow") {
+                CollectionCaptureFlowPreview()
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-share-flow") {
                 StarShareFlowPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-album") {
                 StarAlbumView(
