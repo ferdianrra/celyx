@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import simd
-@testable import celyx
+@testable import Asterra
 
 struct SkyPatternMatcherTests {
     private func direction(_ azimuth: Double,_ altitude: Double) -> SIMD3<Float> {

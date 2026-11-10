@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import simd
-@testable import celyx
+@testable import Asterra
 
 @MainActor
 struct CalibrationCatalogTests {

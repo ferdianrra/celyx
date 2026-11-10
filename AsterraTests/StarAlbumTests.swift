@@ -1,6 +1,6 @@
 import SwiftUI
 import Testing
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct StarAlbumTests {
     /// The share image follows the Figma frame (402×874 pt at 3×).

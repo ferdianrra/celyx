@@ -1,6 +1,6 @@
 import CoreImage
 import Testing
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct StarCaptureEnhancementTests {
     private let context = CIContext(options:[.useSoftwareRenderer:true])

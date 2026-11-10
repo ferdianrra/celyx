@@ -2,7 +2,7 @@ import CoreVideo
 import Foundation
 import Testing
 import simd
-@testable import celyx
+@testable import Asterra
 
 struct CameraPointStackTests {
     private let intrinsics = simd_float3x3(SIMD3<Float>(280,0,0),SIMD3<Float>(0,280,0),SIMD3<Float>(160,120,1))

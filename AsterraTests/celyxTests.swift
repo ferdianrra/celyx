@@ -12,7 +12,7 @@ import SceneKit
 import UIKit
 import CoreVideo
 import simd
-@testable import celyx
+@testable import Asterra
 
 @MainActor
 struct celyxTests {

@@ -4,7 +4,7 @@
 //   curl -L -o /tmp/nasa/milkyway_2020_4k.exr https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/milkyway_2020_4k.exr
 //   swiftc -O scripts/make_nasa_milky_way.swift -o /tmp/nasamw && /tmp/nasamw /tmp/nasa/milkyway_2020_4k.exr
 //
-// Output: celyx/Resources/sky/garden-milky-way-nasa.jpg (4096x2048, equirect RA/Dec in the shader's convention
+// Output: Asterra/Resources/sky/garden-milky-way-nasa.jpg (4096x2048, equirect RA/Dec in the shader's convention
 // u = RA/360, v = (90 - Dec)/180): the photo as is, levels set so the core never clips, stored so that the shader's
 // m*m*1.15 is the light added to the sky. The app draws it at 85 % (NightSeaRenderer.milkyWayStrength).
 
@@ -14,7 +14,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 let W = 4096, H = 2048
-let dir = "celyx/Resources/sky"
+let dir = "Asterra/Resources/sky"
 let exrPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/tmp/nasa/milkyway_2020_4k.exr"
 let ctx = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
 

@@ -3,7 +3,7 @@ import Testing
 import UIKit
 import simd
 
-@testable import celyx
+@testable import Asterra
 
 @MainActor
 struct CameraSessionAlignmentTests {

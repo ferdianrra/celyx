@@ -1,7 +1,7 @@
 import ARKit
 import Testing
 
-@testable import celyx
+@testable import Asterra
 
 struct CameraExposureGestureTests {
     @Test func aSlowVerticalDragCanActivateExposureAfterItsFirstMovement() {

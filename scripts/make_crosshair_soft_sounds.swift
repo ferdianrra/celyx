@@ -13,7 +13,7 @@
 import Foundation
 
 let sr = 48000.0
-let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "celyx/Features/Celyx/Crosshair/Sounds"
+let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Asterra/Shared/Crosshair/Resources/Sounds"
 
 struct Noise {
     var state: UInt64
@@ -119,4 +119,4 @@ func plip() -> [Double] {
 
 try write("crosshair_validate", validate(), peakDB: -24)
 try write("crosshair_release", release(), peakDB: -32)
-try write("water_plip", plip(), peakDB: -30, dir: "celyx/Features/Celyx/Garden/Sounds")
+try write("water_plip", plip(), peakDB: -30, dir: "Asterra/Features/Garden/Rendering/Sounds")

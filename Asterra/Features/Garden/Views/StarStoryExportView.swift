@@ -47,7 +47,7 @@ struct StarStoryExportView: View {
                 }
                 ToolbarItemGroup(placement:.primaryAction) {
                     if let storyImage {
-                        ShareLink(item:storyImage,preview:SharePreview("\(item.star.title) · Celyx",image:storyImage))
+                        ShareLink(item:storyImage,preview:SharePreview("\(item.star.title) · Asterra",image:storyImage))
                             .accessibilityIdentifier("share-story")
                     }
                     Button(action:{ Task { await saveToPhotos() } }) {

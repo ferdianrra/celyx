@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 import UIKit
 
-@testable import celyx
+@testable import Asterra
 
 @MainActor
 struct StarShareTests {

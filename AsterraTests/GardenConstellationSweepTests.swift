@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import celyx
+@testable import Asterra
 
 @MainActor
 struct GardenConstellationSweepTests {

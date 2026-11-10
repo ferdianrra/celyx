@@ -2,7 +2,7 @@ import CoreGraphics
 import Testing
 import simd
 
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct CameraTargetSelectionTests {
     private let center = CGPoint(x: 200, y: 400)
