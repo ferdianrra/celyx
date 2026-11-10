@@ -49,7 +49,7 @@ struct FeatureViewModelTests {
             * simd_quatd(angle: 1.1, axis: SIMD3(1, 0, 0))
         let viewModel = GardenViewModel(model: AppPreviewData.model, camera: camera)
         let direction = viewModel.camera.forward
-        viewModel.stopGyro()
+        viewModel.setGyroMode(false)
         #expect(viewModel.camera.orientation == nil)
         #expect(simd_distance(direction, viewModel.camera.forward) < 0.000001)
     }

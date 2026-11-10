@@ -161,7 +161,7 @@ final class GardenViewModel {
         service.onCalibration = { [weak self] ready, _, _, _ in
             guard let self else { return }
             self.gyroLive = ready && self.usesGyro
-            if !ready { self.preserveTouchView() }
+            // Keep the last rendered pose while direction recovers; this is not a touch-mode switch.
         }
         service.onAttitude = { [weak self] attitude in
             self?.receiveAttitude(attitude, at: ProcessInfo.processInfo.systemUptime)
@@ -188,7 +188,8 @@ final class GardenViewModel {
         raisedSince = nil
         touchReferenceDirection = nil
         lastPhoneDirection = nil
-        preserveTouchView()
+        // Freeze the complete projection while another screen opens. Converting to touch mode here
+        // changes focal length, optical centre and roll, pulling labels away from the paused Metal sky.
     }
     /// Swiping owns the view until the user deliberately points the phone elsewhere.
     func receiveAttitude(_ attitude: simd_double3x3, at time: TimeInterval) {
