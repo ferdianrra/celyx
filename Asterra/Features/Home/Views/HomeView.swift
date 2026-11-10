@@ -133,7 +133,7 @@ struct HomeView: View {
         }
         .sharedBackgroundVisibility(.hidden)
         ToolbarItemGroup(placement:.topBarTrailing) {
-            Button("Your Collection",systemImage:"book.fill") { showsCollection = true }
+            Button("Your Collection",systemImage:"text.book.closed") { showsCollection = true }
             Button("Sky Calendar",systemImage:"calendar") { path.append(.calendar) }
         }
         ToolbarItem(placement:.bottomBar) {
