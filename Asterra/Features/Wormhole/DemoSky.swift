@@ -136,14 +136,17 @@ struct DemoStarView: View {
     }
 }
 
-/// Small capsule shown while the demo sky is on.
-struct DemoSkyPill: View {
+/// Brief neutral-glass confirmation when entering demo mode.
+struct DemoModeNotice: View {
     var body: some View {
-        Label("Demo sky · Libra, Aries & Capricornus",systemImage:"sparkles")
-            .font(.system(size:12,weight:.semibold)).foregroundStyle(.white)
-            .padding(.horizontal,10).padding(.vertical,6)
-            .background(Capsule().fill(Color.purple.opacity(0.55)))
-            .accessibilityLabel("Demo sky is on")
+        Text("Demo mode")
+            .font(.body.weight(.medium))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 0.5)
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .glassEffect(.regular, in: Capsule())
+            .environment(\.colorScheme, .dark)
+            .allowsHitTesting(false)
     }
 }
 #endif

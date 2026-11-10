@@ -41,6 +41,7 @@ struct StarCollectCameraView: View {
     @State private var demoStars: [DemoSky.Entry] = []
     @State private var demoProjections: [DemoSky.Projection] = []
     @State private var demoOn = false
+    @State private var showsDemoNotice = false
     @State private var demoDate: Date?
     @State private var demoLocation: ObserverLocation?
     private var demoGuide: DemoSky.Projection? {
@@ -198,7 +199,12 @@ struct StarCollectCameraView: View {
             }
             .opacity(cameraUI)
             #if DEBUG
-            if demoOn { DemoSkyPill().frame(maxHeight: .infinity, alignment: .top).padding(.top, 8).opacity(cameraUI) }
+            if demoOn && showsDemoNotice {
+                DemoModeNotice()
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 8).opacity(cameraUI)
+                    .transition(.opacity)
+            }
             #endif
         }
         .allowsHitTesting(handover == nil && captureStart == nil)
@@ -259,6 +265,15 @@ struct StarCollectCameraView: View {
         .onChange(of: centerTarget?.id) { _, id in if id == nil || id != viewModel.lockedID { viewModel.lockedID = nil } }
         .onChange(of: excludedIsNear) { _, near in if !near { viewModel.excludedID = nil } }
         #if DEBUG
+        .task(id: demoOn) {
+            guard demoOn else { showsDemoNotice = false; return }
+            showsDemoNotice = true
+            do { try await Task.sleep(for: .seconds(2)) }
+            catch { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
+                showsDemoNotice = false
+            }
+        }
         .task(id: demoOn) {
             // Refresh real sky positions with time and GPS, then project through the live camera.
             while demoOn && !Task.isCancelled {
