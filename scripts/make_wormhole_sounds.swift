@@ -1,4 +1,4 @@
-// Generates the wormhole handover cues into celyx/Features/Celyx/Wormhole/Sounds/.
+// Generates the wormhole handover cues into Asterra/Features/Wormhole/Sounds/.
 //
 //   swiftc -O scripts/make_wormhole_sounds.swift -o /tmp/make_wormhole_sounds && /tmp/make_wormhole_sounds
 //
@@ -15,7 +15,7 @@ import Accelerate
 import Foundation
 
 let sr = 44100.0
-let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "celyx/Features/Celyx/Wormhole/Sounds"
+let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Asterra/Features/Wormhole/Sounds"
 let bendLength = 2.052     // T_LAND − 120 ms
 let swellCut = 0.476       // 1700 ms → T_LAND: the hard stop ends exactly here
 
