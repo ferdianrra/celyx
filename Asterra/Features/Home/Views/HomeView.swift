@@ -13,10 +13,12 @@ struct HomeView: View {
     @State private var showsCalibration = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
+    @State private var handoverTask: Task<Void, Never>?
     @State private var handover: WormholeHandover?
     @State private var sheetRequest: GardenSheetRequest?
     /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
     @State private var demoShowing = false
+    @State private var screenSize = CGSize(width: 402, height: 874)
     @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @State private var gardenUsesGyro = true
@@ -44,6 +46,7 @@ struct HomeView: View {
                 }
             }
             .background(CelyxColor.night)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { screenSize = $0 }
             .onGeometryChange(for:CGFloat.self) { $0.size.width } action:{ screenWidth = $0 }
             .onChange(of:handover?.phase) { _, phase in
                 guard let phase else { return }
@@ -61,6 +64,7 @@ struct HomeView: View {
                 if shows, let handover, let id = handover.itemID {
                     // Demo albums use the same composited frame that was saved with the observation.
                     let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
+                    if !reduceMotion { WormholeFeedback.shared.playSheet() }
                     sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo)
                 }
             }
@@ -147,10 +151,10 @@ struct HomeView: View {
         }
     }
 
-    /// Hidden under the star camera and the wormhole; fades back in right after the landing.
+    /// Keep controls out of the presentation until the reveal and live-camera return finish.
     private var showsChrome: Bool {
         guard let handover else { return true }
-        return handover.phase >= .landed
+        return handover.phase >= .presenting
     }
 
     // MARK: Star camera + wormhole handover
@@ -163,15 +167,18 @@ struct HomeView: View {
         case .wormhole(let handover):
             self.handover = handover
             demoShowing = handover.demo != nil
-            Task { await handover.run() }
+            handoverTask?.cancel()
+            handoverTask = Task { await handover.run() }
         case .fade(let itemID):
-            // Reduce Motion: 400 ms cross-fade to the garden, then the sheet.
+            // Reduce Motion: cross-fade, reveal in place, then present the album.
             withAnimation(.easeInOut(duration:0.4)) { showsStarCamera = false }
             guard let itemID else { return }
-            Task {
-                try? await Task.sleep(for:.milliseconds(400))
-                sheetRequest = GardenSheetRequest(itemID:itemID)
-            }
+            let transition = WormholeHandover(freeze: .placeholder(size: screenSize),
+                star: CGPoint(x: screenSize.width / 2, y: screenSize.height / 2), itemID: itemID,
+                scene: GardenSkyView.wormholeScene(model: model, newID: itemID))
+            handoverTask?.cancel()
+            handover = transition
+            handoverTask = Task { await transition.run(reduceMotion: true) }
         }
     }
 

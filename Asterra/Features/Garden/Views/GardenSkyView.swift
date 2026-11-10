@@ -26,8 +26,6 @@ struct GardenSkyView: View {
     @State private var failed = false
     /// The album shown right after a capture's wormhole lands.
     @State private var albumRequest: GardenSheetRequest?
-    /// The card has just flown home: a small bloom where the star lands.
-    @State private var landing: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -50,18 +48,23 @@ struct GardenSkyView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
             if usesCamera {
                 GardenCameraLayer(
                     placed: viewModel.placed, selectedID: viewModel.selected?.id,
-                    connections: shownConnections, isActive: isActive
+                    connections: shownConnections, zodiacFigures: shownZodiacFigures,
+                    equatorial: viewModel.equatorial, isActive: isActive,
+                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose }
                 ) { viewModel.selected = $0 }
-                .transition(.opacity)
-            } else {
+                .opacity(showsCaptureSequence ? 0 : 1)
+                .allowsHitTesting(!showsCaptureSequence)
+            }
+            if !usesCamera || showsCaptureSequence {
                 virtualGarden.transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.35), value: usesCamera)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: showsCaptureSequence)
         // Real positions: recomputed every second from GPS + clock (the sky turns ~0.25° a minute).
         .task(id: isActive) {
             guard isActive else { return }
@@ -80,11 +83,11 @@ struct GardenSkyView: View {
             }
         }
         // The camera mode orients itself with ARKit; the gyro only drives the virtual garden.
-        .onChange(of: isActive && !usesCamera, initial: true) { _, active in
+        .onChange(of: isActive && (!usesCamera || showsCaptureSequence), initial: true) { _, active in
             active ? viewModel.startGyro(usesGyro: usesGyro) : viewModel.stopGyro()
         }
         .onChange(of: usesGyro) { _, _ in
-            if isActive && !usesCamera { viewModel.setGyroMode(usesGyro) }
+            if isActive && (!usesCamera || showsCaptureSequence) { viewModel.setGyroMode(usesGyro) }
         }
         .onChange(of: viewModel.usesGyro) { _, enabled in onModeChange?(enabled) }
         .onChange(of: resetRequest) { _, _ in viewModel.resetCamera() }
@@ -92,37 +95,44 @@ struct GardenSkyView: View {
         .onChange(of: camera) { _, value in if viewModel.camera != value { viewModel.camera = value } }
         .onChange(of: reduceMotion, initial: true) { _, value in viewModel.reduceMotion = value }
         .onDisappear(perform: viewModel.stopGyro)
-        .onChange(of: handover?.phase) { _, phase in
+        .onChange(of: handover?.phase, initial: true) { _, phase in
             if phase == .landed, let next = handover?.demo {
                 viewModel.demo = next
                 viewModel.place()
             }
-            if phase == .releasing { prepareRelease() }
+            if phase == .landed, let handover {
+                viewModel.place()
+                let id = handover.itemID
+                let completed = viewModel.completedZodiacFigures.first { $0.requiredStarIDs.contains(id ?? Int.min) }
+                let edges = viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
+                var ids = completed?.requiredStarIDs ?? Set(edges.flatMap { [$0.startID, $0.endID] })
+                if let id { ids.insert(id) }
+                handover.configureFocus(directions: handover.scene.objects.filter { ids.contains($0.id) }.map(\.direction))
+            }
         }
-        // After a capture: the sky album (photo, place and time, note, share) right after landing.
+        // The handover requests the album only after the reveal and return to live tracking.
         .onChange(of: sheetRequest) { _, request in
             guard let request,
                 model.collectionItems.contains(where: { $0.id == request.itemID }) || request.demoItem != nil
             else { return }
             albumRequest = request
         }
-        .fullScreenCover(item: $albumRequest, onDismiss: { endDemo(); handover?.beginRelease() }) { request in
+        .fullScreenCover(item: $albumRequest, onDismiss: { endDemo(); handover?.finish() }) { request in
             if let item = model.collectionItems.first(where: { $0.id == request.itemID }) {
                 StarAlbumView(
                     item: item, photo: request.photo,
                     onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                     onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
-                    flyHome: flyHome)
+                    flyHome: nil)
             } else if let demo = request.demoItem {
                 // Demo: never saved.
-                StarAlbumView(item: demo, photo: request.photo, onSaveNote: { _ in }, onSavePlace: { _ in }, flyHome: flyHome)
+                StarAlbumView(item: demo, photo: request.photo, onSaveNote: { _ in }, onSavePlace: { _ in }, flyHome: nil)
             }
         }
         .overlay {
             // The collected star finishing its flight into place after the hand-off from the camera.
-            if let handover, handover.phase < .releasing { LandingStarFlight(handover: handover).ignoresSafeArea() }
+            if let handover, !reduceMotion, handover.phase < .focusing { LandingStarFlight(handover: handover).ignoresSafeArea() }
         }
-        .overlay { landingBloom }
         .sheet(item: $viewModel.selected) { item in
             CollectedObjectSheet(
                 item: item,
@@ -139,6 +149,10 @@ struct GardenSkyView: View {
         .accessibilityLabel("Your garden sky")
     }
 
+    private var showsCaptureSequence: Bool {
+        handover != nil && handover!.phase < .presenting && !reduceMotion
+    }
+
     /// Collected objects to draw; the one just collected waits until its flight lands (LandingStarFlight).
     private var shownPlaced: [NightSeaObject] {
         let objects = viewModel.placed.map(\.object)
@@ -148,23 +162,30 @@ struct GardenSkyView: View {
         return objects.filter { $0.id != id }
     }
 
-    /// Let the star land and its album close before drawing the new threads into the garden.
+    /// Reveal newly collected threads only after placement and focus settle.
     private var shownConnections: [GardenConstellationConnection] {
-        guard let handover, handover.phase < .releasing, let id = handover.itemID else {
+        guard let handover, !handover.revealIsVisible, let id = handover.itemID else {
             return viewModel.constellationConnections
         }
         return viewModel.constellationConnections.filter { $0.startID != id && $0.endID != id }
     }
 
+    private var shownZodiacFigures: [GardenZodiacFigure] {
+        guard let handover, !handover.revealIsVisible, let id = handover.itemID else {
+            return viewModel.completedZodiacFigures
+        }
+        return viewModel.completedZodiacFigures.filter { !$0.requiredStarIDs.contains(id) }
+    }
+
     /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
     private func viewCamera() -> NightSeaCamera {
-        guard let handover, handover.phase >= .landed, handover.phase < .done else { return viewModel.camera }
-        handover.target = handover.phase >= .releasing ? viewModel.camera : nil
+        guard let handover, handover.phase >= .landed, handover.phase < .presenting, !reduceMotion else { return viewModel.camera }
+        handover.target = handover.phase >= .releasing ? (usesCamera ? handover.liveCamera ?? viewModel.camera : viewModel.camera) : nil
         return handover.camera(handover.tt())
     }
 
     private var virtualGarden: some View {
-        TimelineView(.animation(paused: handover == nil || handover?.phase == .done)) { _ in
+        TimelineView(.animation(paused: handover == nil || (handover?.phase ?? .done) >= .presenting)) { _ in
             virtualGarden(shown: viewCamera())
         }
     }
@@ -183,6 +204,15 @@ struct GardenSkyView: View {
                         equatorial: viewModel.equatorial, isActive: isActive
                     ) { _ in failed = true }
                 }
+                GardenZodiacFigures(unlocked: shownZodiacFigures,
+                    projected: GardenZodiacFigure.project(shownZodiacFigures, basis: viewModel.equatorial,
+                        size: geometry.size, point: { shown.project($0, in: geometry.size) }),
+                    skyClip: GardenZodiacFigure.skyClip(size: geometry.size) { point in
+                        let center = shown.center(in: geometry.size)
+                        let focal = shown.focalLength(in: geometry.size)
+                        return shown.forward.z + Double(point.x - center.x) / focal * shown.right.z
+                            + Double(center.y - point.y) / focal * shown.up.z
+                    }, isActive: isActive)
                 GardenConstellationLines(connections: shownConnections,
                     positions: Dictionary(uniqueKeysWithValues: shownPlaced.compactMap { object in
                         guard object.isAboveHorizon,
@@ -192,6 +222,7 @@ struct GardenSkyView: View {
                     }), isActive: isActive)
                 labels(in: geometry.size, camera: shown)
             }
+            .allowsHitTesting(handover == nil || handover!.phase >= .presenting)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 2)
@@ -271,48 +302,6 @@ struct GardenSkyView: View {
     }
 
     // MARK: Handover
-
-    /// While the card is open the wormhole holds the collected star at (0.5, sheetStarY) of the screen.
-    /// Closing the card shrinks it into a point of light that arcs there; then the cover goes without its slide.
-    private var flyHome: StarAlbumView.FlyHome? {
-        guard handover != nil, !reduceMotion else { return nil }
-        return .init(target: UnitPoint(x: 0.5, y: WormholeTimeline.sheetStarY)) {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { albumRequest = nil }
-            landing = (landing ?? 0) + 1
-        }
-    }
-
-    @ViewBuilder private var landingBloom: some View {
-        if let landing {
-            GeometryReader { geometry in
-                LandingBloom()
-                    .id(landing)
-                    .position(x: geometry.size.width * 0.5, y: geometry.size.height * WormholeTimeline.sheetStarY)
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .task(id: landing) {
-                try? await Task.sleep(for: .seconds(1.2))
-                if self.landing == landing { self.landing = nil }
-            }
-        }
-    }
-
-    /// The card closed: line the garden's own camera up with the star view (no gyro offset, no zoom), so the
-    /// blend back to gyro/drag has no jump.
-    private func prepareRelease() {
-        guard let handover else { return }
-        if viewModel.camera.orientation != nil {
-            viewModel.camera.zoom = 1
-        } else {
-            let forward = handover.restingCamera.forward
-            viewModel.camera.azimuth = atan2(forward.x, forward.y)
-            viewModel.camera.altitude = min(88 * .pi / 180, max(-35 * .pi / 180, asin(min(1, max(-1, forward.z)))))
-            viewModel.camera.fieldOfView = WormholeTimeline.landingFieldOfView
-        }
-    }
 
     private func endDemo() {
         guard viewModel.demo != nil else { return }

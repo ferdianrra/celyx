@@ -9,12 +9,56 @@ import simd
 
 @MainActor
 struct DemoSkyTests {
-    @Test func demoIncludesEveryLibraAndAriesPatternMember() throws {
+    @Test func demoIncludesEveryLibraAriesAndCapricornusPatternMember() throws {
         let stars = DemoSky.stars(in: try SkyAssets.stars())
-        #expect(Set(stars.map(\.id)) == [103, 125, 222, 329, 349, 476, 51, 105, 333, 459])
+        #expect(Set(stars.map(\.id)) == [103, 125, 222, 329, 349, 476, 51, 105, 333, 459, 717, 187, 1227, 603, 595, 398, 144, 356, 699, 568])
         #expect(stars.filter { $0.con == "Lib" }.count == 6)
         #expect(stars.filter { $0.con == "Ari" }.count == 4)
+        #expect(stars.filter { $0.con == "Cap" }.count == 10)
         #expect(!stars.contains { $0.title == "Rigel" })
+    }
+
+    @Test func capricornusStartsWithNineAndTheLastCaptureUnlocksItsFigure() throws {
+        let suite = "asterra.demo.capricornus.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = HomeViewModel(defaults: defaults)
+        let last = try #require(try DemoSky.prepareCapricornus(model: model, date: AppPreviewData.date,
+                                                         location: AppPreviewData.location))
+        #expect(last.title == "Deneb Algedi")
+        #expect(model.collected.count == 9)
+        #expect(model.collected[last.id] == nil)
+        let figure = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        #expect(GardenZodiacFigure.unlocked([figure], collected: Set(model.collected.keys)).isEmpty)
+        let restored = HomeViewModel(defaults: defaults)
+        #expect(restored.collected.count == 9)
+        for record in restored.collected.values {
+            #expect(record.photoFilename == nil)
+            #expect(record.identificationNote?.contains("no camera capture") == true)
+            #expect(record.latitude == AppPreviewData.location.latitude)
+        }
+        try DemoSky.prepareCapricornus(model: restored, date: Date(), location: AppPreviewData.location)
+        #expect(restored.collected.count == 9)
+        try restored.seedDemoObservations([CollectedStar(id: last.id, date: Date(), latitude: -6.2, longitude: 106.8)])
+        #expect(GardenZodiacFigure.unlocked([figure], collected: Set(restored.collected.keys)).count == 1)
+        #expect(try DemoSky.prepareCapricornus(model: restored, date: Date(), location: AppPreviewData.location) == nil)
+        #expect(restored.collected.count == 10)
+    }
+
+    @Test func capricornusSetupPreservesExistingObservationsAndLeavesAnotherMissingStar() throws {
+        let suite = "asterra.demo.capricornus.existing.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = HomeViewModel(defaults: defaults)
+        let original = CollectedStar(id: 144, date: AppPreviewData.date, latitude: 12, longitude: 34,
+                                    photoFilename: "existing-photo.jpg", note: "Keep my note")
+        try model.seedDemoObservations([original])
+        let last = try #require(try DemoSky.prepareCapricornus(model: model, date: Date(), location: AppPreviewData.location))
+        #expect(last.id != 144 && model.collected[last.id] == nil)
+        #expect(model.collected.count == 9)
+        #expect(model.collected[144]?.photoFilename == original.photoFilename)
+        #expect(model.collected[144]?.note == original.note)
+        #expect(model.collected[144]?.date == original.date)
     }
 
     @Test func demoPositionsMatchTheRealGardenForTheSameLocationAndTime() throws {
@@ -27,7 +71,7 @@ struct DemoSkyTests {
                 latitude: location.latitude, longitude: location.longitude))
         }
         let garden = GardenViewModel.placement(items: items, location: location, date: date)
-        #expect(entries.count == 10)
+        #expect(entries.count == 20)
         for entry in entries {
             let object = try #require(garden.placed.first { $0.id == entry.id })
             #expect(simd_distance(entry.direction, object.object.direction) < 1e-10)
@@ -42,7 +86,7 @@ struct DemoSkyTests {
         let later = DemoSky.entries(in: catalogue, date: date.addingTimeInterval(6 * 3600), location: location)
         let elsewhere = DemoSky.entries(in: catalogue, date: date,
             location: ObserverLocation(latitude: 40, longitude: -74, isManual: true))
-        #expect(original.count == 10 && later.count == 10 && elsewhere.count == 10)
+        #expect(original.count == 20 && later.count == 20 && elsewhere.count == 20)
         #expect(zip(original, later).allSatisfy { simd_distance($0.direction, $1.direction) > 0.1 })
         #expect(zip(original, elsewhere).allSatisfy { simd_distance($0.direction, $1.direction) > 0.1 })
         // Opposite constellations remain on opposite sides of the real sky, rather than side by side.
@@ -95,8 +139,10 @@ struct DemoSkyTests {
             try DemoSky.save(star: star, image: image, date: AppPreviewData.date, location: AppPreviewData.location, model: model)
         }
         let restored = HomeViewModel(defaults: defaults)
-        #expect(restored.collected.count == 10)
-        #expect(CollectionCategory.constellations(restored.collectionItems).count == 2)
+        #expect(restored.collected.count == 20)
+        #expect(CollectionCategory.constellations(restored.collectionItems).count == 3)
+        let capricornus = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        #expect(GardenZodiacFigure.unlocked([capricornus], collected: Set(restored.collected.keys)).count == 1)
         for record in restored.collected.values {
             #expect(record.identificationNote?.contains("optical verification bypassed") == true)
             #expect(record.date == AppPreviewData.date)

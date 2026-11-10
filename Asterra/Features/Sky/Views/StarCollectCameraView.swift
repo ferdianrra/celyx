@@ -37,6 +37,7 @@ struct StarCollectCameraView: View {
     @State private var feedReady = false
     #if DEBUG
     /// Catalog stars at their real current horizon positions; demo bypasses optical detection.
+    @State private var didPrepareCapricornus = false
     @State private var demoStars: [DemoSky.Entry] = []
     @State private var demoProjections: [DemoSky.Projection] = []
     @State private var demoOn = false
@@ -334,12 +335,12 @@ struct StarCollectCameraView: View {
     private var hintText: String {
         #if DEBUG
         if demoOn {
-            guard service.observerLocation != nil else { return "Waiting for your location to map Libra and Aries" }
+            guard service.observerLocation != nil else { return "Waiting for your location to map Libra, Aries and Capricornus" }
             if !demoStars.isEmpty, demoStars.allSatisfy({ model.collected[$0.id] != nil }) {
-                return "Libra and Aries demo stars collected"
+                return "Libra, Aries and Capricornus demo stars collected"
             }
             guard let guide = demoGuide else {
-                return "Waiting for camera tracking to map Libra and Aries"
+                return "Waiting for camera tracking to map Libra, Aries and Capricornus"
             }
             let name = guide.star.title
             guard let point = guide.point else {
@@ -673,6 +674,7 @@ struct StarCollectCameraView: View {
         viewModel.excludedID = nil
         settledID = nil
         demoOn.toggle()
+        didPrepareCapricornus = false
         demoDate = nil
         demoLocation = nil
         demoStars = []; demoProjections = []
@@ -686,6 +688,15 @@ struct StarCollectCameraView: View {
             return
         }
         let now = Date()
+        if !didPrepareCapricornus {
+            do {
+                try DemoSky.prepareCapricornus(model: model, date: now, location: location)
+                didPrepareCapricornus = true
+            } catch {
+                viewModel.errorMessage = error.localizedDescription
+                return
+            }
+        }
         if demoDate == nil || now.timeIntervalSince(demoDate ?? now) >= 1 || demoLocation != location {
             demoStars = DemoSky.entries(in: model.stars, date: now, location: location)
             demoDate = now

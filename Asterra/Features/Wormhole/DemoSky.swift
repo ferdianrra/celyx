@@ -1,4 +1,4 @@
-// DEBUG-only collection override for the main Libra and Aries stars.
+// DEBUG-only collection override for the Libra, Aries and Capricornus pattern stars.
 // Uses real observing coordinates and time; only optical verification is bypassed.
 #if DEBUG
 import SwiftUI
@@ -16,7 +16,7 @@ enum DemoSky {
         let arrow: CGVector?
         var id: Int { star.id }
     }
-    static let constellationCodes = ["Lib", "Ari"]
+    static let constellationCodes = ["Lib", "Ari", "Cap"]
 
     /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
     static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
@@ -26,6 +26,23 @@ enum DemoSky {
         else { return [] }
         let ids = Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] })
         return catalogue.filter { ids.contains($0.id) }.sorted { $0.id < $1.id }
+    }
+
+    /// Keep one uncollected Capricornus member for the final capture; never erase real observations.
+    /// A fresh collection leaves Deneb Algedi (the brightest pattern member) uncollected.
+    @discardableResult
+    static func prepareCapricornus(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
+        guard let figure = GardenZodiacFigure.load().first(where: { $0.id == "Cap" }) else { return nil }
+        let stars = model.stars.filter { figure.requiredStarIDs.contains($0.id) }.sorted {
+            $0.mag == $1.mag ? $0.id < $1.id : $0.mag < $1.mag
+        }
+        guard let last = stars.first(where: { model.collected[$0.id] == nil }) else { return nil }
+        let records = stars.filter { $0.id != last.id && model.collected[$0.id] == nil }.map {
+            CollectedStar(id: $0.id, date: date, latitude: location.latitude, longitude: location.longitude,
+                identificationNote: "Pre-collected Capricornus demo star (debug build). Added for testing constellation completion; no camera capture was performed.")
+        }
+        try model.seedDemoObservations(records)
+        return last
     }
 
     /// The same apparent horizon coordinates used by the live sky and garden, never recentered on the phone.
@@ -107,7 +124,7 @@ struct DemoStarView: View {
 /// Small capsule shown while the demo sky is on.
 struct DemoSkyPill: View {
     var body: some View {
-        Label("Demo sky · Libra & Aries",systemImage:"sparkles")
+        Label("Demo sky · Libra, Aries & Capricornus",systemImage:"sparkles")
             .font(.system(size:12,weight:.semibold)).foregroundStyle(.white)
             .padding(.horizontal,10).padding(.vertical,6)
             .background(Capsule().fill(Color.purple.opacity(0.55)))

@@ -12,7 +12,10 @@ struct GardenCameraLayer: View {
     let placed: [GardenPlacedObject]
     let selectedID: Int?
     var connections: [GardenConstellationConnection] = []
+    var zodiacFigures: [GardenZodiacFigure] = []
+    var equatorial: simd_double3x3?
     var isActive = true
+    var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
     let onSelect: (GardenCollectionItem) -> Void
 
     @State private var session = ARSession()
@@ -30,10 +33,13 @@ struct GardenCameraLayer: View {
         GeometryReader { geometry in
             ZStack {
                 SkyCameraPreview(session:session,onViewport:{ size,_ in viewport = size })
-                TimelineView(.animation(paused:!isActive)) { _ in
+                TimelineView(.animation(paused:!isActive)) { timeline in
                     let size = viewport == .zero ? geometry.size : viewport
                     let sprites = project(in:size)
                     ZStack {
+                        GardenZodiacFigures(unlocked: zodiacFigures,
+                            projected: projectZodiac(in: size), skyClip: zodiacSkyClip(in: size),
+                            isActive: isActive)
                         GardenConstellationLines(connections: connections,
                             positions: Dictionary(uniqueKeysWithValues: sprites.map { ($0.id, $0.point) }),
                             isActive: isActive)
@@ -63,6 +69,16 @@ struct GardenCameraLayer: View {
                             .frame(maxHeight:.infinity,alignment:.bottom).padding(.bottom,140)
                             .allowsHitTesting(false)
                     }
+                    }
+                    .onChange(of: timeline.date) { _, _ in
+                        guard let onCameraUpdate, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
+                        let freeze = WormholeFreeze.make(image: nil, size: size,
+                            view: frame.camera.viewMatrix(viewRotationAngle: 90),
+                            projection: frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000),
+                            alignment: simd_quatf(angle: 0, axis: SIMD3(0, 1, 0)))
+                        var pose = NightSeaCamera()
+                        pose.orientation = freeze.orientation; pose.focalOverride = freeze.focal
+                        onCameraUpdate(pose)
                     }
                 }
             }
@@ -128,6 +144,33 @@ struct GardenCameraLayer: View {
     }
 
     // MARK: Drawing
+
+    private func projectZodiac(in size: CGSize) -> [ProjectedConstellationFigure] {
+        guard size.width > 0, size.height > 0, let frame = session.currentFrame,
+            case .normal = frame.camera.trackingState else { return [] }
+        let view = frame.camera.viewMatrix(viewRotationAngle: 90)
+        let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
+        return GardenZodiacFigure.project(zodiacFigures, basis: equatorial, size: size) { direction in
+            let world = SkyFinderProjection.worldDirection(direction)
+            let local = view * SIMD4(world.x, world.y, world.z, 0)
+            guard local.z < -0.06 else { return nil }
+            let clip = projection * SIMD4(local.x * 1000, local.y * 1000, local.z * 1000, 1)
+            guard clip.w > 0 else { return nil }
+            return CGPoint(x: Double(clip.x / clip.w + 1) * size.width / 2,
+                           y: Double(1 - clip.y / clip.w) * size.height / 2)
+        }
+    }
+
+    private func zodiacSkyClip(in size: CGSize) -> [CGPoint] {
+        guard size.width > 0, size.height > 0, let frame = session.currentFrame else { return [] }
+        let inverse = simd_inverse(frame.camera.viewMatrix(viewRotationAngle: 90))
+        let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
+        return GardenZodiacFigure.skyClip(size: size) { point in
+            let x = Float(2 * point.x / size.width - 1) / projection.columns.0.x
+            let y = Float(1 - 2 * point.y / size.height) / projection.columns.1.y
+            return Double((inverse * SIMD4(x, y, -1, 0)).y)
+        }
+    }
 
     private func draw(_ sprite: Sprite,in context: inout GraphicsContext) {
         let object = sprite.entry.object

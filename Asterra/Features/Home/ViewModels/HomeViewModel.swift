@@ -325,6 +325,18 @@ final class HomeViewModel {
         if let photo = record.photoFilename { StarPhotoStore.remove(photo) }
     }
 
+    #if DEBUG
+    /// Batch demo setup without fabricating photos or replacing real observations.
+    func seedDemoObservations(_ records: [CollectedStar]) throws {
+        var updated = collected
+        for record in records where updated[record.id] == nil { updated[record.id] = record }
+        guard updated.count != collected.count else { return }
+        let data = try JSONEncoder().encode(Array(updated.values))
+        defaults.set(data, forKey: "collectedStars")
+        collected = updated
+    }
+    #endif
+
     func saveCameraObservation(_ draft: CameraObservationDraft,note: String) throws {
         // Seeing a source in the camera is enough to save it. Forecasts never gate this path.
         let filename = try StarPhotoStore.save(draft.image)
