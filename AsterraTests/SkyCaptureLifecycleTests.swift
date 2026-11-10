@@ -4,7 +4,7 @@ import Foundation
 import Testing
 import UIKit
 import simd
-@testable import celyx
+@testable import Asterra
 
 nonisolated private final class TestCaptureDriver: SkyCaptureDriving, @unchecked Sendable {
     let captureSession = AVCaptureSession()

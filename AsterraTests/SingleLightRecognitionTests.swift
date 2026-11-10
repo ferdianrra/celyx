@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import simd
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct SingleLightRecognitionTests {
     private let ray = simd_normalize(SIMD3<Float>(0.3, 0.5, -0.8))

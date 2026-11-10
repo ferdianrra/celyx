@@ -121,6 +121,28 @@ struct DemoSkyTests {
         #expect(target(collected: [a.id, b.id]) == nil)
     }
 
+    @Test func directTapSelectsAVirtualStarOutsideTheReticleAndPrefersTheTappedSource() throws {
+        let stars = DemoSky.stars(in: try SkyAssets.stars())
+        let a = stars[0], b = stars[1]
+        let reticle = CGPoint(x: 196, y: 426)
+        let projections: [DemoSky.Projection] = [
+            .init(star: a, point: CGPoint(x: 100, y: 680), arrow: nil),
+            .init(star: b, point: reticle, arrow: nil)
+        ]
+        #expect(DemoSky.target(in: projections, collected: [], excludedID: nil, lockedID: b.id,
+            center: reticle, radius: 96, lockRadius: 160)?.id == b.id)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 115, y: 675),
+            collected: [], excludedID: nil)?.id == a.id)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 115, y: 675),
+            collected: [a.id], excludedID: nil) == nil)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 115, y: 675),
+            collected: [], excludedID: a.id) == nil)
+        #expect(DemoSky.tappedTarget(in: [.init(star: a, point: nil, arrow: CGVector(dx: 0, dy: 1))],
+            at: .zero, collected: [], excludedID: nil) == nil)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 380, y: 800),
+            collected: [], excludedID: nil) == nil)
+    }
+
     @Test func everyDemoMemberPersistsWithItsRealObservationContextAndBypassMetadata() throws {
         let suite = "celyx.demo.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

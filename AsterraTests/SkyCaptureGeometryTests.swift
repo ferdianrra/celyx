@@ -2,7 +2,7 @@ import CoreVideo
 import Foundation
 import Testing
 import simd
-@testable import celyx
+@testable import Asterra
 
 struct SkyCaptureGeometryTests {
     private let intrinsics = simd_float3x3(columns: (

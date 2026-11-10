@@ -4,7 +4,7 @@ import SwiftUI
 import Testing
 import UIKit
 import simd
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct CameraDimTargetTests {
     private let center = CGPoint(x: 200, y: 400)

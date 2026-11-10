@@ -2,7 +2,7 @@ import CoreVideo
 import Foundation
 import Testing
 import simd
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct CameraStickyScanTests {
     private let center = CGPoint(x: 200, y: 400)

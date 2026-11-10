@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
-@testable import celyx
+@testable import Asterra
 
 @MainActor struct CameraAutomaticIdentificationTests {
     private var jupiter: CameraCandidateMatch {
@@ -65,15 +65,15 @@ import UIKit
         decision.update(candidate: saturn, sourceID: 7, observedAt: 11.2)
         #expect(try #require(decision.freshMatch(at: 11.3)).star.title == "Saturn")
     }
-    @Test func referenceInformationCardRendersWithPortraitAndStatus() throws {
-        let content = CameraCollectCard(star: jupiter.star, status: "Ready to collect", onCollect: {}, onDismiss: {})
-            .frame(width: 381).fixedSize(horizontal: false, vertical: true)
-            .padding(6).background(CelyxColor.night).preferredColorScheme(.dark)
+    @Test func compactInformationCardRendersWithoutTheLegacyStatusRow() throws {
+        let content = CameraCollectionCard(star: jupiter.star, onCollect: {}, onDismiss: {})
+            .frame(width: 353).fixedSize(horizontal: false, vertical: true)
+            .padding(20).background(CelyxColor.night).preferredColorScheme(.dark)
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
         let image = try #require(renderer.uiImage)
         #expect(image.size.width == 393)
-        #expect(image.size.height >= 200 && image.size.height < 320)
+        #expect(image.size.height >= 104 && image.size.height < 200)
         try #require(image.pngData()).write(to: URL(fileURLWithPath: "/tmp/celyx-automatic-collect-card.png"))
     }
 }

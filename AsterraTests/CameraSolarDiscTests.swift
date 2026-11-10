@@ -4,7 +4,7 @@ import CoreVideo
 import Foundation
 import Testing
 import simd
-@testable import celyx
+@testable import Asterra
 
 private final class SolarDiscFixtureBundle: NSObject {}
 

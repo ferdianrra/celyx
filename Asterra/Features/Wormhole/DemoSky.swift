@@ -65,6 +65,14 @@ enum DemoSky {
         return candidates.filter { distance($0) <= radius }.min { distance($0) < distance($1) }
     }
 
+    /// Visible virtual stars can be tapped directly; they do not need optical
+    /// detection or to be inside the aim reticle. Collected sources stay excluded.
+    static func tappedTarget(in projections: [Projection], at point: CGPoint,
+                             collected: Set<Int>, excludedID: Int?, radius: CGFloat = 44) -> Projection? {
+        target(in: projections, collected: collected, excludedID: excludedID,
+               lockedID: nil, center: point, radius: radius, lockRadius: radius)
+    }
+
     /// Paint the simulated sky into the saved frame, including when no camera is available.
     static func composite(_ image: CGImage?, stars: [(point: CGPoint, color: SIMD3<Double>)], viewSize: CGSize) -> CGImage? {
         guard viewSize.width > 0, viewSize.height > 0 else { return nil }
