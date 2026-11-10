@@ -97,7 +97,7 @@ struct GardenZodiacTests {
     }
 
     @Test func artworkStaysOnItsAnchorsAcrossZoomAndGyroRoll() throws {
-        for item in GardenZodiacFigure.load().filter({ ["Lib", "Ari"].contains($0.id) }) {
+        for item in GardenZodiacFigure.load().filter({ ["Lib", "Ari", "Cap"].contains($0.id) }) {
             let (sky, original) = try scene(for: item)
             let size = CGSize(width: 402, height: 650)
             for gyro in [false, true] {
