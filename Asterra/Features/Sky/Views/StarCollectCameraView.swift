@@ -153,11 +153,6 @@ struct StarCollectCameraView: View {
                                     .position(point)
                             }
                         }
-                        if centerTarget == nil, let guide = demoGuide {
-                            CameraPinnedLightOverlay(
-                                guide: .init(point: guide.point, arrow: guide.arrow ?? .zero, separation: 0),
-                                title: guide.star.title, isRecognizing: false)
-                        }
                     }
                     #endif
                     // Cekrek: the frame freezes at the click and over-exposes until the wormhole takes it.
