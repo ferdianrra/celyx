@@ -11,24 +11,24 @@
     ],
   },
   "files": [
-    { "kind": "folder", "path": "celyx", "target-membership": [ "celyx" ] },
-    { "kind": "folder", "path": "celyxTests", "target-membership": [ "celyxTests" ] },
-    { "kind": "folder", "path": "celyxUITests", "target-membership": [ "celyxUITests" ] },
+    { "kind": "folder", "path": "celyx", "target-membership": [ "Asterra" ] },
+    { "kind": "folder", "path": "celyxTests", "target-membership": [ "AsterraTests" ] },
+    { "kind": "folder", "path": "celyxUITests", "target-membership": [ "AsterraUITests" ] },
     {
       "kind": "group",
       "name": "Products",
       "children": [
-        { "path": "<PRODUCTS>/celyx.app", "id": "D659159830984197006A6AB3", "type": "wrapper.application", "index": false },
-        { "path": "<PRODUCTS>/celyxTests.xctest", "id": "D65915A530984198006A6AB3", "type": "wrapper.cfbundle", "index": false },
-        { "path": "<PRODUCTS>/celyxUITests.xctest", "id": "D65915AF30984198006A6AB3", "type": "wrapper.cfbundle", "index": false },
+        { "path": "<PRODUCTS>/Asterra.app", "id": "D659159830984197006A6AB3", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/AsterraTests.xctest", "id": "D65915A530984198006A6AB3", "type": "wrapper.cfbundle", "index": false },
+        { "path": "<PRODUCTS>/AsterraUITests.xctest", "id": "D65915AF30984198006A6AB3", "type": "wrapper.cfbundle", "index": false },
       ],
     },
   ],
   "targets": [
     {
-      "name": "celyx",
+      "name": "Asterra",
       "id": "D659159730984197006A6AB3",
-      "product": "Products/celyx.app",
+      "product": "Products/Asterra.app",
       "product-type": "application",
       "build-phases": [
         "compile-sources",
@@ -75,13 +75,13 @@
         "TARGETED_DEVICE_FAMILY": "1,2",
       },
     }, {
-      "name": "celyxTests",
+      "name": "AsterraTests",
       "id": "D65915A430984198006A6AB3",
-      "product": "Products/celyxTests.xctest",
+      "product": "Products/AsterraTests.xctest",
       "product-type": "bundle.unit-test",
-      "test-host-target": "celyx",
+      "test-host-target": "Asterra",
       "dependencies": [
-        "celyx",
+        "Asterra",
       ],
       "build-phases": [
         "compile-sources",
@@ -104,16 +104,16 @@
         "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
         "SWIFT_VERSION": "5.0",
         "TARGETED_DEVICE_FAMILY": "1,2",
-        "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/celyx.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/celyx",
+        "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/Asterra.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Asterra",
       },
     }, {
-      "name": "celyxUITests",
+      "name": "AsterraUITests",
       "id": "D65915AE30984198006A6AB3",
-      "product": "Products/celyxUITests.xctest",
+      "product": "Products/AsterraUITests.xctest",
       "product-type": "bundle.ui-testing",
-      "test-host-target": "celyx",
+      "test-host-target": "Asterra",
       "dependencies": [
-        "celyx",
+        "Asterra",
       ],
       "build-phases": [
         "compile-sources",
