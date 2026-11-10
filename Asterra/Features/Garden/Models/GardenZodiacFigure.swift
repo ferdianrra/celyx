@@ -5,17 +5,34 @@ import simd
 /// Zodiac artwork unlocks from the complete bundled line pattern, not simply constellation membership.
 struct GardenZodiacFigure: Identifiable {
     static let codes: Set<String> = ["Ari", "Tau", "Gem", "Cnc", "Leo", "Vir", "Lib", "Sco", "Sgr", "Cap", "Aqr", "Psc"]
+    struct ArtworkMapping: Decodable {
+        let assetName: String
+        let normalizedAnchors: [[Double]]
+    }
+    let assetName: String
     let figure: ConstellationFigure
     let requiredStarIDs: Set<Int>
     var id: String { figure.id }
 
     static func load() -> [Self] {
         let patterns = GardenConstellationConnection.loadFigures()
+        guard let url = try? SkyAssets.url("zodiac-artwork", extension: "json"),
+              let data = try? Data(contentsOf: url),
+              let artwork = try? JSONDecoder().decode([String: ArtworkMapping].self, from: data) else { return [] }
         return ((try? ConstellationFigure.load()) ?? []).compactMap { figure in
-            guard codes.contains(figure.id), let pattern = patterns[figure.id] else { return nil }
+            guard codes.contains(figure.id), let pattern = patterns[figure.id], let mapping = artwork[figure.id],
+                  !mapping.assetName.isEmpty, mapping.normalizedAnchors.count == 3,
+                  mapping.normalizedAnchors.allSatisfy({ $0.count == 2 && $0.allSatisfy(\.isFinite) }) else { return nil }
             let required = Set(pattern.segments.flatMap { $0 })
             guard !required.isEmpty else { return nil }
-            return Self(figure: figure, requiredStarIDs: required)
+            let definition = figure.definition
+            let anchors = zip(mapping.normalizedAnchors, definition.anchors).map { point, anchor in
+                ConstellationFigure.Anchor(pixel: [point[0] * definition.size[0], point[1] * definition.size[1]],
+                                           ra_deg: anchor.ra_deg, dec_deg: anchor.dec_deg)
+            }
+            let mapped = ConstellationFigure(id: figure.id,
+                definition: .init(file: definition.file, size: definition.size, anchors: anchors), center: figure.center)
+            return Self(assetName: mapping.assetName, figure: mapped, requiredStarIDs: required)
         }
     }
 

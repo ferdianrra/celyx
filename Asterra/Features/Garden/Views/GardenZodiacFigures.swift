@@ -27,10 +27,7 @@ struct GardenZodiacFigures: View {
             animatedIDs = animatedIDs.intersection(current).union(added)
             artwork = artwork.filter { current.contains($0.key) }
             for item in unlocked where artwork[item.id] == nil {
-                let file = URL(fileURLWithPath: item.figure.definition.file)
-                guard let url = try? SkyAssets.url(file.deletingPathExtension().lastPathComponent,
-                                                  extension: file.pathExtension) else { continue }
-                let decoded = await GardenZodiacArtworkStore.shared.load(url)
+                let decoded = await GardenZodiacArtworkStore.shared.load(assetNamed: item.assetName)
                 guard !Task.isCancelled else { return }
                 artwork[item.id] = decoded
             }

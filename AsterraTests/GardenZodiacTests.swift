@@ -17,12 +17,26 @@ struct GardenZodiacTests {
         for item in figures {
             #expect(!item.requiredStarIDs.isEmpty)
             #expect(item.requiredStarIDs.isSubset(of: catalogue))
-            let file = URL(fileURLWithPath: item.figure.definition.file)
-            #expect(GardenBodyAssets.image(file.deletingPathExtension().lastPathComponent,
-                                          extension: file.pathExtension) != nil)
+            #expect(UIImage(named: item.assetName) != nil)
         }
         #expect(figures.first { $0.id == "Ari" }?.requiredStarIDs.count == 4)
         #expect(figures.first { $0.id == "Lib" }?.requiredStarIDs.count == 6)
+    }
+
+    @Test func customDrawingsResolveFromTheCatalogAndRemainCached() async throws {
+        let expected = ["Cap": "capricon-figure", "Psc": "pisces-figure", "Sco": "scorpio-figure"]
+        for (code, name) in expected {
+            let item = try #require(GardenZodiacFigure.load().first { $0.id == code })
+            #expect(item.assetName == "constellation-figures/\(name)")
+            let first = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: item.assetName))
+            let second = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: item.assetName))
+            #expect(first.image === second.image)
+            #expect(max(first.image.width, first.image.height) <= 512)
+            #expect(first.glow != nil)
+            try #require(UIImage(cgImage: first.image).pngData()).write(to:
+                URL(fileURLWithPath: "/private/tmp/asterra-source-\(code).png"))
+        }
+        #expect(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/missing") == nil)
     }
 
     @Test func everyRequiredStarMustBeCollectedBeforeArtworkUnlocks() throws {
@@ -114,8 +128,9 @@ struct GardenZodiacTests {
         #expect(GardenZodiacFigure.skyClip(size: size) { _ in -1 }.isEmpty)
     }
 
-    @Test func completedLibraArtworkRendersForVisualReview() async throws {
-        let libra = try #require(GardenZodiacFigure.load().first { $0.id == "Lib" })
+    @Test(arguments: ["Lib", "Cap", "Psc", "Sco"])
+    func completedArtworkRendersForVisualReview(code: String) async throws {
+        let libra = try #require(GardenZodiacFigure.load().first { $0.id == code })
         let (sky, camera) = try scene(for: libra)
         let size = CGSize(width: 402, height: 500)
         let projected = GardenZodiacFigure.project([libra], basis: sky.basis, size: size,
@@ -135,14 +150,12 @@ struct GardenZodiacTests {
         }.frame(width: size.width, height: size.height)
         let renderer = ImageRenderer(content: content); renderer.scale = 2
         let lines = try #require(renderer.uiImage)
-        let file = URL(fileURLWithPath: libra.figure.definition.file)
-        let url = try SkyAssets.url(file.deletingPathExtension().lastPathComponent, extension: file.pathExtension)
-        let decoded = try #require(await GardenZodiacArtworkStore.shared.load(url))
+        let decoded = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: libra.assetName))
         let view = GardenZodiacFigureLayerView()
         view.frame = CGRect(origin: .zero, size: size)
-        view.update(unlockedIDs: ["Lib"], projected: projected,
+        view.update(unlockedIDs: [code], projected: projected,
             skyClip: [CGPoint.zero, CGPoint(x: size.width, y: 0), CGPoint(x: size.width, y: size.height), CGPoint(x: 0, y: size.height)],
-            artwork: ["Lib": decoded], animatedIDs: [], isActive: true, reduceMotion: true)
+            artwork: [code: decoded], animatedIDs: [], isActive: true, reduceMotion: true)
         view.layoutIfNeeded()
         let image = UIGraphicsImageRenderer(size: size).image { context in
             UIColor(red: 0.02, green: 0.03, blue: 0.08, alpha: 1).setFill()
@@ -150,13 +163,12 @@ struct GardenZodiacTests {
             view.layer.render(in: context.cgContext)
             lines.draw(in: CGRect(origin: .zero, size: size))
         }
-        try #require(image.pngData()).write(to: URL(fileURLWithPath: "/private/tmp/celyx-zodiac-preview.png"))
+        try #require(image.pngData()).write(to: URL(fileURLWithPath: "/private/tmp/asterra-zodiac-\(code).png"))
     }
 
     @Test func artworkAndGlowAreDecodedOnceAndReused() async throws {
-        let url = try SkyAssets.url("libra", extension: "png")
-        let first = try #require(await GardenZodiacArtworkStore.shared.load(url))
-        let second = try #require(await GardenZodiacArtworkStore.shared.load(url))
+        let first = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/libra-figure"))
+        let second = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/libra-figure"))
         #expect(first.image === second.image)
         #expect(first.glow === second.glow)
         #expect(first.glow != nil)
@@ -164,8 +176,7 @@ struct GardenZodiacTests {
 
     @Test func motionUpdatesReuseImageLayersWithoutRestartingTheReveal() async throws {
         let libra = try #require(GardenZodiacFigure.load().first { $0.id == "Lib" })
-        let url = try SkyAssets.url("libra", extension: "png")
-        let decoded = try #require(await GardenZodiacArtworkStore.shared.load(url))
+        let decoded = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/libra-figure"))
         let view = GardenZodiacFigureLayerView()
         view.frame = CGRect(x: 0, y: 0, width: 402, height: 650)
         let clip = [CGPoint.zero, CGPoint(x: 402, y: 0), CGPoint(x: 402, y: 650), CGPoint(x: 0, y: 650)]

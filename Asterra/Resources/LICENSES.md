@@ -3,7 +3,7 @@
 | Files | Source | Licence |
 | --- | --- | --- |
 | sky/stars.json, sky/stars.csv | HYG database v3.8 | CC BY-SA 4.0 (credit, share alike) |
-| sky/figures/*.png | Stellarium, constellation drawings by Johan Meuris | Free Art License 1.3 (https://artlibre.org/licence/lal/en/) |
+| sky/figures/*.png and temporary zodiac copies in Assets.xcassets/constellation-figures (Aries, Taurus, Gemini, Cancer, Leo, Virgo, Libra, Sagittarius, Aquarius) | Stellarium, constellation drawings by Johan Meuris | Free Art License 1.3 (https://artlibre.org/licence/lal/en/) |
 | sky/figures.json anchors, English constellation names | Stellarium "modern" sky culture | CC BY-SA 4.0 |
 | sky/constellations.json line segments | d3-celestial, Copyright (c) 2015 Olaf Frohn | BSD 3-Clause, see LICENSE-d3-celestial.txt |
 | Positions and sky events in the app | Astronomy Engine | MIT |
@@ -26,3 +26,5 @@ Each event retains its original producer name, source URL, licence statement and
 Event artwork (`event-meteor.png`, `event-planets.png`, `event-moon.png`, `event-eclipse.png`) was supplied by the project owner.
 
 Minecart LCD by Daymarius, downloaded from the author’s DaFont listing: https://www.dafont.com/minecart-lcd.font . The author states: “Free for Personal and Commercial use.” See `MinecartLCD-license.txt` bundled with the font. The font is used for calendar dates.
+
+Custom Pisces, Capricornus (`capricon-figure`) and Scorpius (`scorpio-figure`) artwork in `Assets.xcassets/constellation-figures` was supplied by the project owner and is separate from the temporary Stellarium copies.
