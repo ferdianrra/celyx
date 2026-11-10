@@ -121,7 +121,7 @@ struct Constellation: Decodable {
 
 // Resources are resolved in one place, including Xcode's flattened resource bundles.
 enum SkyAssets {
-    static func url(_ name: String, extension ext: String) throws -> URL {
+    nonisolated static func url(_ name: String, extension ext: String) throws -> URL {
         if let url = Bundle.main.url(forResource: name, withExtension: ext) { return url }
         let root = Bundle.main.resourceURL!
         let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
