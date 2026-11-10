@@ -49,7 +49,7 @@ nonisolated struct CameraPointStack: Sendable {
             guard time > last.time else { return [] }
             let facing = simd_dot(referencePose.columns.2, pose.columns.2)
             let distance = simd_distance(referencePose.columns.3, pose.columns.3)
-            if time - last.time > 0.6 || facing < cos(1.5 * Float.pi / 180) || distance > 0.08
+            if time - last.time > 0.6 || facing < cos(6 * Float.pi / 180) || distance > 0.08
                 || resolution != size
             {
                 reset()

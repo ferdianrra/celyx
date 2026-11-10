@@ -27,15 +27,11 @@ struct StarCollectCameraView: View {
     /// When set, a successful collect hands over to the garden (wormhole) instead of opening the album here.
     var onCollect: ((CollectResult) -> Void)? = nil
     @State private var zoomStart: Double?
-    /// Crosshair interaction: a target shows as collectible (Enable) after a short lock (Locking).
-    @State private var settledID: Int?
-    @State private var isLocking = false
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
     @State private var captureImage: CGImage?
     /// The camera feed shows only once the camera delivers real frames (no skewed first frames).
     @State private var feedReady = false
-    @State private var referenceCapture: CameraReferenceCapture?
     #if DEBUG
     /// Catalog stars at their real current horizon positions; demo bypasses optical detection.
     @State private var demoStars: [DemoSky.Entry] = []
@@ -85,16 +81,15 @@ struct StarCollectCameraView: View {
         #endif
         return viewModel.centerTarget
     }
-    /// The target shows as collectible (Enable) once it has held for the short lock.
-    private var shownTarget: CenterTarget? {
-        guard let target = centerTarget, target.id == settledID else { return nil }
-        return target
-    }
+    /// Recognition already verifies optical persistence; show Collect immediately.
+    private var shownTarget: CenterTarget? { centerTarget }
     private func distance(_ point: CGPoint) -> CGFloat { viewModel.distance(point) }
 
     /// How far the locked star sits from the screen centre (zero when nothing is locked, or for a body
     /// matched by angle with no light on screen).
     private var lockOffset: CGSize {
+        if let target = shownTarget, service.retainedCaptureAnnotation?.id == target.id,
+            service.pinnedLight != nil, service.pinnedLightGuide?.point == nil { return .zero }
         guard let point = shownTarget?.detection?.point, viewSize != .zero else { return .zero }
         return CGSize(width: point.x - center.x, height: point.y - center.y)
     }
@@ -159,30 +154,25 @@ struct StarCollectCameraView: View {
                     if let shutter, shutter < CaptureFlash.duration { CaptureFlashView(image: captureImage, t: shutter) }
                     if let handover { WormholeHandoverView(handover: handover) }
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
-                    // Gimbal lock: once a star is collectible the crosshair, its label and the pill ride on the
+                    // Gimbal lock: once a star is collectible the crosshair and its label ride on the
                     // star itself; they glide over on a spring when it locks and glide home when it lets go.
                     let lock = lockOffset
                     reticle.position(x: geometry.size.width / 2 + lock.width, y: geometry.size.height / 2 + 10 + lock.height)
                         .allowsHitTesting(false)
                         .opacity(crosshair)
                         .animation(.spring(duration: 0.45, bounce: 0.12), value: shownTarget?.id)
-                    // The collect button hangs just under the crosshair's star label (reticle centre + 80pt).
                     if let target = shownTarget, !isChecking, handover == nil, captureStart == nil,
-                        model.collected[target.star.id] == nil
-                    {
+                        model.collected[target.star.id] == nil {
                         CollectPill(title: "Collect \(target.star.title)") { collect(target) }
                             .id(target.star.id)
-                            .position(x: geometry.size.width / 2 + lock.width, y: geometry.size.height / 2 + 80 + lock.height)
-                            .animation(.spring(duration: 0.45, bounce: 0.12), value: shownTarget?.id)
+                            .position(x: geometry.size.width / 2 + lock.width,
+                                      y: geometry.size.height / 2 + 80 + lock.height)
                             .opacity(crosshair)
-                            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
+                            .animation(.spring(duration: 0.45, bounce: 0.12), value: shownTarget?.id)
                     }
-                    if !demoOn, service.pinnedLight != nil, let guide = service.pinnedLightGuide {
+                    if !demoOn, shownTarget == nil, service.pinnedLight != nil, let guide = service.pinnedLightGuide {
                         CameraPinnedLightOverlay(
-                            guide: guide, title: pinnedLightTitle, isRecognizing: isAnalyzingLight,
-                            subtitle: service.retainedCaptureAnnotation != nil ? "Ready to collect"
-                                : service.singleLightCandidate != nil ? "Estimated identity" : nil)
-
+                            guide: guide, title: "", isRecognizing: isAnalyzingLight, showsLabel: false)
                     }
                 }
                 .scaleEffect(shutter.map(CaptureFlash.squeeze) ?? 1)
@@ -193,25 +183,16 @@ struct StarCollectCameraView: View {
             .ignoresSafeArea()
 
             Group {
-            if service.alignment.requiresCalibration, service.status == .tracking, shownTarget == nil, !demoOn {
-                VStack(spacing: 12) {
-                    CelyxHintPill(
-                        text: service.automaticMappingMessage,
-                        isLoading: service.isMappingSky || service.isDetectingOnDemand)
-                    if service.canCaptureReference { confirmObjectButton }
-                    if service.canRequestDetection { detectStarButton }
-                }.padding(.horizontal, 20).padding(.bottom, 45)
-            } else if let target = shownTarget, centerTarget?.id == target.id {
-                sheet(for: target)
-                    .padding(.horizontal, 6).padding(.bottom, 6)
-                    .ignoresSafeArea(edges: .bottom)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if !demoOn, service.pinnedLight != nil {
-                pinnedLightPanel.padding(.horizontal, 6).padding(.bottom, 6)
-            } else {
-                CelyxHintPill(text: hintText, isLoading: isAnalyzingLight).padding(.bottom, 59).transition(
-                    .opacity)
-            }
+                if let target = shownTarget, centerTarget?.id == target.id {
+                    sheet(for: target)
+                        .padding(.horizontal, 6).padding(.bottom, 6)
+                        .ignoresSafeArea(edges: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    CelyxHintPill(text: service.status == .tracking && !demoOn
+                        ? service.automaticMappingMessage : hintText, isLoading: isAnalyzingLight)
+                        .padding(.horizontal, 20).padding(.bottom, 59)
+                }
             }
             .opacity(cameraUI)
             #if DEBUG
@@ -257,20 +238,6 @@ struct StarCollectCameraView: View {
             try? await Task.sleep(for: .milliseconds(90))
             feedReady = true
         }
-        .task(id: centerTarget?.id) {
-            guard let target = centerTarget else {
-                isLocking = false
-                settledID = nil
-                return
-            }
-            if settledID == target.id { return }
-            settledID = nil
-            isLocking = true
-            try? await Task.sleep(for: .seconds(0.7))
-            guard !Task.isCancelled else { return }
-            isLocking = false
-            settledID = target.id
-        }
         // Lock the star the moment it becomes collectible; release it once it leaves the hold radius.
         .onChange(of: shownTarget?.id) { _, id in if let id { viewModel.lockedID = id } }
         .onChange(of: centerTarget?.id) { _, id in if id == nil || id != viewModel.lockedID { viewModel.lockedID = nil } }
@@ -294,18 +261,11 @@ struct StarCollectCameraView: View {
             if value == .active, viewModel.capturedItem == nil {
                 Task { await service.start() }
             } else if value == .background {
-                referenceCapture = nil
                 if viewModel.capturedItem == nil { service.suspendForBackground() }
                 else { service.stop() }
             }
             // Inactive includes screenshot editors and Control Center. Native capture
             // interruptions handle those; do not stop a live session for a brief overlay.
-        }
-        .sheet(item: $referenceCapture) { capture in
-            CameraReferencePickerView(capture: capture, onConfirm: { star in
-                service.confirmFirstReference(capture, star: star)
-            }, suggestedID: service.singleLightCandidate?.star.id)
-            .presentationDetents([.medium, .large])
         }
         .fullScreenCover(item: $viewModel.capturedItem, onDismiss: { Task { await service.start() } }) {
             item in
@@ -329,7 +289,7 @@ struct StarCollectCameraView: View {
     /// Figma "Crosshair" component (node 922:1567) with its own motion, sound and haptics.
     private var reticle: some View {
         let star = shownTarget?.star
-        let label = star?.id == service.pinnedLight?.match?.star.id ? "" : star?.title ?? ""
+        let label = star?.title ?? ""
         // During the wormhole the handover owns the audio and haptics: the crosshair stays silent.
         return CrosshairView(
             state: crosshairState, label: label, soundEnabled: handover == nil, hapticsEnabled: handover == nil)
@@ -337,7 +297,7 @@ struct StarCollectCameraView: View {
     private var crosshairState: CrosshairState {
         if isChecking { return .validating }
         if shownTarget != nil { return .enable }
-        if isLocking || isAnalyzingLight { return .locking }
+        if isAnalyzingLight { return .locking }
         return .default
     }
 
@@ -393,8 +353,9 @@ struct StarCollectCameraView: View {
     }
     private var isAnalyzingLight: Bool {
         guard service.status == .tracking else { return false }
-        if service.pinnedLight?.isIdentified == true { return false }
-        if service.alignment.requiresCalibration { return service.isMappingSky }
+        if service.pinnedLight?.isIdentified == true || service.automaticallyIdentifiedAnnotation != nil
+            || service.retainedCaptureAnnotation != nil { return false }
+        if service.alignment.requiresCalibration { return service.pinnedLight != nil || service.isMappingSky }
         if service.isScanningNewLight { return true }
         if service.isAdjustingCamera { return true }
         if service.pinnedLight != nil {
@@ -408,206 +369,35 @@ struct StarCollectCameraView: View {
 
     // MARK: Sheet
 
-    private var pinIsInReticle: Bool {
-        service.pinnedLightGuide?.point.map { distance($0) <= captureRadius } ?? false
-    }
-    private var pinnedLightTitle: String {
-        if let ready = service.retainedCaptureAnnotation, ready.id == service.pinnedLight?.match?.star.id {
-            return ready.star.title
-        }
-        if let candidate = service.singleLightCandidate { return "Likely \(candidate.star.title)" }
-        return "Detected light"
-    }
-
-    private var confirmObjectButton: some View {
-        CelyxPillButton(title: service.singleLightCandidate.map { "Confirm \($0.star.title)…" }
-            ?? "Choose sky object…", systemImage: "scope", style: .primary) {
-            referenceCapture = service.captureFirstReference()
-        }
-        .frame(maxWidth: 300)
-        .accessibilityIdentifier("confirm-sky-object")
-    }
-
-    private var detectStarButton: some View {
-        CelyxPillButton(
-            title: service.isDetectingOnDemand ? "Detecting…" : "Detect star",
-            systemImage: "sparkle.magnifyingglass", style: service.isDetectingOnDemand ? .disabled : .primary
-        ) {
-            viewModel.detectStar()
-        }
-        .frame(maxWidth: 260)
-        .accessibilityIdentifier("detect-star")
-    }
-
-    private var pinnedLightPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let issue = service.newLightIssue {
-                HStack(spacing: 8) {
-                    if service.isScanningNewLight {
-                        ProgressView().tint(CelyxColor.primaryLabel)
-                    } else {
-                        Image(systemName: "sparkle.magnifyingglass")
-                    }
-                    Text(
-                        issue == .stabilizing
-                            ? "New light · matching its direction…" : "New light · \(issue.title)"
-                    )
-                    .font(.system(size: 13))
-                }
-            }
-            HStack(spacing: 10) {
-                if isAnalyzingLight { ProgressView().tint(CelyxColor.primaryLabel) }
-                Text(pinnedLightTitle)
-                    .font(.system(size: 17, weight: .semibold))
-                Spacer()
-                Button("Clear pin") { service.clearPinnedLight() }
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            Text(pinnedLightInstruction)
-                .font(.system(size: 13)).foregroundStyle(CelyxColor.secondaryLabel)
-                .fixedSize(horizontal: false, vertical: true)
-            if service.canRequestDetection { detectStarButton }
-
-        }.padding(20).foregroundStyle(CelyxColor.primaryLabel).background(
-            CelyxBluePanel(cornerRadius: 28))
-    }
-
-    private var pinnedLightInstruction: String {
-        if !service.hasReferenceAlignment {
-            if let issue = service.pinnedLight?.issue, service.pinnedLight?.match == nil {
-                return issue == .stabilizing
-                    ? "Light detected. Checking nearby catalog candidates…" : issue.message
-            }
-            return
-                "Its name is estimated from direction, time and location. You can aim at another light to scan it."
-        }
-        guard service.status == .tracking else {
-            return "Tracking is adjusting. Your last light is saved; move slowly to steady the guide."
-        }
-        if service.isAdjustingCamera {
-            return "Applying camera settings. Your last light stays pinned."
-        }
-        if service.pinnedLight?.isIdentified == true {
-            return pinIsInReticle
-                ? "Identification saved. Waiting for fresh light in the circle before collecting."
-                : "Identification saved. Follow the arrow back to the last detected light."
-        }
-        if pinIsInReticle {
-            if service.reacquiredPinnedAnnotation != nil {
-                return "Light detected again. Getting your collection ready."
-            }
-            if service.pinnedLight?.issue == .ambiguous {
-                return "Light found, but several names fit. Check direction calibration to identify it."
-            }
-            return "Back at the saved position. Checking fresh camera frames for this light…"
-        }
-        if service.isRecognizingPinnedLight {
-            return "Checking the saved direction. You can move; the last light stays pinned."
-        }
-        if service.pinnedLight?.match != nil {
-            return
-                "Follow the arrow back to this light. Collecting needs a fresh sighting inside the circle."
-        }
-        return
-            "No clear identity yet. Return to the pin or aim at another light. Check calibration if needed."
-    }
-
     private func sheet(for target: CenterTarget) -> some View {
         let star = target.star
         let isCollected = model.collected[star.id] != nil
         let checking = viewModel.verification == .checking(star.id)
         let failed = viewModel.verification == .failed(star.id)
-        return ZStack(alignment: .top) {
-            CelyxBluePanel(cornerRadius: 34)
-            CelyxGrabber()
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    StarPortraitView(star: star)
-                        .frame(width: 64, height: 64)
-                        .shadow(
-                            color: Color(red: star.rgb.x, green: star.rgb.y, blue: star.rgb.z).opacity(0.8),
-                            radius: 10
-                        )
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(star.title).font(.system(size: 28, weight: .bold)).tracking(0.38)
-                            .foregroundStyle(
-                                CelyxColor.primaryLabel
-                            )
-                            .lineLimit(1).minimumScaleFactor(0.6).frame(height: 34)
-                        Text(subtitle(for: star)).font(.system(size: 15, weight: .medium)).tracking(-0.23)
-                            .foregroundStyle(CelyxColor.subtitle).frame(height: 20)
-                    }
-                    .padding(.horizontal, 16)
-                    Spacer(minLength: 0)
-                    // Several stars close together: X lets go of this one so the next can lock.
-                    CelyxCloseButton {
-                        withAnimation(.smooth(duration: 0.3)) {
-                            viewModel.verification = .idle
-                            viewModel.excludedID = star.id
-                            viewModel.lockedID = nil
-                            settledID = nil
-                            service.clearPinnedLight()
-                        }
-                    }
-                    .accessibilityLabel("Not this star")
+        return CameraCollectCard(star: star,
+            status: statusText(for: star, checking: checking, failed: failed,
+                collected: isCollected, fresh: target.detection != nil),
+            isCollected: isCollected, isCollecting: checking, onCollect: { collect(target) }, onDismiss: {
+                withAnimation(.smooth(duration: 0.3)) {
+                    viewModel.verification = .idle
+                    viewModel.excludedID = star.id
+                    viewModel.lockedID = nil
+                    service.clearPinnedLight()
                 }
-                .padding(.horizontal, 16).frame(height: 64).padding(.top, 24).padding(.bottom, 8)
-                HStack(spacing: 6) {
-                    let color = failed ? Color.orange : CelyxColor.ready
-                    Circle().fill(color).frame(width: 6, height: 6).shadow(color: color, radius: 3)
-                    Text(
-                        "\(Text(statusText(for:star,checking:checking,failed:failed,collected:isCollected,fresh:target.detection != nil)).foregroundStyle(CelyxColor.primaryLabel))\(Text(directionText(for:star)).foregroundStyle(CelyxColor.secondaryLabel))"
-                    )
-                    .font(.system(size: 12)).lineLimit(1).minimumScaleFactor(0.8)
-                    Spacer(minLength: 0)
-                }
-                .frame(height: 16).padding(16)
-                // The capture action lives on the crosshair; the sheet only says what it is.
-                if isCollected {
-                    CelyxPillButton(title: "Collected", systemImage: "checkmark", style: .collected) {}
-                        .allowsHitTesting(false)
-                        .padding(.horizontal, 16)
-                }
-            }
-        }
-        .frame(height: (star.isSolarDisc ? 228 : 248) - (isCollected ? 0 : 56))
-        .contentShape(Rectangle())
-        .onTapGesture { collect(target) }
+            })
     }
 
     private func statusText(
         for star: CatalogStar, checking: Bool, failed: Bool, collected: Bool, fresh: Bool
     ) -> String {
-        if collected { return "In your garden · " }
-        if checking { return "Hold steady, checking its light · " }
-        if failed { return "Couldn’t see it in the circle. Try again · " }
-        if service.retainedCaptureAnnotation?.id == star.id { return "Ready to collect · " }
-        if star.isSun { return "Visible now · Never look straight at it · " }
-        if !fresh { return "Rechecking light · " }
-        return "Visible now · "
+        if collected { return "In your garden" }
+        if checking { return "Preparing your photo…" }
+        if failed { return "Keep the light in view and try again" }
+        if service.retainedCaptureAnnotation?.id == star.id { return "Visible now · In your view" }
+        if star.isSun { return "Visible now · Never look straight at it" }
+        if !fresh { return "Checking the light…" }
+        return "Visible now · In your view"
     }
-    private func subtitle(for star: CatalogStar) -> String {
-        if star.isSolarSystemBody { return star.kind }
-        if let code = star.con, let name = ConstellationNames.name(for: code) {
-            return "Star in \(name)"
-        }
-        return "Star"
-    }
-    /// e.g. "High in the west", from the object's real altitude/azimuth at this place and time.
-    private func directionText(for star: CatalogStar) -> String {
-        guard let observation = service.viewableObjects.first(where: { $0.id == star.id }) else {
-            return "In your view"
-        }
-        let points = [
-            "north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest",
-        ]
-        let bearing = points[Int((observation.azimuth + 22.5) / 45) % 8]
-        let height = observation.altitude >= 50 ? "High" : observation.altitude >= 20 ? "Up" : "Low"
-        return "\(height) in the \(bearing)"
-    }
-
-
     private var excludedIsNear: Bool {
         #if DEBUG
         if demoOn {
@@ -691,7 +481,6 @@ struct StarCollectCameraView: View {
         guard handover == nil, !isChecking else { return }
         viewModel.lockedID = nil
         viewModel.excludedID = nil
-        settledID = nil
         demoOn.toggle()
         demoDate = nil
         demoLocation = nil

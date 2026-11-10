@@ -80,7 +80,9 @@ nonisolated enum CameraStarDetector {
         let width = CVPixelBufferGetWidthOfPlane(image, 0)
         let height = CVPixelBufferGetHeightOfPlane(image, 0)
         let row = CVPixelBufferGetBytesPerRowOfPlane(image, 0)
-        let radius = min(15, max(6, Int(6 * sqrt(max(1, zoom)))))
+        // Bright planets and mildly defocused stars can have a wider PSF than six
+        // pixels. The flood fill must cover that core before judging its compactness.
+        let radius = min(20, max(10, Int(10 * sqrt(max(1, zoom)))))
         let ringRadius = radius + 1
         let margin = ringRadius + 3
         let maxArea = Int(45 * min(5, max(1, zoom)))
@@ -226,7 +228,7 @@ nonisolated enum CameraStarDetector {
         return result.sorted { $0.contrast > $1.contrast }.prefix(50).map { $0 }
     }
     // Larger bright discs (Sun/Moon) do not pass the compact star-point detector.
-    static func detectDiscs(in image: CVPixelBuffer) -> [CameraLightPoint] {
+    static func detectDiscs(in image: CVPixelBuffer, daylight: Bool = false) -> [CameraLightPoint] {
         let format = CVPixelBufferGetPixelFormatType(image)
         guard
             format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
@@ -245,68 +247,133 @@ nonisolated enum CameraStarDetector {
         let h = height / step
         guard w > 4, h > 4 else { return [] }
         var values = [Int](repeating: 0, count: w * h)
-        for y in 0..<h { for x in 0..<w { values[y * w + x] = Int(bytes[y * step * row + x * step]) } }
+        // Use one photometric scale: video-range white is 235, not 255.
+        // Otherwise a small cloud-filtered solar core merges with its halo at 220.
+        let videoRange = format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        for y in 0..<h { for x in 0..<w {
+            let raw = Int(bytes[y * step * row + x * step])
+            values[y * w + x] = videoRange ? min(255, max(0, (raw - 16) * 255 / 219)) : raw
+        } }
         let sorted = values.sorted()
         let background = sorted[sorted.count / 2]
-        let threshold = max(160, background + 30)
-        guard threshold < 250 else { return [] }
-        var visited = [Bool](repeating: false, count: w * h)
+        // A single low threshold joins the Sun to illuminated cloud edges.
+        // Resolve the saturated core first, then the lower-contrast lunar disc.
+        let peakLevel = sorted[sorted.count - 1]
+        let thresholds = Array(Set([peakLevel - 5, peakLevel - 15, peakLevel - 35, max(160, background + 30)]
+            .filter { $0 > background && $0 > 0 && $0 <= 250 })).sorted(by: >)
+        // Thin cloud attenuates the solar core. Keep both an absolute floor and
+        // local scene contrast, instead of demanding nearly clipped white.
+        let minimumCore = daylight ? max(180, min(240, background + 25)) : 0
         var result: [CameraLightPoint] = []
-        for start in values.indices where !visited[start] && values[start] >= threshold {
-            var queue = [start]
-            var cursor = 0
-            visited[start] = true
-            var minX = start % w
-            var maxX = minX
-            var minY = start / w
-            var maxY = minY
-            var sum = 0.0
-            var sx = 0.0
-            var sy = 0.0
-            var peak = 0
-            while cursor < queue.count {
-                let index = queue[cursor]
-                cursor += 1
-                let x = index % w
-                let y = index / w
-                let weight = Double(values[index] - background)
-                sum += weight
-                sx += Double(x) * weight
-                sy += Double(y) * weight
-                peak = max(peak, values[index])
-                minX = min(minX, x)
-                maxX = max(maxX, x)
-                minY = min(minY, y)
-                maxY = max(maxY, y)
-                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                    let nx = x + dx
-                    let ny = y + dy
-                    guard nx >= 0, nx < w, ny >= 0, ny < h else { continue }
-                    let next = ny * w + nx
-                    if !visited[next] && values[next] >= threshold {
-                        visited[next] = true
-                        queue.append(next)
+        for threshold in thresholds {
+            // Distance to the dark boundary separates round bright lobes even when
+            // a narrow illuminated cloud edge touches the solar core.
+            var distance = values.map { $0 >= threshold ? Float(w + h) : 0 }
+            let diagonal: Float = 1.4142136
+            for y in 0..<h { for x in 0..<w where distance[y * w + x] > 0 {
+                let i = y * w + x
+                if x == 0 || y == 0 || x == w - 1 || y == h - 1 { distance[i] = 1; continue }
+                distance[i] = min(distance[i], distance[i - 1] + 1, distance[i - w] + 1,
+                                  distance[i - w - 1] + diagonal, distance[i - w + 1] + diagonal)
+            } }
+            for y in stride(from: h - 2, through: 1, by: -1) { for x in stride(from: w - 2, through: 1, by: -1) where distance[y * w + x] > 0 {
+                let i = y * w + x
+                distance[i] = min(distance[i], distance[i + 1] + 1, distance[i + w] + 1,
+                                  distance[i + w - 1] + diagonal, distance[i + w + 1] + diagonal)
+            } }
+            var visited = [Bool](repeating: false, count: w * h)
+            for start in values.indices where !visited[start] && values[start] >= threshold {
+                var queue = [start]
+                var cursor = 0
+                visited[start] = true
+                var minX = start % w
+                var maxX = minX
+                var minY = start / w
+                var maxY = minY
+                var sum = 0.0
+                var sx = 0.0
+                var sy = 0.0
+                var peak = 0
+                while cursor < queue.count {
+                    let index = queue[cursor]
+                    cursor += 1
+                    let x = index % w
+                    let y = index / w
+                    let weight = Double(values[index] - background)
+                    sum += weight
+                    sx += Double(x) * weight
+                    sy += Double(y) * weight
+                    peak = max(peak, values[index])
+                    minX = min(minX, x)
+                    maxX = max(maxX, x)
+                    minY = min(minY, y)
+                    maxY = max(maxY, y)
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let nx = x + dx
+                        let ny = y + dy
+                        guard nx >= 0, nx < w, ny >= 0, ny < h else { continue }
+                        let next = ny * w + nx
+                        if !visited[next] && values[next] >= threshold {
+                            visited[next] = true
+                            queue.append(next)
+                        }
                     }
                 }
+                let bw = maxX - minX + 1
+                let bh = maxY - minY + 1
+                guard queue.count >= 3, sum > 0 else { continue }
+                let fill = Double(queue.count) / Double(bw * bh)
+                // A filled rectangular window must never be split into a solar core.
+                if queue.count >= 16, fill > 0.95 { continue }
+                let compact = queue.count < w * h / 12 && minX > 0 && minY > 0 && maxX < w - 1 && maxY < h - 1
+                    && Double(max(bw, bh)) / Double(min(bw, bh)) < 1.65 && fill > 0.55
+                if !compact {
+                    // Local inscribed circles survive a connection to a bright cloud.
+                    // Most of their circumference must still have a darker exterior.
+                    let peaks = queue.filter { index in
+                        let r = distance[index], x = index % w, y = index / w
+                        guard values[index] >= minimumCore, r >= (daylight ? 2 : 3), r < Float(min(w, h)) / 5, x > 0, y > 0, x < w - 1, y < h - 1 else { return false }
+                        return [-w - 1, -w, -w + 1, -1, 1, w - 1, w, w + 1].allSatisfy { distance[index + $0] <= r }
+                    }.sorted { distance[$0] > distance[$1] }
+                    for index in peaks {
+                        let x = Double(index % w), y = Double(index / w), r = Double(distance[index])
+                        var exterior = 0
+                        for angle in 0..<32 {
+                            let a = Double(angle) * .pi / 16
+                            let px = Int((x + cos(a) * r * 1.3).rounded()), py = Int((y + sin(a) * r * 1.3).rounded())
+                            if px >= 0, py >= 0, px < w, py < h, values[py * w + px] < threshold { exterior += 1 }
+                        }
+                        guard exterior >= 18 else { continue }
+                        let center = CGPoint(x: (x + 0.5) * Double(step) / Double(width), y: (y + 0.5) * Double(step) / Double(height))
+                        guard !result.contains(where: { $0.bounds.contains(center) }) else { continue }
+                        result.append(CameraLightPoint(point: center,
+                            bounds: CGRect(x: (x - r) * Double(step) / Double(width), y: (y - r) * Double(step) / Double(height),
+                                           width: r * 2 * Double(step) / Double(width), height: r * 2 * Double(step) / Double(height)),
+                            contrast: Double(values[index] - background), isDisc: true))
+                        if result.count >= 32 { break }
+                    }
+                    continue
+                }
+                let centerX = min(w - 1, max(0, Int((sx / sum).rounded())))
+                let centerY = min(h - 1, max(0, Int((sy / sum).rounded())))
+                guard values[centerY * w + centerX] >= minimumCore else { continue }
+                let center = CGPoint(x: (sx / sum + 0.5) * Double(step) / Double(width),
+                                     y: (sy / sum + 0.5) * Double(step) / Double(height))
+                // Several thresholds of the same disc are one optical observation.
+                guard !result.contains(where: { $0.bounds.insetBy(dx: -Double(step) / Double(width), dy: -Double(step) / Double(height)).contains(center) }) else { continue }
+                result.append(
+                    CameraLightPoint(
+                        point: CGPoint(
+                            x: (sx / sum + 0.5) * Double(step) / Double(width),
+                            y: (sy / sum + 0.5) * Double(step) / Double(height)),
+                        bounds: CGRect(
+                            x: Double(minX * step) / Double(width), y: Double(minY * step) / Double(height),
+                            width: Double(bw * step) / Double(width), height: Double(bh * step) / Double(height)),
+                        contrast: Double(peak - background), isDisc: true))
             }
-            let bw = maxX - minX + 1
-            let bh = maxY - minY + 1
-            guard queue.count >= 3, queue.count < w * h / 12, sum > 0,
-                minX > 0, minY > 0, maxX < w - 1, maxY < h - 1,
-                Double(max(bw, bh)) / Double(min(bw, bh)) < 2,
-                Double(queue.count) / Double(bw * bh) > 0.35
-            else { continue }
-            result.append(
-                CameraLightPoint(
-                    point: CGPoint(
-                        x: (sx / sum + 0.5) * Double(step) / Double(width),
-                        y: (sy / sum + 0.5) * Double(step) / Double(height)),
-                    bounds: CGRect(
-                        x: Double(minX * step) / Double(width), y: Double(minY * step) / Double(height),
-                        width: Double(bw * step) / Double(width), height: Double(bh * step) / Double(height)),
-                    contrast: Double(peak - background), isDisc: true))
         }
-        return result.sorted { $0.contrast > $1.contrast }.prefix(8).map { $0 }
+        // A broad solar core must not be crowded out by tiny bright cloud specks.
+        return result.sorted { $0.contrast * sqrt($0.bounds.width * $0.bounds.height) > $1.contrast * sqrt($1.bounds.width * $1.bounds.height) }.prefix(8).map { $0 }
     }
 
 }

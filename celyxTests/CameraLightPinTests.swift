@@ -79,8 +79,8 @@ struct CameraLightPinTests {
     @Test func selectingAReferenceRequiresFreshLightInsideTheReticle() {
         let pin = CameraLightPin(direction: ray, time: 10, observations: 2)
         #expect(pin.canUseAsReference(at: 10.5, distance: 28))
-        #expect(!pin.canUseAsReference(at: 10.7, distance: 0))
-        #expect(!pin.canUseAsReference(at: 10.1, distance: 29))
+        #expect(!pin.canUseAsReference(at: 12.1, distance: 0))
+        #expect(!pin.canUseAsReference(at: 10.1, distance: 161))
         #expect(!pin.canUseAsReference(at: 9.9, distance: 0))
     }
 

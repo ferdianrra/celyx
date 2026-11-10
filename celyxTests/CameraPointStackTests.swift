@@ -86,9 +86,24 @@ struct CameraPointStackTests {
         #expect(stack.progress == 1)
         _ = stack.detect(in:buffer,intrinsics:intrinsics,pose:matrix_identity_float4x4,time:2,region:region)
         #expect(abs(stack.progress-1.0/6) < 0.001)
-        let turned = simd_float4x4(simd_quatf(angle:0.1,axis:SIMD3(0,1,0)))
+        let turned = simd_float4x4(simd_quatf(angle:0.2,axis:SIMD3(0,1,0)))
         _ = stack.detect(in:buffer,intrinsics:intrinsics,pose:turned,time:2.2,region:region)
         #expect(abs(stack.progress-1.0/6) < 0.001)
+    }
+
+    @Test func aFewDegreesOfCompensatedHandMovementDoNotRestartTheFaintSourceStack() throws {
+        var stack = CameraPointStack()
+        var detections: [CameraLightPoint] = []
+        var expectedX = 160.0
+        for frame in 0..<8 {
+            let angle = Double(frame) * 0.45 * .pi / 180
+            expectedX = 160 + 280 * tan(angle)
+            let pose = simd_float4x4(simd_quatf(angle: Float(angle), axis: SIMD3(0, 1, 0)))
+            detections = stack.detect(in: try image(frame: frame, centerX: expectedX, amplitude: 8),
+                intrinsics: intrinsics, pose: pose, time: Double(frame) * 0.2, region: region)
+        }
+        #expect(stack.progress == 1)
+        #expect(detections.contains { hypot($0.point.x * 320 - expectedX, $0.point.y * 240 - 120) < 3 })
     }
 
     @Test func stackingIsLimitedToNightAndAboveHorizon() {

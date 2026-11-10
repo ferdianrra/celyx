@@ -16,7 +16,7 @@ import simd
             !CameraTargetSelection.continuesSingleSource(
                 previousPoint: center,
                 point: CGPoint(x: center.x + 80, y: center.y), gap: 0.12))
-        #expect(!CameraTargetSelection.continuesSingleSource(previousPoint: center, point: center, gap: 1))
+        #expect(!CameraTargetSelection.continuesSingleSource(previousPoint: center, point: center, gap: 2))
         #expect(!CameraTargetSelection.continuesSingleSource(previousPoint: nil, point: center, gap: 0.12))
     }
 
@@ -41,7 +41,7 @@ import simd
     @Test func movingFromCanopusToAnotherLightStartsScanningWithoutCollectingCanopus() {
         #expect(
             CameraTargetSelection.beginsNewSource(
-                previousPoint: CGPoint(x: 270, y: 400),
+                previousPoint: CGPoint(x: 380, y: 400),
                 newPoint: center, center: center, observations: 3))
         #expect(
             CameraTargetSelection.beginsNewSource(
@@ -54,8 +54,8 @@ import simd
         #expect(
             !CameraTargetSelection.beginsNewSource(
                 previousPoint: shifted,
-                newPoint: center, center: center, observations: 3))
-        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: 350, y: 400), center: center))
+                newPoint: CGPoint(x: 232, y: 400), center: center, observations: 3))
+        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: 380, y: 400), center: center))
         #expect(!CameraTargetSelection.keepsRetainedTarget(at: nil, center: center))
     }
     @Test func oneFlickeringPixelDoesNotTakeOverTheSelectedSource() {
