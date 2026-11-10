@@ -15,6 +15,7 @@ struct GardenCameraLayer: View {
     var zodiacFigures: [GardenZodiacFigure] = []
     var equatorial: simd_double3x3?
     var isActive = true
+    var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
     let onSelect: (GardenCollectionItem) -> Void
 
     @State private var session = ARSession()
@@ -32,7 +33,7 @@ struct GardenCameraLayer: View {
         GeometryReader { geometry in
             ZStack {
                 SkyCameraPreview(session:session,onViewport:{ size,_ in viewport = size })
-                TimelineView(.animation(paused:!isActive)) { _ in
+                TimelineView(.animation(paused:!isActive)) { timeline in
                     let size = viewport == .zero ? geometry.size : viewport
                     let sprites = project(in:size)
                     ZStack {
@@ -68,6 +69,16 @@ struct GardenCameraLayer: View {
                             .frame(maxHeight:.infinity,alignment:.bottom).padding(.bottom,140)
                             .allowsHitTesting(false)
                     }
+                    }
+                    .onChange(of: timeline.date) { _, _ in
+                        guard let onCameraUpdate, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
+                        let freeze = WormholeFreeze.make(image: nil, size: size,
+                            view: frame.camera.viewMatrix(viewRotationAngle: 90),
+                            projection: frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000),
+                            alignment: simd_quatf(angle: 0, axis: SIMD3(0, 1, 0)))
+                        var pose = NightSeaCamera()
+                        pose.orientation = freeze.orientation; pose.focalOverride = freeze.focal
+                        onCameraUpdate(pose)
                     }
                 }
             }

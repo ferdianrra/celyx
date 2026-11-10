@@ -64,8 +64,12 @@ final class WormholeHandover: Identifiable {
         case landed
         /// The Night Sea has taken over (the camera layer is gone); still looking at the star.
         case reframe
-        /// The card was closed: blending back to the garden's own camera (gyro / drag).
+        /// The landed star/constellation is framed before revealing its new artwork.
+        case focusing
+        case revealing
+        /// Blend to the latest live gyro / touch camera before presenting the album.
         case releasing
+        case presenting
         case done
         static func < (a: Phase,b: Phase) -> Bool { a.rawValue < b.rawValue }
     }
@@ -89,15 +93,21 @@ final class WormholeHandover: Identifiable {
     private(set) var phase: Phase = .wormhole
     /// Set when the sheet should spring in.
     private(set) var showsSheet = false
-    /// ms at which the card's arrival lifts the star to the area above it, and at which control was handed back.
-    private var sheetAt: Double?
+    /// Beginning of the smooth return to the live camera.
     private var releaseAt: Double?
+    @ObservationIgnored private var focusPose: NightSeaCamera?
+    var focusStart: Double { landing + WormholeTimeline.flyEnd + 560 }
+    var revealAt: Double { focusStart + 800 }
+    var returnAt: Double { revealAt + 2700 }
+    static let returnDuration: Double = 1100
+    var revealIsVisible: Bool { phase >= .revealing }
 
     /// Night Sea field of view (kit convention: focal = 0.62·min(W,H)/tan(fov/2)) of the frozen camera.
     let baseFieldOfView: Double
 
     /// The garden's own camera to hand back to (kept current by the garden while releasing).
     @ObservationIgnored var target: NightSeaCamera?
+    @ObservationIgnored var liveCamera: NightSeaCamera?
 
     init(freeze: WormholeFreeze,star: CGPoint,itemID: Int?,scene: WormholeScene,demo: WormholeDemo? = nil) {
         self.freeze = freeze
@@ -117,26 +127,62 @@ final class WormholeHandover: Identifiable {
         WormholeTimeline.frame(tt,size:freeze.size,star:star,landing:landing)
     }
 
-    /// Drives the phases; the caller reacts to `phase` / `showsSheet`.
-    func run() async {
-        func wait(until ms: Double) async {
-            let delay = ms-tt()
-            if delay > 0 { try? await Task.sleep(for:.milliseconds(Int(delay))) }
+    /// No sheet is requested until placement, focus, reveal, hold, and live-camera return finish.
+    /// The optional wait closure lets tests verify ordering without wall-clock sleeps.
+    func run(reduceMotion: Bool = false, waitUntil: ((Double) async throws -> Void)? = nil) async {
+        func wait(_ ms: Double) async throws {
+            if let waitUntil { try await waitUntil(ms) }
+            else {
+                let delay = ms - tt()
+                if delay > 0 { try await Task.sleep(for: .milliseconds(delay)) }
+            }
+            try Task.checkCancellation()
         }
-        await wait(until:landing); phase = .landed
-        await wait(until:cross); phase = .reframe
-        await wait(until:cross+WormholeTimeline.sheetDelay)
-        if itemID != nil { sheetAt = tt(); showsSheet = true } else { beginRelease() }
+        do {
+            if !reduceMotion { try await wait(landing) }
+            phase = .landed
+            if !reduceMotion { try await wait(cross) }
+            phase = .reframe
+            if !reduceMotion { try await wait(focusStart) }
+            phase = .focusing
+            if !reduceMotion { try await wait(revealAt) }
+            phase = .revealing
+            try await wait(reduceMotion ? tt() + 700 : returnAt)
+            beginRelease()
+            if !reduceMotion { try await wait(releaseAt! + Self.returnDuration) }
+            phase = .presenting
+            if !reduceMotion { try await wait(tt() + 350) }
+            if itemID != nil { showsSheet = true } else { finish() }
+        } catch { finish() }
     }
 
-    /// The card was closed (or there is none): hand the view back to the garden over 600 ms.
     func beginRelease() {
         guard phase < .releasing else { return }
         releaseAt = tt(); phase = .releasing
-        Task { @MainActor in
-            try? await Task.sleep(for:.milliseconds(Int(WormholeTimeline.releaseDuration)))
-            phase = .done
+    }
+
+    func finish() { showsSheet = false; phase = .done }
+
+    /// Fit collected neighbors (or the completed pattern) inside a comfortable screen margin.
+    func configureFocus(directions: [SIMD3<Double>]) {
+        let points = directions.isEmpty ? [starDirection] : directions
+        let sum = points.reduce(SIMD3<Double>.zero, +)
+        let forward = simd_length(sum) > 0.001 ? simd_normalize(sum) : starDirection
+        var right = simd_cross(forward, SIMD3<Double>(0, 0, 1))
+        if simd_length(right) < 0.001 { right = freeze.orientation.act(SIMD3(1, 0, 0)) }
+        right = simd_normalize(right)
+        let up = simd_cross(right, forward)
+        var focal = focal(forFieldOfView: 28)
+        for point in points {
+            let z = max(0.06, simd_dot(point, forward))
+            let x = abs(simd_dot(point, right)) / z, y = abs(simd_dot(point, up)) / z
+            if x > 0.001 { focal = min(focal, Double(freeze.size.width) * 0.34 / x) }
+            if y > 0.001 { focal = min(focal, Double(freeze.size.height) * 0.34 / y) }
         }
+        var camera = NightSeaCamera()
+        camera.orientation = WormholeFreeze.orientation(forward: forward, right: right, up: up)
+        camera.focalOverride = max(self.focal(forFieldOfView: 110), focal)
+        focusPose = camera
     }
 
     // MARK: Camera
@@ -170,8 +216,8 @@ final class WormholeHandover: Identifiable {
 
     /// The camera the Night Sea is seen through: frozen pose + hand sway (until T_LAND) + fov pull, then from
     /// T_LAND it locks and eases onto the collected star (gyro ignored); the landing shake rides on top and dies
-    /// out on the star. When the card rises the star moves to the middle of the area above it. On release it
-    /// blends back to the garden's own camera.
+    /// out on the star. It then frames the connected stars, reveals the artwork, and blends back to
+    /// the live garden camera before the album is presented.
     func pinhole(_ tt: Double,frame f: WormholeTimeline.Frame) -> Pinhole {
         let t = tt/1000
         let jitter = tt >= landing ? 0 : f.jitter
@@ -187,16 +233,20 @@ final class WormholeHandover: Identifiable {
         let shaken = simd_quatd(angle:-az,axis:SIMD3(0,0,1))*base*simd_quatd(angle:glide,axis:SIMD3(1,0,0))
         let fov = WormholeTimeline.mix(baseFieldOfView,WormholeTimeline.landingFieldOfView,lock)+f.pull+flight.fov
         let pinFocal = focal(forFieldOfView:fov)
-        var centerY = 0.5
-        if let sheetAt { centerY = WormholeTimeline.mix(0.5,WormholeTimeline.sheetStarY,ease(WormholeTimeline.seg(tt,sheetAt,sheetAt+500))) }
+        let centerY = 0.5
         var result = Pinhole(orientation:shaken,focal:pinFocal,centerY:centerY,imageScale:freeze.focal/pinFocal,
                              imageShift:CGVector(dx:freeze.focal*az,dy:-freeze.focal*alt))
+        if let focusPose {
+            let focus = ease(WormholeTimeline.seg(tt, focusStart, revealAt))
+            result.orientation = simd_slerp(result.orientation, Self.orientation(of: focusPose), focus)
+            result.focal = exp(WormholeTimeline.mix(log(result.focal), log(focusPose.focalLength(in: freeze.size)), focus))
+        }
         guard let releaseAt, let goal = target else { return result }
-        let r = ease(WormholeTimeline.seg(tt,releaseAt,releaseAt+WormholeTimeline.releaseDuration))
+        let r = ease(WormholeTimeline.seg(tt,releaseAt,releaseAt+Self.returnDuration))
         let goalFocal = goal.focalLength(in:freeze.size)
         let goalFov = 2*atan(0.62*Double(min(freeze.size.width,freeze.size.height))/goalFocal)*180 / .pi
-        result.orientation = simd_slerp(shaken,Self.orientation(of:goal),r)
-        result.focal = focal(forFieldOfView:WormholeTimeline.mix(fov,goalFov,r))
+        result.orientation = simd_slerp(result.orientation,Self.orientation(of:goal),r)
+        result.focal = exp(WormholeTimeline.mix(log(result.focal), log(focal(forFieldOfView: goalFov)), r))
         result.centerY = WormholeTimeline.mix(centerY,goal.center(in:CGSize(width:1,height:1)).y,r)
         return result
     }

@@ -69,6 +69,13 @@ final class WormholeFeedback {
         }
     }
 
+    /// The album follows the reveal and gyro return, rather than a fixed capture-time delay.
+    func playSheet() {
+        prepare()
+        guard let player = players[.sheet] else { return }
+        player.stop(); player.currentTime = 0; player.volume = volume; player.play()
+    }
+
     func stop() {
         players.values.forEach { $0.stop() }
         engine?.stop(completionHandler:nil)
@@ -99,7 +106,6 @@ final class WormholeFeedback {
         start(.swell,at:TL-Self.swellCut)   // its hard stop lands exactly on T_LAND
         start(.boom,at:TL)
         start(.ping,at:TL+WormholeTimeline.flyEnd/1000-0.03)   // the star taking its place
-        start(.sheet,at:TL+(WormholeTimeline.crossDelay+WormholeTimeline.sheetDelay)/1000)
     }
 
     // MARK: Haptics
