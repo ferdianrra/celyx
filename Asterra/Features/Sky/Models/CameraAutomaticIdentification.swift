@@ -24,6 +24,13 @@ struct CameraAutomaticIdentification {
         lastSupport = observedAt
         count = candidate == nil ? 0 : count + 1
     }
+    /// Missing heading quality is not contradictory identity evidence. Preserve
+    /// the last real photo for this same disc, without renewing its timestamp.
+    mutating func updateSolarDisc(_ assessment: CameraCandidateAssessment, sourceID: Int, observedAt: TimeInterval) {
+        if assessment.issue == .compass, self.sourceID == sourceID { return }
+        update(candidate: assessment.match, sourceID: sourceID, observedAt: observedAt)
+    }
+
     /// A geometric re-sighting can regain a new optical ID after blur. Preserve
     /// the name decision, but never refresh its optical timestamp without pixels.
     mutating func continueSource(from oldID: Int?, to newID: Int) {

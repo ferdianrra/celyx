@@ -3,6 +3,13 @@ import Foundation
 
 /// Keep a captured frame through hand shake, without locking the next scan to that target.
 nonisolated enum CameraTargetSelection {
+    /// Presentation starts near the visible reticle; optical discovery remains wider.
+    static let reticleEntryRadius: CGFloat = 28
+    static func canAcquireInReticle(at point: CGPoint, center: CGPoint) -> Bool {
+        let distance = hypot(point.x - center.x, point.y - center.y)
+        return distance.isFinite && distance <= reticleEntryRadius
+    }
+
     @MainActor static func captureEvidence(
         for starID: Int, live: CameraStarAnnotation?, retained: CameraStarAnnotation?
     ) -> CameraStarAnnotation? {

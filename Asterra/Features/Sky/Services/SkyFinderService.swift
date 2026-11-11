@@ -42,6 +42,13 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     @ObservationIgnored private var lastMappingAttempt: TimeInterval = -1
     var isMappingSky: Bool { alignment.requiresCalibration && automaticMapping.isSearching && singleLightCandidate == nil }
     var automaticMappingMessage: String {
+        if pinnedLight?.isDisc == true {
+            switch singleLightIssue {
+            case .compass: return "Light found. Move slowly while the compass direction recovers."
+            case .noCandidate, .ambiguous: return "Bright disc found. Checking its sky position…"
+            default: return "Checking this bright disc…"
+            }
+        }
         if pinnedLight != nil { return "Scanning this light…" }
         return "Point your camera toward a star or planet"
     }
@@ -1369,17 +1376,24 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         }
         if didDetect {
             let angular = scanDirections.map { ($0.0, alignedDirection($0.1)) }
-            let fresh = opticalTracks.filter {
-                guard $0.time == observationTime, $0.direction.y > 0 else { return false }
-                return !$0.isDisc || CameraSolarDiscPolicy.assess(direction: $0.direction, isDisc: true,
+            let observed = opticalTracks.filter { $0.time == observationTime && $0.direction.y > 0 }
+            let matchedDiscs = observed.filter { track in
+                track.isDisc && CameraSolarDiscPolicy.assess(direction: track.direction, isDisc: true,
                     headingAccuracy: cameraHeadingAccuracy, hasReferenceAlignment: hasReferenceAlignment,
                     candidates: angular).match != nil
             }
             let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
-            // A matched real solar disc near the aim takes priority over a compact
-            // unclassified flare. It still needs repeated optical support.
-            let solar = CameraSolarDiscPolicy.preferredCore(from: fresh, center: center, project: projectLight)
-            if let selected = solar ?? CameraTrackingPolicy.select(fresh: fresh, pinned: pinnedLight, now: time,
+            // Track a real central disc even while heading recovers. Detection
+            // and naming are separate: this fallback cannot itself unlock Collect.
+            let centralDisc = permitsPoints ? nil : CameraSolarDiscPolicy.preferredCore(
+                from: observed.filter { track in
+                    guard let point = projectLight(track.direction) else { return false }
+                    return CameraTargetSelection.canAcquireInReticle(at: point, center: center)
+                }, center: center, project: projectLight)
+            let solar = CameraSolarDiscPolicy.preferredCore(from: matchedDiscs, center: center, project: projectLight)
+            var fresh = observed.filter { !$0.isDisc } + matchedDiscs
+            if let centralDisc, !fresh.contains(where: { $0.id == centralDisc.id }) { fresh.append(centralDisc) }
+            if let selected = solar ?? centralDisc ?? CameraTrackingPolicy.select(fresh: fresh, pinned: pinnedLight, now: time,
                 center: center, currentAim: forward, project: projectLight) {
                 if pinnedLight?.isDisc == selected.isDisc,
                     CameraTrackingPolicy.continuesPinnedSource(selected, pinned: pinnedLight, fresh: fresh) {
@@ -1648,7 +1662,11 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         singleLightCandidate = result.match
         singleLightIssue = result.issue
         if let sourceID = pin.opticalID {
-            automaticIdentification.update(candidate: result.match, sourceID: sourceID, observedAt: pin.lastSeen)
+            if pin.isDisc {
+                automaticIdentification.updateSolarDisc(result, sourceID: sourceID, observedAt: pin.lastSeen)
+            } else {
+                automaticIdentification.update(candidate: result.match, sourceID: sourceID, observedAt: pin.lastSeen)
+            }
         }
     }
 

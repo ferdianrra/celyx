@@ -7,6 +7,17 @@ import simd
 @MainActor struct CameraTargetSelectionTests {
     private let center = CGPoint(x: 200, y: 400)
 
+    @Test func acquisitionNeedsTheFixedCenterButExistingExitToleranceStaysWide() {
+        #expect(CameraTargetSelection.canAcquireInReticle(at: center, center: center))
+        #expect(CameraTargetSelection.canAcquireInReticle(at: CGPoint(x: center.x + 28, y: center.y), center: center))
+        for offset in [29.0, 80.0, 160.0] {
+            let point = CGPoint(x: center.x + offset, y: center.y)
+            #expect(!CameraTargetSelection.canAcquireInReticle(at: point, center: center))
+            #expect(CameraTargetSelection.keepsRetainedTarget(at: point, center: center))
+        }
+        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: center.x + 161, y: center.y), center: center))
+    }
+
     @Test func oneContinuouslyVisiblePointSurvivesASmallWorldProjectionShift() {
         #expect(
             CameraTargetSelection.continuesSingleSource(

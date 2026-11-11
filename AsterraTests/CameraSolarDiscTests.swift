@@ -147,6 +147,56 @@ private final class SolarDiscFixtureBundle: NSObject {}
         }
     }
 
+    @Test func anUnalignedDiscToleratesSmallYawBiasButReferenceAlignmentRemainsStrict() {
+        let biased = simd_quatf(angle: 8 * .pi / 180, axis: SIMD3<Float>(0, 1, 0)).act(ray)
+        #expect(CameraSolarDiscPolicy.assess(direction: biased, isDisc: true,
+            headingAccuracy: 2, hasReferenceAlignment: false, candidates: [(.sun, ray)]).match?.star.isSun == true)
+        #expect(CameraSolarDiscPolicy.assess(direction: biased, isDisc: true,
+            headingAccuracy: 2, hasReferenceAlignment: true, candidates: [(.sun, ray)]).match == nil)
+        let wrongHeight = simd_normalize(SIMD3<Float>(0, 0.8, -0.6))
+        #expect(CameraSolarDiscPolicy.assess(direction: wrongHeight, isDisc: true,
+            headingAccuracy: 2, hasReferenceAlignment: false, candidates: [(.sun, ray)]).match == nil)
+    }
+
+    @Test func compassLossKeepsOnlyThePreviouslySupportedDiscPhotoWithoutFabricatingFreshEvidence() {
+        let valid = CameraSolarDiscPolicy.assess(direction: ray, isDisc: true,
+            headingAccuracy: 2, hasReferenceAlignment: false, candidates: [(.sun, ray)])
+        let missingCompass = CameraSolarDiscPolicy.assess(direction: ray, isDisc: true,
+            headingAccuracy: nil, hasReferenceAlignment: false, candidates: [(.sun, ray)])
+        var decision = CameraAutomaticIdentification()
+        for time in [10.0, 10.25, 10.5] { decision.updateSolarDisc(valid, sourceID: 1, observedAt: time) }
+        decision.updateSolarDisc(missingCompass, sourceID: 1, observedAt: 12)
+        #expect(decision.stableMatch?.star.isSun == true)
+        #expect(decision.freshMatch(at: 12) == nil)
+        #expect(decision.canOfferCapturedPhoto(starID: CatalogStar.sun.id, sourceID: 1, at: 12))
+        #expect(!decision.canOfferCapturedPhoto(starID: CatalogStar.sun.id, sourceID: 1, at: 17))
+        decision.updateSolarDisc(.init(match: nil, issue: .noCandidate), sourceID: 1, observedAt: 12.1)
+        #expect(decision.stableMatch == nil)
+        decision.updateSolarDisc(missingCompass, sourceID: 2, observedAt: 13)
+        #expect(decision.stableMatch == nil)
+        #expect(decision.freshMatch(at: 13) == nil)
+    }
+
+    @Test func aDiscWithWindowSmearAndDustCanStillBeExtracted() throws {
+        var output: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 640, 480, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, nil, &output)
+        let image = try #require(output)
+        CVPixelBufferLockBaseAddress(image, [])
+        let bytes = try #require(CVPixelBufferGetBaseAddressOfPlane(image, 0)).assumingMemoryBound(to: UInt8.self)
+        let row = CVPixelBufferGetBytesPerRowOfPlane(image, 0)
+        for y in 0..<480 { for x in 0..<640 {
+            let dx = x - 320, dy = y - 240
+            let core = dx * dx + dy * dy <= 14 * 14
+            let streak = abs(dx) <= 2 && abs(dy) < 65
+            let dust = (x * 37 + y * 19) % 173 == 0
+            bytes[y * row + x] = core || streak ? 255 : dust ? 95 : 150
+        } }
+        CVPixelBufferUnlockBaseAddress(image, [])
+        let sources = CameraStarDetector.detectDiscs(in: image, daylight: true)
+        let core = try #require(sources.first { hypot($0.point.x * 640 - 320, $0.point.y * 480 - 240) < 8 })
+        #expect(CameraSkyContext.permits(core.point, in: image, isDisc: true, sourceBounds: core.bounds))
+    }
+
     @Test func flareWrongDirectionAndBelowHorizonCannotAcquireTheSun() {
         let wrong = simd_quatf(angle: 30 * .pi / 180, axis: SIMD3<Float>(0, 1, 0)).act(ray)
         let below = SIMD3<Float>(0, -0.6, -0.8)
