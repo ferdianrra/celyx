@@ -84,20 +84,32 @@ private struct WormholeMetalView: UIViewRepresentable {
         let view = WormholeMTKView(frame:.zero,device:MTLCreateSystemDefaultDevice())
         view.colorPixelFormat = .bgra8Unorm
         view.framebufferOnly = true
-        view.preferredFramesPerSecond = 120
+        view.preferredFramesPerSecond = 60
+        view.isPaused = true
         view.isOpaque = false
         view.backgroundColor = .clear
         view.layer.isOpaque = false
         view.clearColor = MTLClearColorMake(0,0,0,0)
-        if let renderer = try? WormholeRenderer(view:view,handover:handover) {
-            context.coordinator.renderer = renderer
+        let coordinator = context.coordinator
+        coordinator.installation = Task { [weak view, weak coordinator] in
+            guard let renderer = try? await WormholeRenderer.make(handover: handover),
+                  let view, let coordinator, !Task.isCancelled else { return }
+            coordinator.renderer = renderer
             view.delegate = renderer
+            view.isPaused = false
         }
         return view
     }
     func updateUIView(_ view: MTKView,context: Context) {}
-    static func dismantleUIView(_ view: MTKView,coordinator: Coordinator) { view.isPaused = true; view.delegate = nil }
-    final class Coordinator { var renderer: WormholeRenderer? }
+    static func dismantleUIView(_ view: MTKView,coordinator: Coordinator) {
+        coordinator.installation?.cancel()
+        view.isPaused = true
+        view.delegate = nil
+    }
+    final class Coordinator {
+        var installation: Task<Void, Never>?
+        var renderer: WormholeRenderer?
+    }
 }
 
 /// Same 2× cap as the Night Sea view, so the cross into the garden is pixel-identical.
@@ -121,6 +133,41 @@ private struct WormPoint {
     var color: SIMD4<Float>
 }
 
+/// The pipelines and sky texture are shared across captures and prepared off the main actor.
+/// The texture's upload completes during initialization, and renderers only sample it afterward.
+private nonisolated struct WormholeResources: @unchecked Sendable {
+    let device: MTLDevice
+    let pointPipeline: MTLRenderPipelineState
+    let wormPipeline: MTLRenderPipelineState
+    let milkyWay: MTLTexture
+
+    init() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw CocoaError(.featureUnsupported) }
+        self.device = device
+        let sea = try String(contentsOf:SkyAssets.url("NightSeaShader",extension:"txt"),encoding:.utf8)
+        let wormhole = try String(contentsOf:SkyAssets.url("WormholeShader",extension:"txt"),encoding:.utf8)
+        let source = sea+"\n"+wormhole
+        let library = try device.makeLibrary(source:source,options:nil)
+        let points = MTLRenderPipelineDescriptor()
+        points.vertexFunction = library.makeFunction(name:"gardenPointVertex")
+        points.fragmentFunction = library.makeFunction(name:"gardenPointFragment")
+        let attachment = points.colorAttachments[0]!
+        attachment.pixelFormat = .rgba8Unorm
+        attachment.isBlendingEnabled = true
+        attachment.sourceRGBBlendFactor = .one
+        attachment.sourceAlphaBlendFactor = .one
+        attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+        attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        pointPipeline = try device.makeRenderPipelineState(descriptor:points)
+        let worm = MTLRenderPipelineDescriptor()
+        worm.vertexFunction = library.makeFunction(name:"seaVertex")
+        worm.fragmentFunction = library.makeFunction(name:"wormholeFragment")
+        worm.colorAttachments[0].pixelFormat = .bgra8Unorm
+        wormPipeline = try device.makeRenderPipelineState(descriptor:worm)
+        milkyWay = try NightSeaRenderer.loadMilkyWay(device:device)
+    }
+}
+
 @MainActor
 final class WormholeRenderer: NSObject, MTKViewDelegate {
     private let handover: WormholeHandover
@@ -140,31 +187,26 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
     private let mid = SIMD4<Float>(13/255,24/255,68/255,0)
     private let horizon = SIMD4<Float>(58/255,93/255,147/255,0)
 
-    init(view: MTKView,handover: WormholeHandover) throws {
-        guard let device = view.device, let queue = device.makeCommandQueue() else { throw CocoaError(.featureUnsupported) }
+    private static let preparation = Task.detached(priority: .userInitiated) {
+        try WormholeResources()
+    }
+
+    static func prepare() { _ = preparation }
+
+    static func make(handover: WormholeHandover) async throws -> WormholeRenderer {
+        let resources = try await preparation.value
+        try Task.checkCancellation()
+        return try WormholeRenderer(resources: resources, handover: handover)
+    }
+
+    private init(resources: WormholeResources, handover: WormholeHandover) throws {
+        let device = resources.device
+        guard let queue = device.makeCommandQueue() else { throw CocoaError(.featureUnsupported) }
         self.handover = handover
         self.queue = queue
-        let sea = try String(contentsOf:SkyAssets.url("NightSeaShader",extension:"txt"),encoding:.utf8)
-        let wormhole = try String(contentsOf:SkyAssets.url("WormholeShader",extension:"txt"),encoding:.utf8)
-        let source = sea+"\n"+wormhole
-        let library = try device.makeLibrary(source:source,options:nil)
-        let points = MTLRenderPipelineDescriptor()
-        points.vertexFunction = library.makeFunction(name:"gardenPointVertex")
-        points.fragmentFunction = library.makeFunction(name:"gardenPointFragment")
-        let attachment = points.colorAttachments[0]!
-        attachment.pixelFormat = .rgba8Unorm
-        attachment.isBlendingEnabled = true
-        attachment.sourceRGBBlendFactor = .one
-        attachment.sourceAlphaBlendFactor = .one
-        attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
-        attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
-        pointPipeline = try device.makeRenderPipelineState(descriptor:points)
-        let worm = MTLRenderPipelineDescriptor()
-        worm.vertexFunction = library.makeFunction(name:"seaVertex")
-        worm.fragmentFunction = library.makeFunction(name:"wormholeFragment")
-        worm.colorAttachments[0].pixelFormat = view.colorPixelFormat
-        wormPipeline = try device.makeRenderPipelineState(descriptor:worm)
-        milkyWay = try NightSeaRenderer.loadMilkyWay(device:device)
+        pointPipeline = resources.pointPipeline
+        wormPipeline = resources.wormPipeline
+        milkyWay = resources.milkyWay
         let loader = MTKTextureLoader(device:device)
         if let image = handover.freeze.image {
             cameraTexture = try loader.newTexture(cgImage:image,options:[.SRGB:false,.textureStorageMode:MTLStorageMode.private.rawValue])

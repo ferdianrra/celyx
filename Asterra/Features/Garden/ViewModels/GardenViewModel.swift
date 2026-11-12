@@ -61,15 +61,34 @@ final class GardenViewModel {
             excluding: demo.map { [$0.item.id] } ?? [])
         background = scene.background
         placed = scene.placed
-        constellationConnections = GardenConstellationConnection.resolve(
-            figures: constellationFigures, items: model.collectionItems)
-        completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(model.collected.keys))
+        applyPlacement(moon: scene.moon, equatorial: scene.equatorial)
+    }
+
+    /// Use the exact positions already rendered in the wormhole for the landing.
+    func place(using scene: WormholeScene) {
+        var collectedObjects: [Int: NightSeaObject] = [:]
+        background = scene.objects.filter { object in
+            if object.kind == .background { return true }
+            collectedObjects[object.id] = object
+            return false
+        }
+        placed = model.collectionItems.compactMap { item in
+            collectedObjects[item.id].map { GardenPlacedObject(item: item, object: $0) }
+        }
+        applyPlacement(moon: scene.moon, equatorial: scene.equatorial)
+    }
+
+    private func applyPlacement(moon: (direction: SIMD3<Double>, illumination: Double)?,
+                                equatorial: simd_double3x3?) {
         if let demo {
             placed.removeAll { $0.id == demo.item.id }
             placed.append(GardenPlacedObject(item: demo.item, object: demo.object))
         }
-        moon = scene.moon
-        equatorial = scene.equatorial
+        self.moon = moon
+        self.equatorial = equatorial
+        constellationConnections = GardenConstellationConnection.resolve(
+            figures: constellationFigures, items: model.collectionItems)
+        completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(model.collected.keys))
     }
 
     /// Every collected object at its real (refracted) position for this place and time, plus the

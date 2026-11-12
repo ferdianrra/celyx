@@ -119,7 +119,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     /// so every sample had blue = 1 and the whole sky and sea got a flat blue haze.)
     /// NASA/Goddard SVS "Deep Star Maps 2020" Milky Way (no point stars), aligned to RA/Dec by
     /// scripts/make_nasa_milky_way.swift. Credit in Resources/LICENSES.md.
-    static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
+    nonisolated static func loadMilkyWay(device: MTLDevice) throws -> MTLTexture {
         let url = try SkyAssets.url("garden-milky-way-nasa",extension:"jpg")
         guard let source = CGImageSourceCreateWithURL(url as CFURL,nil),
               let image = CGImageSourceCreateImageAtIndex(source,0,nil) else { throw CocoaError(.fileReadCorruptFile) }

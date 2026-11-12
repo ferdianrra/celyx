@@ -8,7 +8,7 @@ struct CollectionSheet: View {
     let onClose: () -> Void
 
     var body: some View {
-        ScrollView {
+        CelyxSheetScrollView {
             VStack(spacing: 16) {
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -100,7 +100,6 @@ private struct CollectionTile<Art: View>: View {
             )
             .presentationDetents([.height(300), .large])
             .presentationDragIndicator(.visible)
-            .presentationBackground { CelyxBluePanel() }
         }
         .preferredColorScheme(.dark)
 }

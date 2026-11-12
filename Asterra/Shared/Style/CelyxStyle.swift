@@ -148,16 +148,13 @@ extension View {
     }
 }
 
-/// Primary tinted-glass button: the gradient + glass stack from `celyxGlass`, pressed as one piece
-/// (a soft squash and a brief brighten), like the system glass buttons.
+/// The primary gradient under Apple's interactive Liquid Glass.
 struct CelyxTintedGlassButtonStyle: ButtonStyle {
     var glow: [CelyxInnerShadow] = .celyxPrimary
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .celyxGlass(glow,in:Capsule())
-            .brightness(configuration.isPressed ? 0.06 : 0)
-            .scaleEffect(configuration.isPressed ? 0.965 : 1)
-            .animation(.spring(duration:0.32,bounce:0.35),value:configuration.isPressed)
+            .glassEffect(.clear.interactive(), in: Capsule())
+            .background { CelyxInnerGlow(shape: Capsule(), layers: glow) }
             .environment(\.colorScheme,.dark)
     }
 }
@@ -306,19 +303,58 @@ struct CelyxScreenWash: View {
     }
 }
 
+/// Scrolls the artwork with the content and holds its top edge in place during pull-down bounce.
+struct CelyxSheetScrollView<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var topBounce: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            content.background(alignment: .top) {
+                artwork.offset(y: -topBounce)
+            }
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))
+        } action: { _, bounce in
+            topBounce = bounce
+        }
+    }
+
+    private var artwork: some View {
+        GeometryReader { geometry in
+            Image("background/background-sheet")
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                .clipped()
+                .overlay {
+                    Color.clear
+                        .glassEffect(.identity, in: .rect(cornerRadius: 32))
+                }
+        }
+        .frame(height: 230)
+        .mask {
+            LinearGradient(
+                stops: [.init(color: .white, location: 0),
+                        .init(color: .white, location: 0.5),
+                        .init(color: .clear, location: 1)],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 extension View {
-    /// A native SwiftUI sheet dressed as Figma "Liquid Glass – Regular – Medium" (node 936:1794):
-    /// the blue/charcoal glass surface with its 34pt corners, the design's 60×4 grabber instead of the
-    /// system drag indicator, and content starting 24pt from the top like the in-app sheets.
-    /// It stays a real sheet: detents, swipe-to-dismiss and the floating medium detent are system behaviour.
+    /// Native presentation with the calibration sheet's existing grabber.
     func celyxSheet(detents: Set<PresentationDetent> = [.medium,.large]) -> some View {
         safeAreaInset(edge:.top,spacing:0) {
             CelyxGrabber().frame(height:10,alignment:.top).padding(.bottom,14)
         }
         .presentationDetents(detents)
         .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(34)
-        .presentationBackground { CelyxBluePanel(cornerRadius:34) }
         .preferredColorScheme(.dark)
     }
 }
