@@ -269,20 +269,19 @@ struct HomeView: View {
     /// The toolbars come back once the tour points at them.
     /// During the tour the bottom bar shows only for steps about its buttons; the card takes its place otherwise.
     private var tourShowsBottomBar: Bool {
+        // Only while the card asks for one of its buttons; a card with its own button (Continue) never
+        // shares the screen with the toolbar's, so there is always exactly one thing to press.
         guard let onboarding else { return true }
-        switch onboarding.step {
-        case .camera, .landed, .ready: return true
+        switch onboarding.pointer {
+        case .cameraButton, .startCollecting: return true
         default: return false
         }
     }
 
     private var tourShowsChrome: Bool {
         guard let onboarding else { return true }
-        guard handover == nil else { return false }
-        switch onboarding.step {
-        case .camera, .landed, .collection, .calendar, .ready: return true
-        default: return false
-        }
+        // Toolbars appear only while the tour points at one of their controls.
+        return handover == nil && onboarding.pointer != nil
     }
 
     /// The tour's layers over the garden: its capture cue, wormhole, captions and coach overlay.
