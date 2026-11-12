@@ -8,8 +8,10 @@ struct OnboardingOverlay: View {
     let flow: OnboardingFlow
     /// The camera the user is looking through right now.
     let camera: NightSeaCamera
-    /// Home's toolbars are showing (keep the card above the bottom bar).
+    /// Home's bottom bar is showing (keep the card just above it).
     var chromeVisible = false
+    /// Home's top bar is showing (the Skip button steps aside).
+    var topBarVisible = false
 
     /// More forgiving than the real camera (28 / 56 pt): this is the first thing anyone collects.
     private let captureRadius: CGFloat = 40
@@ -54,14 +56,6 @@ struct OnboardingOverlay: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
 
-                if let pointer = flow.pointer, chromeVisible {
-                    // Spotlight on the real toolbar control the card asks for.
-                    let target = pointerTarget(pointer, size: size)
-                    OnboardingHighlight(size: target.size)
-                        .position(target.center)
-                        .id(pointer)
-                        .transition(.opacity)
-                }
 
                 // Tap anywhere to collect, only while the star is locked so swipes still reach the sky.
                 Color.clear.contentShape(Rectangle())
@@ -92,7 +86,7 @@ struct OnboardingOverlay: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if flow.step < .ready && flow.step != .wormhole && !chromeVisible {
+            if flow.step < .ready && flow.step != .wormhole && !chromeVisible && !topBarVisible {
                 Button("Skip Tour") { flow.finish() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.glass)
@@ -104,24 +98,6 @@ struct OnboardingOverlay: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.5, bounce: 0.12), value: flow.step)
         .onAppear { flow.reduceMotion = reduceMotion }
         .preferredColorScheme(.dark)
-    }
-
-    /// Where Home's toolbar controls sit (native toolbar layout, from the window's safe area).
-    private func pointerTarget(_ pointer: OnboardingFlow.Pointer, size: CGSize) -> (center: CGPoint, size: CGSize) {
-        let insets = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }
-            .first?.safeAreaInsets ?? .zero
-        let round = CGSize(width: 46, height: 46)
-        let bottomRow = size.height - insets.bottom - 19
-        switch pointer {
-        case .cameraButton: return (CGPoint(x: size.width - 48, y: bottomRow), round)
-        case .collectionButton: return (CGPoint(x: size.width - 100, y: insets.top + 22), round)
-        case .calendarButton: return (CGPoint(x: size.width - 45, y: insets.top + 22), round)
-        case .startCollecting:
-            // Home sizes Start Collecting as the width minus 118pt, left of the 50pt camera button.
-            let width = max(160, size.width - 118)
-            let left = size.width - 48 - 25 - 12 - width
-            return (CGPoint(x: left + width / 2, y: bottomRow), CGSize(width: width, height: 50))
-        }
     }
 
     private var crosshairState: CrosshairState {

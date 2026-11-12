@@ -32,6 +32,8 @@ struct HomeView: View {
     @State private var tourShutter: (start: Date, image: CGImage?)?
     @State private var tourCameraTimeout: Task<Void, Never>?
     @State private var didAutoStartTour = false
+    /// Where the tour's highlighted controls really are (measured, so it fits every device).
+    @State private var tourTargets: [OnboardingFlow.Pointer: CGRect] = [:]
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -100,14 +102,16 @@ struct HomeView: View {
             }
         }
         .overlay(alignment:.bottom) { pushedTourGuide }
+        // Above the toolbars, in window coordinates: the measured control the tour asks for glows and ripples.
+        .overlay { tourHighlight }
         .preferredColorScheme(.dark)
         .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
             CollectionSheet(counts:counts,onSelect:{ category in
                 pendingCollectionCategory = category
                 showsCollection = false
             },onClose:{ showsCollection = false })
-            .overlay(alignment:.bottom) { collectionTourGuide }
-            .presentationDetents([.height(300),.large])
+            .safeAreaInset(edge:.bottom,spacing:0) { collectionTourGuide }
+            .presentationDetents([.height(onboarding?.step == .collection ? 380 : 300),.large])
             .presentationDragIndicator(.visible)
             .presentationBackground { CelyxBluePanel() }
         }
@@ -159,6 +163,7 @@ struct HomeView: View {
             // Figma: 284pt on a 402pt screen, i.e. the width minus 28pt margins, 12pt gap and the 50pt AR button.
             StartCollectingButton(action:openStarCamera)
                 .frame(width:max(160,screenWidth-118))
+                .background(WindowFrameReader { tourTargets[.startCollecting] = $0 })
         }
         .sharedBackgroundVisibility(.hidden)
         ToolbarSpacer(.flexible,placement:.bottomBar)
@@ -205,6 +210,38 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder private var tourHighlight: some View {
+        if let onboarding, let pointer = onboarding.pointer, path.isEmpty, !showsCollection, handover == nil,
+           let target = tourTarget(pointer) {
+            OnboardingHighlight(size:target.size)
+                .position(x:target.midX,y:target.midY)
+                .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
+                .ignoresSafeArea()
+                .id(pointer)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// The control's frame in window coordinates. Start Collecting is measured; the system toolbar buttons
+    /// (bar items SwiftUI can't measure) sit at the native toolbar's fixed metrics from the window edges.
+    private func tourTarget(_ pointer: OnboardingFlow.Pointer) -> CGRect? {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
+        else { return nil }
+        let size = window.bounds.size, insets = window.safeAreaInsets
+        func round(_ x: CGFloat,_ y: CGFloat) -> CGRect { CGRect(x:x-23,y:y-23,width:46,height:46) }
+        let bottomRow = size.height-insets.bottom-19, topRow = insets.top+22
+        switch pointer {
+        case .startCollecting:
+            if let frame = tourTargets[.startCollecting] { return frame }
+            let width = max(160,size.width-118)
+            return CGRect(x:size.width-48-25-12-width,y:bottomRow-25,width:width,height:50)
+        case .cameraButton: return round(size.width-48,bottomRow)
+        case .collectionButton: return round(size.width-98.5,topRow)
+        case .calendarButton: return round(size.width-43,topRow)
+        }
+    }
+
     /// The guide on screens pushed during the tour (collection list, Sky Calendar).
     @ViewBuilder private var pushedTourGuide: some View {
         if let onboarding, !path.isEmpty, onboarding.step == .collection || onboarding.step == .calendar {
@@ -219,8 +256,13 @@ struct HomeView: View {
     @ViewBuilder private var collectionTourGuide: some View {
         if onboarding?.step == .collection {
             OnboardingGuidePill(text:"Tap a category to look inside, or swipe down to close.")
-                .padding(.horizontal,16).padding(.bottom,8)
+                .frame(maxWidth:.infinity,alignment:.leading)
+                .padding(.horizontal,16).padding(.top,8).padding(.bottom,4)
         }
+    }
+
+    private var windowSafeTop: CGFloat {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.safeAreaInsets.top ?? 0
     }
 
     private var tourCameraLink: LiveCameraLink? { onboarding == nil ? nil : cameraLink }
@@ -257,16 +299,20 @@ struct HomeView: View {
                 WormholeHandoverView(handover:handover)
             }
             if let handover, onboarding.step == .wormhole, let caption = tourCaption(handover.phase) {
+                // Below the Dynamic Island / notch on every device.
                 OnboardingGuidePill(text:caption)
-                    .frame(maxHeight:.infinity,alignment:.top).padding(.top,8)
+                    .padding(.top,windowSafeTop + 10)
+                    .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top)
                     .padding(.horizontal,24)
+                    .ignoresSafeArea()
                     .animation(.smooth(duration:0.5),value:caption)
                     .allowsHitTesting(false)
             }
             if handover == nil || onboarding.step != .wormhole {
                 OnboardingOverlay(flow:onboarding,
                                   camera:gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera,
-                                  chromeVisible:tourShowsChrome && tourShowsBottomBar)
+                                  chromeVisible:tourShowsChrome && tourShowsBottomBar,
+                                  topBarVisible:tourShowsChrome)
                     .transition(.opacity)
             }
     }
@@ -304,6 +350,9 @@ struct HomeView: View {
         withAnimation(.smooth(duration:0.5)) { onboarding = flow }
         flow.cameraChanged(gardenCamera)
         #if DEBUG
+        if let jump = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("-onboarding-step=") }) {
+            flow.jump(to:String(jump.dropFirst("-onboarding-step=".count)))
+        }
         if ProcessInfo.processInfo.arguments.contains("-onboarding-autoplay") { Task { await flow.autoplay() } }
         #endif
     }
@@ -384,7 +433,7 @@ struct HomeView: View {
     /// The star camera is presented like dev does (a full-screen cover), so Ferdi's toolbar renders.
     private func openStarCamera() {
         // The tour's last step points here: pressing it ends the tour and starts the real thing.
-        if let onboarding, onboarding.step == .ready { onboarding.finish() }
+        if let onboarding, onboarding.startCollectingPressed() { return }
         showsStarCamera = true
     }
 

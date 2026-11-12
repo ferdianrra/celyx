@@ -110,6 +110,7 @@ final class OnboardingFlow {
     func autoplay() async {
         while step != .done && !Task.isCancelled {
             try? await Task.sleep(for: .seconds(2.2))
+            if startsFindWithStartCollecting { _ = startCollectingPressed(); continue }
             if succeeded { primary(); continue }
             switch step {
             case .welcome: primary()
@@ -240,6 +241,7 @@ final class OnboardingFlow {
     /// Where the card points: a real control on Home the user should press.
     enum Pointer: Hashable { case cameraButton, collectionButton, calendarButton, startCollecting }
     var pointer: Pointer? {
+        if startsFindWithStartCollecting { return .startCollecting }
         guard !succeeded else { return nil }
         switch step {
         case .camera where !cameraUnavailable && !cameraStarting: return .cameraButton
@@ -250,6 +252,30 @@ final class OnboardingFlow {
         default: return nil
         }
     }
+
+    /// The camera step is done and Start Collecting is the way into the practice find.
+    var startsFindWithStartCollecting: Bool { step == .camera && succeeded }
+
+    /// Start Collecting was pressed: during the camera step it begins the practice find in place.
+    /// Returns true when the tour handled the press.
+    func startCollectingPressed() -> Bool {
+        switch step {
+        case .camera where succeeded:
+            advance(to: .find); return true
+        case .ready:
+            finish(); return false
+        default:
+            return step != .done
+        }
+    }
+
+    #if DEBUG
+    /// Screenshot aid (`-onboarding-step=<name>`).
+    func jump(to name: String) {
+        guard let target = Step.allCases.first(where: { "\($0)" == name }) else { return }
+        step = target
+    }
+    #endif
 
     var card: Card? {
         if succeeded { return successCard }
@@ -310,7 +336,7 @@ final class OnboardingFlow {
                 body: "The Night Sea follows your phone, wherever you point it.", primary: "Continue")
         case .camera:
             return Card(symbol: "checkmark", title: "That's the real sky",
-                body: "This is your camera. A practice star is waiting for you up there.", primary: "Find It")
+                body: "A practice star is waiting up there. Tap Start Collecting to go find it.")
         case .landed:
             return Card(symbol: "checkmark", title: "Back in your Night Sea",
                 body: "Switch between the real sky and the Night Sea anytime with that button.", primary: "Continue")

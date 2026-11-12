@@ -9,7 +9,7 @@ struct OnboardingGuidePill: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: symbol).font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.72, green: 0.82, blue: 1))
+                .foregroundStyle(Color(hex: 0x9AA2FF))
                 .symbolEffect(.pulse, options: .repeat(.periodic(delay: 1.2)))
             Text(text).font(.subheadline.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
@@ -33,7 +33,9 @@ struct OnboardingHighlight: View {
     var haptics = true
     @State private var start = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let light = Color(red: 0.55, green: 0.78, blue: 1)
+    /// Brand: the Celyx accent for the glow, a lighter tint of it for the outline and ripple.
+    private let glow = CelyxColor.accent
+    private let light = Color(hex: 0x9AA2FF)
     /// One ripple per beat.
     private let period = 1.6
 
@@ -44,12 +46,12 @@ struct OnboardingHighlight: View {
             let eased = 1 - pow(1 - t, 3)
             let breath = 0.5 - 0.5 * cos(elapsed * 2 * .pi / (period * 2))
             ZStack {
-                // A vivid glow under the control, breathing slowly.
-                Capsule().fill(light)
-                    .frame(width: size.width, height: size.height)
-                    .blur(radius: 14)
-                    .opacity(reduceMotion ? 0.7 : 0.55 + 0.35 * breath)
-                Capsule().stroke(.white.opacity(0.85), lineWidth: 1.5)
+                // A vivid halo around the control (never over it), breathing slowly.
+                Capsule().stroke(glow, lineWidth: 10)
+                    .frame(width: size.width + 10, height: size.height + 10)
+                    .blur(radius: 8)
+                    .opacity(reduceMotion ? 0.9 : 0.75 + 0.25 * breath)
+                Capsule().stroke(light, lineWidth: 1.5)
                     .frame(width: size.width + 4, height: size.height + 4)
                     .shadow(color: light, radius: 6)
                 if !reduceMotion {
