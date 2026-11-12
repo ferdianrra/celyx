@@ -132,7 +132,7 @@ struct GardenSkyView: View {
                     .id(request.id)
             } else if let demo = request.demoItem {
                 CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
-                    startsWithNoteEntry: true, onDelete: { albumRequest = nil })
+                    startsWithNoteEntry: true, tourGuide: request.isTour, onDelete: { albumRequest = nil })
                     .id(request.id)
             }
         }
@@ -326,6 +326,8 @@ struct GardenSheetRequest: Equatable, Identifiable {
     var demoItem: GardenCollectionItem? = nil
     /// Photo to show in the album (the demo's frozen frame; real captures use their saved photo).
     var photo: UIImage? = nil
+    /// Opened by the onboarding tour: the sheet guides the user.
+    var isTour = false
     static func == (a: Self, b: Self) -> Bool { a.id == b.id }
 }
 

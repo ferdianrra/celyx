@@ -43,27 +43,10 @@ struct HomeView: View {
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false },
-                              cameraLink:onboarding == nil ? nil : cameraLink)
+                              cameraLink:tourCameraLink)
                     .ignoresSafeArea()
 
-                if let onboarding {
-                    // The tour's practice capture: the same cekrek and wormhole the camera uses.
-                    if let tourShutter {
-                        TimelineView(.animation) { timeline in
-                            CaptureFlashView(image:tourShutter.image,t:timeline.date.timeIntervalSince(tourShutter.start)*1000)
-                        }
-                        .ignoresSafeArea().allowsHitTesting(false)
-                    }
-                    if let handover, handover.phase < .reframe, !reduceMotion {
-                        WormholeHandoverView(handover:handover)
-                    }
-                    if handover == nil || onboarding.step != .wormhole {
-                        OnboardingOverlay(flow:onboarding,
-                                          camera:gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera,
-                                          chromeVisible:tourShowsChrome)
-                            .transition(.opacity)
-                    }
-                }
+                if let onboarding { tourLayer(onboarding) }
 
                 if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing && onboarding == nil {
                     VStack(spacing:6) {
@@ -75,15 +58,7 @@ struct HomeView: View {
                 }
             }
             .background(CelyxColor.night)
-            .task { if shouldStartOnboarding { startOnboarding() } }
-            .onChange(of:gardenCamera,initial:true) { _, camera in onboarding?.cameraChanged(camera) }
-            .onChange(of:cameraLink.pose != nil) { _, ready in
-                guard ready, gardenUsesCamera, let pose = cameraLink.pose else { return }
-                tourCameraTimeout?.cancel()
-                onboarding?.liveCameraReady(pose)
-            }
-            .onChange(of:handover == nil) { _, ended in if ended { onboarding?.wormholeEnded() } }
-            .onChange(of:featureOpen) { _, open in if !open { onboarding?.returnedFromFeature() } }
+            .modifier(TourSignals(home:self))
             .onGeometryChange(for: CGSize.self) { $0.size } action: { screenSize = $0 }
             .onGeometryChange(for:CGFloat.self) { $0.size.width } action:{ screenWidth = $0 }
             .onChange(of:handover?.phase) { _, phase in
@@ -103,7 +78,8 @@ struct HomeView: View {
                     // Demo albums use the same composited frame that was saved with the observation.
                     let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
                     if !reduceMotion { WormholeFeedback.shared.playSheet() }
-                    sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo)
+                    sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo,
+                                                      isTour:onboarding != nil)
                 }
             }
             // Figma "Home Screen" (998:2689): native top toolbar (compass, then a button group with the
@@ -121,12 +97,14 @@ struct HomeView: View {
                 }
             }
         }
+        .overlay(alignment:.bottom) { pushedTourGuide }
         .preferredColorScheme(.dark)
         .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
             CollectionSheet(counts:counts,onSelect:{ category in
                 pendingCollectionCategory = category
                 showsCollection = false
             },onClose:{ showsCollection = false })
+            .overlay(alignment:.bottom) { collectionTourGuide }
             .presentationDetents([.height(300),.large])
             .presentationDragIndicator(.visible)
             .presentationBackground { CelyxBluePanel() }
@@ -206,10 +184,84 @@ struct HomeView: View {
         return !hasCompletedOnboarding
     }
 
+    /// The tour's signals from Home's state (kept apart so `body` type-checks quickly).
+    private struct TourSignals: ViewModifier {
+        let home: HomeView
+        func body(content: Content) -> some View {
+            content
+                .task { if home.shouldStartOnboarding { home.startOnboarding() } }
+                .onChange(of:home.gardenCamera,initial:true) { _, camera in home.onboarding?.cameraChanged(camera) }
+                .onChange(of:home.cameraLink.pose != nil) { _, ready in
+                    guard ready, home.gardenUsesCamera, let pose = home.cameraLink.pose else { return }
+                    home.tourCameraTimeout?.cancel()
+                    home.onboarding?.liveCameraReady(pose)
+                }
+                .onChange(of:home.handover == nil) { _, ended in if ended { home.onboarding?.wormholeEnded() } }
+                .onChange(of:home.featureOpen) { _, open in if !open { home.onboarding?.returnedFromFeature() } }
+        }
+    }
+
+    /// The guide on screens pushed during the tour (collection list, Sky Calendar).
+    @ViewBuilder private var pushedTourGuide: some View {
+        if let onboarding, !path.isEmpty, onboarding.step == .collection || onboarding.step == .calendar {
+            OnboardingGuidePill(text:onboarding.step == .calendar
+                ? "Upcoming sky events live here. Tap ‹ at the top when you're done looking."
+                : "Everything you collect will be listed here. Tap ‹ at the top to come back.")
+                .padding(.horizontal,16).padding(.bottom,24)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder private var collectionTourGuide: some View {
+        if onboarding?.step == .collection {
+            OnboardingGuidePill(text:"Tap a category to look inside, or swipe down to close.")
+                .padding(.horizontal,16).padding(.bottom,8)
+        }
+    }
+
+    private var tourCameraLink: LiveCameraLink? { onboarding == nil ? nil : cameraLink }
+
     /// The toolbars come back once the tour points at them.
     private var tourShowsChrome: Bool {
         guard let onboarding else { return true }
         return onboarding.step >= .collection && handover == nil
+    }
+
+    /// The tour's layers over the garden: its capture cue, wormhole, captions and coach overlay.
+    @ViewBuilder private func tourLayer(_ onboarding: OnboardingFlow) -> some View {
+            // The tour's practice capture: the same cekrek and wormhole the camera uses.
+            if let tourShutter {
+                TimelineView(.animation) { timeline in
+                    CaptureFlashView(image:tourShutter.image,t:timeline.date.timeIntervalSince(tourShutter.start)*1000)
+                }
+                .ignoresSafeArea().allowsHitTesting(false)
+            }
+            if let handover, handover.phase < .reframe, !reduceMotion {
+                WormholeHandoverView(handover:handover)
+            }
+            if let handover, onboarding.step == .wormhole, let caption = tourCaption(handover.phase) {
+                OnboardingGuidePill(text:caption)
+                    .frame(maxHeight:.infinity,alignment:.top).padding(.top,8)
+                    .padding(.horizontal,24)
+                    .animation(.smooth(duration:0.5),value:caption)
+                    .allowsHitTesting(false)
+            }
+            if handover == nil || onboarding.step != .wormhole {
+                OnboardingOverlay(flow:onboarding,
+                                  camera:gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera,
+                                  chromeVisible:tourShowsChrome)
+                    .transition(.opacity)
+            }
+    }
+
+    /// What the guide says while the wormhole carries the practice star into the Night Sea.
+    private func tourCaption(_ phase: WormholeHandover.Phase) -> String? {
+        switch phase {
+        case .wormhole: return "Collected! Hold on, it's going through the wormhole…"
+        case .landed, .reframe, .focusing, .revealing: return "Landing in your Night Sea"
+        case .releasing: return "Here it is. Let's give it a note."
+        case .presenting, .done: return nil
+        }
     }
 
     /// The collection sheet, a collection list or the calendar is open.

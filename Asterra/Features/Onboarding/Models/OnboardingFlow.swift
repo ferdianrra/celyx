@@ -67,6 +67,8 @@ final class OnboardingFlow {
     var isValidating = false
     /// Camera permission or tracking failed: the find step falls back to the virtual sky.
     var cameraUnavailable = false
+    /// "Turn On Camera" was tapped; waiting for permission and the first tracked frame.
+    private(set) var cameraStarting = false
     /// The find step runs over the live camera (false: over the Night Sea).
     private(set) var findsInCamera = false
 
@@ -85,7 +87,10 @@ final class OnboardingFlow {
         switch step {
         case .welcome: advance(to: .look)
         case .camera:
-            if cameraUnavailable { findInNightSea() } else { actions.setCamera(true) }
+            if cameraUnavailable { findInNightSea() } else {
+                withAnimation(.smooth(duration: 0.35)) { cameraStarting = true }
+                actions.setCamera(true)
+            }
         case .landed:
             actions.setCamera(false)
             advance(to: .collection)
@@ -99,7 +104,6 @@ final class OnboardingFlow {
     /// The card's secondary button.
     func secondary() {
         switch step {
-        case .camera: findInNightSea()
         case .collection: advance(to: .calendar)
         case .calendar: advance(to: .ready)
         default: break
@@ -128,7 +132,7 @@ final class OnboardingFlow {
             switch step {
             case .welcome, .landed: primary()
             case .look: succeed(then: .camera)
-            case .camera: cameraUnavailable ? primary() : secondary()
+            case .camera: cameraUnavailable || !cameraStarting ? primary() : ()
             case .find: if isLocked { collect(at: aimPoint) }
             case .collection, .calendar: secondary()
             default: break
@@ -163,7 +167,7 @@ final class OnboardingFlow {
     /// Camera permission denied or ARKit failed.
     func cameraFailed() {
         guard step == .camera else { return }
-        withAnimation(.smooth(duration: 0.4)) { cameraUnavailable = true }
+        withAnimation(.smooth(duration: 0.4)) { cameraUnavailable = true; cameraStarting = false }
     }
 
     /// Lays the practice star up and to the right of the current view, always in the sky.
@@ -215,7 +219,6 @@ final class OnboardingFlow {
     private func succeed(then next: Step, delay: Double = 0.9) {
         guard !succeeded else { return }
         withAnimation(.spring(duration: 0.4, bounce: 0.3)) { succeeded = true }
-        CrosshairFeedback.shared.play(CrosshairHaptic.lock)
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(reduceMotion ? 0.3 : delay))
             advance(to: next)
@@ -257,30 +260,34 @@ final class OnboardingFlow {
                     body: "You can allow it later in Settings. Let's practise in the Night Sea instead.",
                     primary: "Continue")
             }
+            if cameraStarting {
+                return Card(symbol: "camera.viewfinder", title: "Opening your camera…",
+                    body: "Hold your phone up toward the sky and keep it steady for a moment.")
+            }
             return Card(symbol: "camera.viewfinder", title: "See the real sky",
-                body: "Asterra lays your stars over the camera, right where they are above you.",
-                primary: "Turn On Camera", secondary: "Not Now")
+                body: "Your stars live in the real sky too. Turn on the camera to see them right where they are.",
+                primary: "Turn On Camera")
         case .find:
             if isValidating { return Card(symbol: "hand.tap", title: "Collecting…", body: "Hold steady.") }
             if isLocked {
                 return Card(symbol: "hand.tap", title: "Got it in your circle",
                     body: "Tap anywhere on the screen to collect it.")
             }
-            return Card(symbol: "scope", title: "A star is hiding nearby",
-                body: "Follow the arrow and bring it inside your circle.")
+            return Card(symbol: "scope", title: findsInCamera ? "A practice star is up there" : "A star is hiding nearby",
+                body: "Follow the glowing arrow, then move your phone until the star sits inside the circle.")
         case .wormhole: return nil
         case .landed:
             return Card(symbol: "checkmark.seal", title: "That's collecting",
-                body: "Real stars stay in your Night Sea, in their true place. This practice one fades away.",
+                body: "Every real star you collect stays in your Night Sea, in its true place. This practice one was just for fun.",
                 primary: "Back to the Night Sea")
         case .collection:
             return Card(symbol: "text.book.closed", title: "Your collection",
-                body: "Stars, planets, constellations and sky events you've found, all in one place.",
-                primary: "Open Collection", secondary: "Next")
+                body: "Everything you find lands here: stars, planets, constellations and sky events. Let's peek inside.",
+                primary: "Open Collection")
         case .calendar:
             return Card(symbol: "calendar", title: "Sky Calendar",
-                body: "Meteor showers, eclipses and more. Set a reminder so you never miss one.",
-                primary: "Open Calendar", secondary: "Next")
+                body: "Meteor showers, eclipses and more. Open it to see what's coming up in your sky.",
+                primary: "Open Calendar")
         case .ready:
             return Card(symbol: "telescope", title: "You're ready",
                 body: "Tonight, step outside and tap Start Collecting to find your first real star.",
