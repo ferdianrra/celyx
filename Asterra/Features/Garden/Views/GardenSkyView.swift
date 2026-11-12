@@ -57,7 +57,7 @@ struct GardenSkyView: View {
                 GardenCameraLayer(
                     placed: viewModel.placed, selectedID: viewModel.selected?.id,
                     connections: shownConnections, zodiacFigures: shownZodiacFigures,
-                    equatorial: viewModel.equatorial, isActive: isActive,
+                    equatorial: viewModel.equatorial, isActive: gardenIsActive,
                     onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
                     link: cameraLink
                 ) { viewModel.selected = $0 }
@@ -71,8 +71,8 @@ struct GardenSkyView: View {
         .animation(.easeInOut(duration: 0.35), value: usesCamera)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: showsCaptureSequence)
         // Real positions: recomputed every second from GPS + clock (the sky turns ~0.25° a minute).
-        .task(id: isActive) {
-            guard isActive else { return }
+        .task(id: refreshesSkyPositions) {
+            guard refreshesSkyPositions else { return }
             while !Task.isCancelled {
                 viewModel.place()
                 try? await Task.sleep(for: .seconds(1))
@@ -88,11 +88,11 @@ struct GardenSkyView: View {
             }
         }
         // The camera mode orients itself with ARKit; the gyro only drives the virtual garden.
-        .onChange(of: isActive && (!usesCamera || showsCaptureSequence), initial: true) { _, active in
+        .onChange(of: tracksGardenMotion, initial: true) { _, active in
             active ? viewModel.startGyro(usesGyro: usesGyro) : viewModel.stopGyro()
         }
         .onChange(of: usesGyro) { _, _ in
-            if isActive && (!usesCamera || showsCaptureSequence) { viewModel.setGyroMode(usesGyro) }
+            if tracksGardenMotion { viewModel.setGyroMode(usesGyro) }
         }
         .onChange(of: viewModel.usesGyro) { _, enabled in onModeChange?(enabled) }
         .onChange(of: resetRequest) { _, _ in viewModel.resetCamera() }
@@ -101,12 +101,9 @@ struct GardenSkyView: View {
         .onChange(of: reduceMotion, initial: true) { _, value in viewModel.reduceMotion = value }
         .onDisappear(perform: viewModel.stopGyro)
         .onChange(of: handover?.phase, initial: true) { _, phase in
-            if phase == .landed, let next = handover?.demo {
-                viewModel.demo = next
-                viewModel.place()
-            }
             if phase == .landed, let handover {
-                viewModel.place()
+                if let demo = handover.demo { viewModel.demo = demo }
+                viewModel.place(using: handover.scene)
                 let id = handover.itemID
                 let completed = viewModel.completedZodiacFigures.first { $0.requiredStarIDs.contains(id ?? Int.min) }
                 let edges = viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
@@ -138,7 +135,9 @@ struct GardenSkyView: View {
         }
         .overlay {
             // The collected star finishing its flight into place after the hand-off from the camera.
-            if let handover, !reduceMotion, handover.phase < .focusing { LandingStarFlight(handover: handover).ignoresSafeArea() }
+            if let handover, !reduceMotion, handover.phase < .focusing {
+                LandingStarFlight(handover: handover).ignoresSafeArea()
+            }
         }
         .sheet(item: $viewModel.selected) { item in
             CollectedObjectSheet(
@@ -154,6 +153,23 @@ struct GardenSkyView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your garden sky")
+    }
+
+    /// Pause the garden behind either sheet, including when details open Share.
+    private var gardenIsActive: Bool {
+        isActive && albumRequest == nil && viewModel.selected == nil
+    }
+
+    private var tracksGardenMotion: Bool {
+        // The handover camera owns the shot until focus. Start tracking in time for the live return.
+        refreshesSkyPositions && (!usesCamera || showsCaptureSequence)
+    }
+
+    private var refreshesSkyPositions: Bool {
+        guard gardenIsActive else { return false }
+        guard let handover, !reduceMotion else { return true }
+        // The landing handler places the new star. Defer the periodic refresh until the flight ends.
+        return handover.phase < .landed || handover.phase >= .focusing
     }
 
     private var showsCaptureSequence: Bool {
@@ -208,7 +224,7 @@ struct GardenSkyView: View {
                     NightSeaView(
                         camera: shown, objects: viewModel.background + shownPlaced,
                         selectedID: viewModel.selected?.id, moon: viewModel.moon,
-                        equatorial: viewModel.equatorial, isActive: isActive
+                        equatorial: viewModel.equatorial, isActive: gardenIsActive
                     ) { _ in failed = true }
                 }
                 GardenZodiacFigures(unlocked: shownZodiacFigures,
@@ -219,14 +235,14 @@ struct GardenSkyView: View {
                         let focal = shown.focalLength(in: geometry.size)
                         return shown.forward.z + Double(point.x - center.x) / focal * shown.right.z
                             + Double(center.y - point.y) / focal * shown.up.z
-                    }, isActive: isActive)
+                    }, isActive: gardenIsActive)
                 GardenConstellationLines(connections: shownConnections,
                     positions: Dictionary(uniqueKeysWithValues: shownPlaced.compactMap { object in
                         guard object.isAboveHorizon,
                             let point = shown.project(object.direction, in: geometry.size)
                         else { return nil }
                         return (object.id, point)
-                    }), isActive: isActive)
+                    }), isActive: gardenIsActive)
                 labels(in: geometry.size, camera: shown)
             }
             .allowsHitTesting(handover == nil || handover!.phase >= .presenting)

@@ -70,7 +70,7 @@ final class celyxUITests: XCTestCase {
         editor.tap()
         editor.typeText("A clear night above Jakarta.")
         editor.typeText("\n")
-        let note = app.buttons["collected-star-note"]
+        let note = app.staticTexts["collected-star-note"]
         XCTAssertTrue(note.waitForExistence(timeout: 10))
         XCTAssertTrue(note.label.contains("A clear night above Jakarta."))
         XCTAssertTrue(app.descendants(matching: .any)["collected-star-photo"].exists)
@@ -80,6 +80,20 @@ final class celyxUITests: XCTestCase {
         XCTAssertTrue(note.waitForExistence(timeout: 5))
         XCTAssertTrue(note.label.contains("A clear night above Jakarta."))
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "collection-note-editor").firstMatch.exists)
+        note.tap()
+        XCTAssertFalse(editor.exists)
+        let edit = app.buttons["edit-collected-star-note"]
+        XCTAssertTrue(edit.isHittable)
+        edit.tap()
+        let reopenedEditor = app.descendants(matching: .any)["collection-note-editor"].firstMatch
+        XCTAssertTrue(reopenedEditor.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["collected-star-photo"].exists)
+        reopenedEditor.typeText(" Clear skies.")
+        app.staticTexts["Rigel"].firstMatch.tap()
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        XCTAssertTrue(note.label.contains("Clear skies."))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         let share = app.buttons["share-collected-star"]
         for _ in 0..<5 {
             if share.isHittable { break }

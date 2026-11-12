@@ -113,7 +113,6 @@ struct HomeView: View {
             .safeAreaInset(edge:.bottom,spacing:0) { collectionTourGuide }
             .presentationDetents([.height(onboarding?.step == .collection ? 380 : 300),.large])
             .presentationDragIndicator(.visible)
-            .presentationBackground { CelyxBluePanel() }
         }
         .fullScreenCover(isPresented:$showsCalibration) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }

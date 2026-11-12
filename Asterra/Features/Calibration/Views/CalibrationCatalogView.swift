@@ -15,7 +15,7 @@ struct CalibrationCatalogView: View {
     }
 
     var body: some View {
-        ScrollView {
+        CelyxSheetScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 introduction
                 filters
