@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// Figma "Home Screen" (830:5105) + "Collection About" (886:6050).
@@ -23,8 +24,13 @@ struct HomeView: View {
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @State private var gardenUsesGyro = true
     /// First-run run-through over the Night Sea (replayable from the direction menu).
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("hasCompletedTour") private var hasCompletedOnboarding = false
     @State private var onboarding: OnboardingFlow?
+    /// The tour's view into the live camera mode.
+    @State private var cameraLink = LiveCameraLink()
+    /// The tour's capture cue (frozen frame + when the shutter fired), before its wormhole opens.
+    @State private var tourShutter: (start: Date, image: CGImage?)?
+    @State private var tourCameraTimeout: Task<Void, Never>?
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -36,12 +42,27 @@ struct HomeView: View {
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
-                              handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
+                              handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false },
+                              cameraLink:onboarding == nil ? nil : cameraLink)
                     .ignoresSafeArea()
 
                 if let onboarding {
-                    OnboardingOverlay(flow:onboarding,camera:gardenCamera)
-                        .transition(.opacity)
+                    // The tour's practice capture: the same cekrek and wormhole the camera uses.
+                    if let tourShutter {
+                        TimelineView(.animation) { timeline in
+                            CaptureFlashView(image:tourShutter.image,t:timeline.date.timeIntervalSince(tourShutter.start)*1000)
+                        }
+                        .ignoresSafeArea().allowsHitTesting(false)
+                    }
+                    if let handover, handover.phase < .reframe, !reduceMotion {
+                        WormholeHandoverView(handover:handover)
+                    }
+                    if handover == nil || onboarding.step != .wormhole {
+                        OnboardingOverlay(flow:onboarding,
+                                          camera:gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera,
+                                          chromeVisible:tourShowsChrome)
+                            .transition(.opacity)
+                    }
                 }
 
                 if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing && onboarding == nil {
@@ -55,6 +76,14 @@ struct HomeView: View {
             }
             .background(CelyxColor.night)
             .task { if shouldStartOnboarding { startOnboarding() } }
+            .onChange(of:gardenCamera,initial:true) { _, camera in onboarding?.cameraChanged(camera) }
+            .onChange(of:cameraLink.pose != nil) { _, ready in
+                guard ready, gardenUsesCamera, let pose = cameraLink.pose else { return }
+                tourCameraTimeout?.cancel()
+                onboarding?.liveCameraReady(pose)
+            }
+            .onChange(of:handover == nil) { _, ended in if ended { onboarding?.wormholeEnded() } }
+            .onChange(of:featureOpen) { _, open in if !open { onboarding?.returnedFromFeature() } }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { screenSize = $0 }
             .onGeometryChange(for:CGFloat.self) { $0.size.width } action:{ screenWidth = $0 }
             .onChange(of:handover?.phase) { _, phase in
@@ -148,7 +177,7 @@ struct HomeView: View {
         }
         ToolbarItem(placement:.bottomBar) {
             // Figma: 284pt on a 402pt screen, i.e. the width minus 28pt margins, 12pt gap and the 50pt AR button.
-            StartCollectingButton(invites:onboarding?.step == .finale,action:openStarCamera)
+            StartCollectingButton(invites:onboarding?.step == .ready,action:openStarCamera)
                 .frame(width:max(160,screenWidth-118))
         }
         .sharedBackgroundVisibility(.hidden)
@@ -163,7 +192,7 @@ struct HomeView: View {
 
     /// Keep controls out of the presentation until the reveal and live-camera return finish.
     private var showsChrome: Bool {
-        if let onboarding, onboarding.step < .finale { return false }
+        if onboarding != nil { return tourShowsChrome }
         guard let handover else { return true }
         return handover.phase >= .presenting
     }
@@ -177,18 +206,98 @@ struct HomeView: View {
         return !hasCompletedOnboarding
     }
 
+    /// The toolbars come back once the tour points at them.
+    private var tourShowsChrome: Bool {
+        guard let onboarding else { return true }
+        return onboarding.step >= .collection && handover == nil
+    }
+
+    /// The collection sheet, a collection list or the calendar is open.
+    private var featureOpen: Bool { showsCollection || !path.isEmpty || pendingCollectionCategory != nil }
+
     private func startOnboarding() {
         let flow = OnboardingFlow()
         flow.reduceMotion = reduceMotion
-        flow.onFinish = {
-            hasCompletedOnboarding = true
-            withAnimation(.smooth(duration:0.6)) { onboarding = nil }
-        }
-        // The run-through needs the gyro and the virtual sky, facing wherever the phone points.
+        flow.actions = .init(
+            setCamera:{ on in setTourCamera(on,flow:flow) },
+            openCollection:{ showsCollection = true },
+            openCalendar:{ path.append(.calendar) },
+            collect:{ star, point in collectPractice(star,at:point) },
+            finish:{
+                hasCompletedOnboarding = true
+                tourCameraTimeout?.cancel()
+                withAnimation(.smooth(duration:0.6)) { onboarding = nil }
+            })
+        // The tour starts in the virtual sky with the gyro, facing wherever the phone points.
         gardenUsesGyro = true
         gardenUsesCamera = false
+        path.removeAll()
         withAnimation(.smooth(duration:0.5)) { onboarding = flow }
-        Task { await flow.start() }
+        flow.cameraChanged(gardenCamera)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-onboarding-autoplay") { Task { await flow.autoplay() } }
+        #endif
+    }
+
+    /// Turns the garden's camera view on (asking for permission in context) or off.
+    private func setTourCamera(_ on: Bool,flow: OnboardingFlow) {
+        tourCameraTimeout?.cancel()
+        guard on else {
+            withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
+            return
+        }
+        tourCameraTimeout = Task { @MainActor in
+            guard await AVCaptureDevice.requestAccess(for:.video) else { flow.cameraFailed(); return }
+            withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = true }
+            // No tracked camera pose in time (no ARKit, covered lens): practise in the Night Sea instead.
+            try? await Task.sleep(for:.seconds(7))
+            guard !Task.isCancelled, cameraLink.pose == nil else { return }
+            withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
+            flow.cameraFailed()
+        }
+    }
+
+    /// The practice star's capture: cekrek on the frozen frame, then the real wormhole into the Night Sea
+    /// and the note sheet. A WormholeDemo shows it there without saving anything to the collection.
+    private func collectPractice(_ star: OnboardingFlow.PracticeStar,at point: CGPoint) {
+        guard handover == nil else { return }
+        let size = screenSize
+        let liveFreeze = gardenUsesCamera ? cameraLink.freeze() : nil
+        let view = gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera
+        let freeze = liveFreeze ?? WormholeFreeze(image:nil,size:size,
+            orientation:WormholeFreeze.orientation(forward:view.forward,right:view.right,up:view.up),
+            focal:view.focalLength(in:size))
+        let location = model.location
+        let record = CollectedStar(id:star.id,date:Date(),latitude:location?.latitude ?? 0,longitude:location?.longitude ?? 0,
+                                   identificationNote:"Practice star from the Asterra tour. Not saved to your collection.")
+        let demo = WormholeDemo(item:GardenCollectionItem(star:star.catalogStar,record:record),
+            object:NightSeaObject(id:star.id,direction:star.direction,
+                                  radius:NightSeaObject.starRadius(magnitude:star.catalogStar.mag)*1.3,
+                                  color:star.color,kind:.star))
+        let transition = WormholeHandover(freeze:freeze,star:point,itemID:star.id,
+            scene:GardenSkyView.wormholeScene(model:model,newID:star.id,demo:demo),demo:demo)
+        demoShowing = true
+        if reduceMotion {
+            CrosshairFeedback.shared.play(CrosshairSound.collect)
+            CrosshairFeedback.shared.play(CrosshairHaptic.collect)
+            handover = transition
+            handoverTask?.cancel()
+            handoverTask = Task { await transition.run(reduceMotion:true) }
+            return
+        }
+        WormholeFeedback.shared.prepare()
+        WormholeFeedback.shared.playShutter()
+        tourShutter = (Date(),freeze.image)
+        Task { @MainActor in
+            try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.handoverDelay)))
+            for sound in CrosshairSound.allCases { CrosshairFeedback.shared.suppress(sound,for:4) }
+            WormholeFeedback.shared.play(landing:transition.landing)
+            handover = transition
+            handoverTask?.cancel()
+            handoverTask = Task { await transition.run() }
+            try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.duration-CaptureFlash.handoverDelay)+20))
+            tourShutter = nil
+        }
     }
 
     // MARK: Star camera + wormhole handover

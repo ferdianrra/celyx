@@ -1,16 +1,19 @@
 import SwiftUI
 import simd
 
-/// The first-run run-through, drawn over the live Night Sea. Practice stars are projected through the
-/// garden's own camera, so they move with the gyro exactly like collected stars do. Uses the real
-/// crosshair (motion, sound, haptics), the real capture flash and the garden's constellation threads.
+/// The guided tour drawn over Home. Native Liquid Glass coach cards set the pace; the practice star is
+/// projected through whichever camera the user is looking through (the Night Sea's or the live AR camera),
+/// so it moves exactly like collected stars do. The real crosshair (motion, sound, haptics) does the aiming.
 struct OnboardingOverlay: View {
     let flow: OnboardingFlow
+    /// The camera the user is looking through right now.
     let camera: NightSeaCamera
+    /// Home's toolbars are showing (keep the card above the bottom bar).
+    var chromeVisible = false
 
-    /// More forgiving than the real camera (28 / 56 pt): this is the first thing anyone does.
-    private let captureRadius: CGFloat = 38
-    private let holdRadius: CGFloat = 64
+    /// More forgiving than the real camera (28 / 56 pt): this is the first thing anyone collects.
+    private let captureRadius: CGFloat = 40
+    private let holdRadius: CGFloat = 66
 
     @State private var isLocking = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -18,206 +21,216 @@ struct OnboardingOverlay: View {
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
-            let positions = project(in: size)
-            // The aim point is the garden camera's optical centre (slightly high in touch mode).
             let center = camera.center(in: size)
-            let hunting = flow.step == .first || flow.step == .more
-            let candidate = hunting ? candidate(positions: positions, center: center) : nil
+            let point = flow.star.flatMap { camera.project($0.direction, in: size) }
+            let hunting = flow.step == .find
+            let distance = point.map { hypot($0.x - center.x, $0.y - center.y) } ?? .infinity
+            let inCircle = hunting && distance <= (flow.isLocked ? holdRadius : captureRadius)
 
             ZStack {
-                // A quiet veil while the wordmark speaks, lifting as the sky comes alive.
-                LinearGradient(colors: [CelyxColor.night.opacity(0.85), CelyxColor.night.opacity(0.35)],
+                // A gentle veil behind the welcome, so the words sit on a calm sky.
+                LinearGradient(colors: [CelyxColor.night.opacity(0.75), CelyxColor.night.opacity(0.15),
+                                        CelyxColor.night.opacity(0.7)],
                                startPoint: .top, endPoint: .bottom)
-                    .opacity(flow.step == .intro ? 1 : 0)
+                    .opacity(flow.step == .welcome ? 1 : 0)
                     .allowsHitTesting(false)
 
-                GardenConstellationLines(connections: flow.connections, positions: positions)
-                    .opacity(flow.step >= .finale ? 0 : 1)
-
-                ForEach(Array(flow.visibleStars.enumerated()), id: \.element.id) { index, star in
-                    if let point = positions[star.id] {
-                        PracticeStarView(star: star, isTarget: hunting && !star.isCollected,
-                                         isLocked: flow.lockedID == star.id)
-                            .position(point)
-                            // Practice stars rise and dissolve one after another when the run-through ends.
-                            .opacity(flow.step >= .finale ? 0 : 1)
-                            .blur(radius: flow.step >= .finale ? 6 : 0)
-                            .offset(y: flow.step >= .finale && !reduceMotion ? -18 : 0)
-                            .animation(reduceMotion ? .easeOut(duration: 0.3)
-                                : .smooth(duration: 1.4).delay(Double(index) * 0.18), value: flow.step >= .finale)
+                if hunting, let star = flow.star {
+                    if let point {
+                        PracticeStarView(star: star, isLocked: flow.isLocked).position(point)
                             .transition(.scale(scale: 0.2).combined(with: .opacity))
                     }
-                }
-
-                if hunting, flow.lockedID == nil, let target = guideTarget(positions: positions, size: size) {
-                    OnboardingEdgeHint(angle: target.angle).position(target.point)
-                        .transition(.opacity)
-                }
-
-                if hunting {
-                    let lock = flow.lockedID.flatMap { positions[$0] }
-                        .map { CGSize(width: $0.x - center.x, height: $0.y - center.y) } ?? .zero
+                    if !flow.isLocked, let hint = edgeHint(for: star, point: point, size: size) {
+                        OnboardingEdgeHint(angle: hint.angle).position(hint.point).transition(.opacity)
+                    }
+                    let lock = flow.isLocked
+                        ? point.map { CGSize(width: $0.x - center.x, height: $0.y - center.y) } ?? .zero : .zero
                     // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
-                    CrosshairView(state: crosshairState, label: flow.lockedID == nil ? "" : "Practice star")
+                    CrosshairView(state: crosshairState, label: flow.isLocked ? star.catalogStar.title : "")
                         .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 0.5)
                         .position(x: center.x + lock.width, y: center.y + 10 + lock.height)
-                        .animation(.spring(duration: 0.45, bounce: 0.12), value: flow.lockedID)
+                        .animation(.spring(duration: 0.45, bounce: 0.12), value: flow.isLocked)
                         .allowsHitTesting(false)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
 
-                OnboardingFlash(shutterAt: flow.shutterAt)
-
-                if flow.step == .intro {
-                    OnboardingWordmark().transition(.blurReplace)
+                if flow.step == .welcome {
+                    OnboardingWordmark().offset(y: -size.height * 0.12)
+                        .transition(.blurReplace)
                 }
 
-                // Tap anywhere to collect, only while a star is locked so drags still reach the sky.
+                if flow.step == .collection || flow.step == .calendar {
+                    // Where the feature lives in the toolbar, so the user can find it again later.
+                    OnboardingToolbarPointer()
+                        .position(x: size.width - (flow.step == .collection ? 78 : 36),
+                                  y: geometry.safeAreaInsets.top + 64)
+                        .transition(.opacity)
+                }
+
+                // Tap anywhere to collect, only while the star is locked so swipes still reach the sky.
                 Color.clear.contentShape(Rectangle())
-                    .onTapGesture { flow.collect() }
-                    .allowsHitTesting(flow.lockedID != nil && !flow.isValidating)
+                    .onTapGesture { flow.collect(at: point ?? center) }
+                    .allowsHitTesting(flow.isLocked && !flow.isValidating)
                     .accessibilityHidden(true)
             }
             .frame(width: size.width, height: size.height)
-            .onChange(of: candidate) { _, id in
-                if id == nil || id != flow.lockedID { flow.lockedID = nil }
-            }
-            .task(id: candidate) {
-                guard let id = candidate else { isLocking = false; return }
-                if flow.lockedID == id { return }
+            .onChange(of: point) { _, value in if let value { flow.aimPoint = value } }
+            .onChange(of: inCircle) { _, inside in if !inside { flow.isLocked = false } }
+            .task(id: inCircle) {
+                guard inCircle, !flow.isLocked else { isLocking = false; return }
                 isLocking = true
                 do { try await Task.sleep(for: .seconds(reduceMotion ? 0.25 : 0.6)) } catch { return }
                 isLocking = false
-                withAnimation(.smooth(duration: 0.35)) { flow.lockedID = id }
+                withAnimation(.smooth(duration: 0.35)) { flow.isLocked = true }
             }
         }
         .ignoresSafeArea()
-        .overlay(alignment: .bottom) { prompt }
-        .overlay(alignment: .topTrailing) {
-            if flow.step < .reveal {
-                Button("Skip") { flow.finish() }
-                    .font(.body.weight(.medium))
-                    .buttonStyle(.glass)
-                    .tint(.white)
-                    .padding(.trailing, 20).padding(.top, 6)
-                    .transition(.opacity)
-                    .accessibilityHint("Skips the introduction")
+        .overlay(alignment: .bottom) {
+            if let card = flow.card {
+                OnboardingCard(card: card, flow: flow)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, chromeVisible ? 76 : 12)
+                    .transition(reduceMotion ? .opacity
+                        : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                      removal: .opacity.combined(with: .scale(scale: 0.96))))
             }
         }
-        .onChange(of: camera, initial: true) { _, value in flow.cameraChanged(value) }
+        .overlay(alignment: .topTrailing) {
+            if flow.step < .ready && flow.step != .wormhole && !chromeVisible {
+                Button("Skip Tour") { flow.finish() }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.glass)
+                    .tint(.white)
+                    .padding(.trailing, 16).padding(.top, 4)
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.5, bounce: 0.12), value: flow.step)
         .onAppear { flow.reduceMotion = reduceMotion }
         .preferredColorScheme(.dark)
     }
 
-    // MARK: Prompt
-
-    @ViewBuilder private var prompt: some View {
-        if let prompt = flow.prompt {
-            Group {
-                if flow.step == .lift {
-                    OnboardingLiftPrompt(text: prompt.text)
-                } else {
-                    CameraCollectionPrompt(text: prompt.text, ready: prompt.ready)
-                }
-            }
-            .id(prompt.text)
-            .transition(reduceMotion ? AnyTransition.opacity
-                : AnyTransition(BlurReplaceTransition(configuration: .downUp)).combined(with: .offset(y: 6)))
-            .padding(.bottom, flow.step == .finale ? 120 : 70)
-            .animation(.smooth(duration: 0.45), value: prompt.text)
-        }
-    }
-
-    // MARK: Aiming
-
     private var crosshairState: CrosshairState {
         if flow.isValidating { return .validating }
-        if flow.lockedID != nil { return .enable }
+        if flow.isLocked { return .enable }
         if isLocking { return .locking }
         return .default
     }
 
-    private func project(in size: CGSize) -> [Int: CGPoint] {
-        var positions: [Int: CGPoint] = [:]
-        for star in flow.stars {
-            if let point = camera.project(star.direction, in: size) { positions[star.id] = point }
-        }
-        return positions
-    }
-
-    /// The uncollected star in the circle; a locked star keeps the lock while it stays within the hold radius.
-    private func candidate(positions: [Int: CGPoint], center: CGPoint) -> Int? {
-        func distance(_ id: Int) -> CGFloat {
-            guard let point = positions[id] else { return .infinity }
-            return hypot(point.x - center.x, point.y - center.y)
-        }
-        if let locked = flow.lockedID, distance(locked) <= holdRadius { return locked }
-        return flow.visibleStars.filter { !$0.isCollected }.map(\.id)
-            .filter { distance($0) <= captureRadius }
-            .min { distance($0) < distance($1) }
-    }
-
-    /// Where to point when the nearest uncollected star is off screen: a spot on the screen edge and its bearing.
-    private func guideTarget(positions: [Int: CGPoint], size: CGSize) -> (point: CGPoint, angle: Angle)? {
-        let inset: CGFloat = 44
-        let bounds = CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset + 40)
-        let uncollected = flow.visibleStars.filter { !$0.isCollected }
-        if uncollected.contains(where: { positions[$0.id].map(bounds.contains) == true }) { return nil }
-        guard let star = uncollected.first else { return nil }
-        // Bearing of the star in the camera's own frame (works even when it is behind the viewer).
+    /// When the star is off screen: a spot on the screen edge and the bearing toward it.
+    private func edgeHint(for star: OnboardingFlow.PracticeStar, point: CGPoint?, size: CGSize)
+        -> (point: CGPoint, angle: Angle)?
+    {
+        let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 40, dy: 120)
+        if let point, bounds.contains(point) { return nil }
+        // Bearing in the camera's own frame (works even when the star is behind the viewer).
         let x = simd_dot(star.direction, camera.right), y = simd_dot(star.direction, camera.up)
         let angle = atan2(-y, x)
-        let c = CGPoint(x: bounds.midX, y: bounds.midY)
         let dx = cos(angle), dy = sin(angle)
-        let sx = dx == 0 ? .infinity : (bounds.width / 2) / abs(dx)
-        let sy = dy == 0 ? .infinity : (bounds.height / 2) / abs(dy)
-        let s = min(sx, sy)
-        return (CGPoint(x: c.x + dx * s, y: c.y + dy * s), .radians(angle))
+        let s = min(dx == 0 ? .infinity : (bounds.width / 2) / abs(dx),
+                    dy == 0 ? .infinity : (bounds.height / 2) / abs(dy))
+        return (CGPoint(x: bounds.midX + dx * s, y: bounds.midY + dy * s), .radians(angle))
+    }
+}
+
+// MARK: - Coach card
+
+/// One step of the tour: native Liquid Glass, an SF Symbol, a title, one sentence and the action.
+private struct OnboardingCard: View {
+    let card: OnboardingFlow.Card
+    let flow: OnboardingFlow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let index = flow.progressIndex {
+                OnboardingProgressDots(index: index, count: OnboardingFlow.Step.counted.count)
+            }
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: flow.succeeded ? "checkmark.circle.fill" : card.symbol)
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(flow.succeeded ? CelyxColor.ready : CelyxColor.primaryLabel)
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: flow.succeeded)
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular, in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(card.title).font(.headline)
+                    Text(card.body).font(.subheadline).foregroundStyle(CelyxColor.secondaryLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .id(card.title)
+                .transition(.blurReplace)
+            }
+            if flow.step == .look {
+                ProgressView(value: flow.lookProgress)
+                    .tint(flow.succeeded ? CelyxColor.ready : .white)
+                    .animation(.smooth(duration: 0.3), value: flow.lookProgress)
+            }
+            if card.primary != nil || card.secondary != nil {
+                HStack(spacing: 10) {
+                    if let secondary = card.secondary {
+                        Button(secondary) { flow.secondary() }
+                            .buttonStyle(.glass)
+                            .controlSize(.large)
+                    }
+                    if let primary = card.primary {
+                        Button { flow.primary() } label: {
+                            Text(primary).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(CelyxColor.primary)
+                        .controlSize(.large)
+                    }
+                }
+                .font(.body.weight(.semibold))
+            }
+        }
+        .foregroundStyle(CelyxColor.primaryLabel)
+        .padding(20)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .animation(.spring(duration: 0.45, bounce: 0.1), value: card)
+        .sensoryFeedback(.success, trigger: flow.succeeded) { _, new in new }
+    }
+}
+
+private struct OnboardingProgressDots: View {
+    let index: Int
+    let count: Int
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<count, id: \.self) { i in
+                Capsule()
+                    .fill(.white.opacity(i <= index ? 0.95 : 0.25))
+                    .frame(width: i == index ? 18 : 6, height: 6)
+            }
+        }
+        .animation(.spring(duration: 0.45, bounce: 0.2), value: index)
+        .accessibilityElement()
+        .accessibilityLabel("Step \(index + 1) of \(count)")
     }
 }
 
 // MARK: - Pieces
 
-/// A practice star: the demo star's look, beckoning with a slow ring until collected, then a bloom.
+/// The practice star: the demo star's look, with a slow sonar ring inviting the user until it locks.
 private struct PracticeStarView: View {
     let star: OnboardingFlow.PracticeStar
-    let isTarget: Bool
     let isLocked: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            if isTarget && !isLocked && !reduceMotion {
-                // Sonar-like invitation: expands and fades on an ease-out, twice a cycle's breath.
-                Circle().stroke(.white.opacity(0.55), lineWidth: 1)
+            if !isLocked && !reduceMotion {
+                Circle().stroke(.white.opacity(0.6), lineWidth: 1)
                     .frame(width: 22, height: 22)
                     .phaseAnimator([false, true]) { ring, grown in
-                        ring.scaleEffect(grown ? 2.6 : 0.8).opacity(grown ? 0 : 0.9)
+                        ring.scaleEffect(grown ? 2.8 : 0.8).opacity(grown ? 0 : 0.9)
                     } animation: { grown in grown ? .easeOut(duration: 1.6) : .linear(duration: 0.01).delay(0.5) }
             }
-            DemoStarView(color: star.color)
-                .scaleEffect(isTarget ? 1.15 : 0.85)
-                .keyframeAnimator(initialValue: 1.0, trigger: reduceMotion ? nil : star.collectedAt) { view, bloom in
-                    view.scaleEffect(bloom).brightness((bloom - 1) * 0.5)
-                } keyframes: { _ in
-                    KeyframeTrack {
-                        SpringKeyframe(1.9, duration: 0.22, spring: .snappy)
-                        SpringKeyframe(1.0, duration: 0.7, spring: .bouncy(duration: 0.7, extraBounce: 0.05))
-                    }
-                }
-            // The collect ripple: one clean ring that leaves the star.
-            if star.collectedAt != nil && !reduceMotion {
-                Circle().stroke(.white, lineWidth: 1.2).frame(width: 20, height: 20)
-                    .keyframeAnimator(initialValue: 0.0, trigger: star.collectedAt) { ring, t in
-                        ring.scaleEffect(1 + t * 3.2).opacity(t >= 1 ? 0 : (1 - t) * 0.8)
-                    } keyframes: { _ in
-                        KeyframeTrack {
-                            CubicKeyframe(1, duration: 0.9)
-                        }
-                    }
-            }
+            DemoStarView(color: star.color).scaleEffect(isLocked ? 1.3 : 1.15)
         }
-        .animation(.spring(duration: 0.5, bounce: 0.2), value: isTarget)
+        .animation(.spring(duration: 0.5, bounce: 0.25), value: isLocked)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -230,11 +243,11 @@ private struct OnboardingEdgeHint: View {
 
     var body: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.9))
-            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.8), radius: 6)
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.95))
+            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.9), radius: 8)
             .phaseAnimator([0.0, 1.0]) { view, t in
-                view.offset(x: reduceMotion ? 0 : t * 6)
+                view.offset(x: reduceMotion ? 0 : t * 7)
             } animation: { t in t == 1 ? .easeInOut(duration: 0.7) : .easeInOut(duration: 0.9) }
             .rotationEffect(angle)
             .allowsHitTesting(false)
@@ -242,66 +255,38 @@ private struct OnboardingEdgeHint: View {
     }
 }
 
-/// Wordmark that opens the run-through.
+/// Bobbing arrow toward a toolbar button.
+private struct OnboardingToolbarPointer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        Image(systemName: "arrow.up")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(.white)
+            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.9), radius: 8)
+            .phaseAnimator([0.0, 1.0]) { view, t in view.offset(y: reduceMotion ? 0 : -t * 6) }
+                animation: { _ in .easeInOut(duration: 0.75) }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Wordmark that opens the tour.
 private struct OnboardingWordmark: View {
     @State private var shown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 10) {
-            Text("Asterra")
-                .font(.system(size: 44, weight: .semibold, design: .default)).tracking(0.5)
-            Text("Collect the stars above you")
-                .font(.system(size: 17)).foregroundStyle(CelyxColor.secondaryLabel)
+            Text("Asterra").font(.system(size: 48, weight: .semibold)).tracking(0.5)
+            Text("Collect the stars above you").font(.title3).foregroundStyle(CelyxColor.secondaryLabel)
         }
         .foregroundStyle(CelyxColor.primaryLabel)
         .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
         .opacity(shown ? 1 : 0)
         .scaleEffect(shown || reduceMotion ? 1 : 0.94)
         .blur(radius: shown || reduceMotion ? 0 : 8)
-        .onAppear { withAnimation(.smooth(duration: 1.1)) { shown = true } }
+        .onAppear { withAnimation(.smooth(duration: 1.2).delay(0.2)) { shown = true } }
         .allowsHitTesting(false)
-    }
-}
-
-/// "Raise your phone": the phone glyph tips up on a loop, like the gesture it asks for.
-private struct OnboardingLiftPrompt: View {
-    let text: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "iphone.gen3")
-                .font(.system(size: 34, weight: .light))
-                .phaseAnimator([false, true]) { phone, up in
-                    phone.rotation3DEffect(.degrees(reduceMotion ? 0 : (up ? 0 : 55)), axis: (x: 1, y: 0, z: 0),
-                                           perspective: 0.6)
-                        .offset(y: reduceMotion ? 0 : (up ? -6 : 4))
-                } animation: { up in up ? .spring(duration: 0.9, bounce: 0.15).delay(0.35) : .smooth(duration: 0.8).delay(0.6) }
-            Text(text).font(.system(size: 15))
-        }
-        .foregroundStyle(CelyxColor.primaryLabel)
-        .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 0.5)
-        .allowsHitTesting(false)
-    }
-}
-
-/// The real capture cue's white flash (no frozen frame: the sky stays live).
-private struct OnboardingFlash: View {
-    let shutterAt: Date?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if let shutterAt, !reduceMotion {
-            TimelineView(.animation(paused: Date().timeIntervalSince(shutterAt) > 0.5)) { timeline in
-                let t = timeline.date.timeIntervalSince(shutterAt) * 1000
-                // Softer than the camera's (the sky is dark and the user is looking right at it).
-                Color.white.opacity(CaptureFlash.white(t) * 0.55)
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
     }
 }
 
@@ -311,5 +296,4 @@ private struct OnboardingFlash: View {
         CelyxColor.night.ignoresSafeArea()
         OnboardingOverlay(flow: flow, camera: NightSeaCamera())
     }
-    .task { await flow.start() }
 }

@@ -16,6 +16,8 @@ struct GardenCameraLayer: View {
     var equatorial: simd_double3x3?
     var isActive = true
     var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
+    /// The onboarding tour's view of this camera (pose every frame, frozen frame on demand).
+    var link: LiveCameraLink? = nil
     let onSelect: (GardenCollectionItem) -> Void
 
     @State private var session = ARSession()
@@ -71,14 +73,15 @@ struct GardenCameraLayer: View {
                     }
                     }
                     .onChange(of: timeline.date) { _, _ in
-                        guard let onCameraUpdate, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
+                        guard onCameraUpdate != nil || link != nil, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
                         let freeze = WormholeFreeze.make(image: nil, size: size,
                             view: frame.camera.viewMatrix(viewRotationAngle: 90),
                             projection: frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000),
                             alignment: simd_quatf(angle: 0, axis: SIMD3(0, 1, 0)))
                         var pose = NightSeaCamera()
                         pose.orientation = freeze.orientation; pose.focalOverride = freeze.focal
-                        onCameraUpdate(pose)
+                        onCameraUpdate?(pose)
+                        if let link { link.viewport = size; link.pose = pose }
                     }
                 }
             }
@@ -91,10 +94,10 @@ struct GardenCameraLayer: View {
             })
         }
         .background(Color.black)
-        .task { await start() }
+        .task { link?.session = session; await start() }
         .onChange(of:isActive) { _, active in active ? run() : session.pause() }
         .onChange(of:phase) { _, value in value == .active && isActive ? run() : session.pause() }
-        .onDisappear { session.pause() }
+        .onDisappear { session.pause(); link?.pose = nil }
     }
 
     private var statusMessage: String? {

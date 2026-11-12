@@ -21,6 +21,8 @@ struct GardenSkyView: View {
     var sheetRequest: GardenSheetRequest?
     /// Called when the demo object's album closes (debug replay).
     var onDemoEnded: () -> Void = {}
+    /// Onboarding tour hook into the live camera mode.
+    var cameraLink: LiveCameraLink?
 
     @State private var viewModel: GardenViewModel
     @State private var failed = false
@@ -32,8 +34,10 @@ struct GardenSkyView: View {
         model: HomeViewModel, camera: Binding<NightSeaCamera>, isActive: Bool = true,
         resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
-        sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {}
+        sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {},
+        cameraLink: LiveCameraLink? = nil
     ) {
+        self.cameraLink = cameraLink
         self.handover = handover
         self.sheetRequest = sheetRequest
         self.onDemoEnded = onDemoEnded
@@ -54,7 +58,8 @@ struct GardenSkyView: View {
                     placed: viewModel.placed, selectedID: viewModel.selected?.id,
                     connections: shownConnections, zodiacFigures: shownZodiacFigures,
                     equatorial: viewModel.equatorial, isActive: isActive,
-                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose }
+                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
+                    link: cameraLink
                 ) { viewModel.selected = $0 }
                 .opacity(showsCaptureSequence ? 0 : 1)
                 .allowsHitTesting(!showsCaptureSequence)

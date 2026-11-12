@@ -1,210 +1,296 @@
 import SwiftUI
 import simd
 
-/// First-run run-through, played inside the real Night Sea: the user learns the app by doing it.
+/// First-run guided tour, played inside the real Home screen: every step is the user doing the real thing.
 ///
-/// Raise the phone, aim the real crosshair at a practice star, tap to collect it, collect two more and
-/// watch them join into a constellation. Practice stars are placed relative to wherever the user is
-/// looking (they are a tutorial, not catalogue stars) and are never saved to the collection.
+/// Welcome → look around the Night Sea → turn on the camera → find a practice star through it with the
+/// real crosshair → tap → the real wormhole into the Night Sea and the note sheet → back to the Night Sea
+/// → the collection → the Sky Calendar → ready. The user sets the pace: each step waits for them.
+/// The practice star is placed in front of wherever the user is looking (a tutorial, not a catalogue star)
+/// and is never saved to the collection.
 @MainActor @Observable
 final class OnboardingFlow {
-    enum Step: Int, Comparable {
-        /// Wordmark over the dark sea.
-        case intro
-        /// "Raise your phone": advances once the view moves up or around.
-        case lift
-        /// The first star, taught slowly: aim, lock, tap.
-        case first
-        /// Two more stars, the user knows how now.
-        case more
-        /// Threads draw between the three stars.
-        case reveal
-        /// Practice stars dissolve; Home's controls come back.
-        case finale
+    enum Step: Int, Comparable, CaseIterable {
+        case welcome
+        /// Move the phone (or swipe) to look around the Night Sea.
+        case look
+        /// Turn on the camera view (asks for camera permission here, in context).
+        case camera
+        /// Find the practice star through the camera and tap to collect it.
+        case find
+        /// Shutter → wormhole → landing → note sheet (Home's real handover runs it).
+        case wormhole
+        /// What just happened; switch back to the virtual sky.
+        case landed
+        /// Open the collection sheet.
+        case collection
+        /// Open the Sky Calendar.
+        case calendar
+        /// Start Collecting glows; done.
+        case ready
         case done
         static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
+        /// Steps counted in the progress dots.
+        static let counted: [Step] = [.look, .camera, .find, .landed, .collection, .calendar]
+    }
+
+    /// What the tour asks Home to do (Home owns the real state).
+    struct Actions {
+        var setCamera: (Bool) -> Void = { _ in }
+        var openCollection: () -> Void = {}
+        var openCalendar: () -> Void = {}
+        /// Start the real capture + wormhole for the practice star at this screen point.
+        var collect: (_ star: PracticeStar, _ point: CGPoint) -> Void = { _, _ in }
+        var finish: () -> Void = {}
     }
 
     struct PracticeStar: Identifiable, Equatable {
-        /// Negative so they never collide with catalogue IDs.
-        let id: Int
+        /// Well outside the catalogue's IDs (and the Sun/Moon's negative ones).
+        let id = 990_001
         /// Horizon direction [east, north, up].
         let direction: SIMD3<Double>
-        let color: SIMD3<Double>
-        var collectedAt: Date?
-        var isCollected: Bool { collectedAt != nil }
-    }
-
-    private(set) var step: Step = .intro
-    private(set) var stars: [PracticeStar] = []
-    /// Threads shown between collected stars (fed to the garden's own constellation renderer).
-    private(set) var connections: [GardenConstellationConnection] = []
-    /// When the last shutter fired (drives the flash).
-    private(set) var shutterAt: Date?
-    /// The star the crosshair has settled on (Enable state); nil while searching or locking.
-    var lockedID: Int?
-    var isValidating = false
-
-    @ObservationIgnored private var liftReference: SIMD3<Double>?
-    @ObservationIgnored private var stepStart = Date()
-    @ObservationIgnored var reduceMotion = false
-    @ObservationIgnored var onFinish: () -> Void = {}
-
-    /// The first star is taught alone; the other two appear once it is collected.
-    var visibleStars: [PracticeStar] { step <= .first ? Array(stars.prefix(1)) : stars }
-    var remaining: Int { stars.filter { !$0.isCollected }.count }
-    var target: PracticeStar? { stars.first { !$0.isCollected } }
-
-    // MARK: Script
-
-    func start() async {
-        step = .intro
-        stepStart = Date()
-        do { try await Task.sleep(for: .seconds(reduceMotion ? 1.6 : 3.0)) } catch { return }
-        advance(to: .lift)
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-onboarding-autoplay") { Task { await autoplay() } }
-        #endif
-        // A still sky (no gyro, or a phone lying on a table) still gets re-checked.
-        while step == .lift && !Task.isCancelled {
-            if let lastCamera { cameraChanged(lastCamera) }
-            try? await Task.sleep(for: .milliseconds(300))
+        let color = SIMD3(0.80, 0.88, 1.0)
+        var catalogStar: CatalogStar {
+            CatalogStar(id: id, ra_deg: 0, dec_deg: 0, mag: -0.5, bv: 0.0, name: "Practice Star",
+                        designation: "Practice Star", distance_ly: nil, con: nil, collectible_candidate: true)
         }
     }
 
+    private(set) var step: Step = .welcome
+    private(set) var star: PracticeStar?
+    /// How much of the "look around" goal is done, 0…1.
+    private(set) var lookProgress: Double = 0
+    /// A step's task just succeeded (checkmark beat before moving on).
+    private(set) var succeeded = false
+    /// The crosshair has settled on the star (Enable state).
+    var isLocked = false
+    var isValidating = false
+    /// Camera permission or tracking failed: the find step falls back to the virtual sky.
+    var cameraUnavailable = false
+    /// The find step runs over the live camera (false: over the Night Sea).
+    private(set) var findsInCamera = false
+
+    @ObservationIgnored var actions = Actions()
+    /// Where the locked star sits on screen (kept by the overlay).
+    @ObservationIgnored var aimPoint: CGPoint = .zero
+    @ObservationIgnored var reduceMotion = false
+    @ObservationIgnored private var lastForward: SIMD3<Double>?
+    @ObservationIgnored private var turned: Double = 0
     @ObservationIgnored private var lastCamera: NightSeaCamera?
 
+    // MARK: Pacing
+
+    /// The card's primary button.
+    func primary() {
+        switch step {
+        case .welcome: advance(to: .look)
+        case .camera:
+            if cameraUnavailable { findInNightSea() } else { actions.setCamera(true) }
+        case .landed:
+            actions.setCamera(false)
+            advance(to: .collection)
+        case .collection: actions.openCollection()
+        case .calendar: actions.openCalendar()
+        case .ready: finish()
+        default: break
+        }
+    }
+
+    /// The card's secondary button.
+    func secondary() {
+        switch step {
+        case .camera: findInNightSea()
+        case .collection: advance(to: .calendar)
+        case .calendar: advance(to: .ready)
+        default: break
+        }
+    }
+
+    /// No camera: practise in the Night Sea instead.
+    private func findInNightSea() {
+        actions.setCamera(false)
+        findsInCamera = false
+        placeStarAhead(of: lastCamera)
+        advance(to: .find)
+    }
+
+    func finish() {
+        guard step != .done else { return }
+        step = .done
+        actions.finish()
+    }
+
     #if DEBUG
-    /// Simulator walkthrough: collects each practice star without aiming (`-onboarding-autoplay`).
-    private func autoplay() async {
-        while step < .reveal && !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(1.6))
-            if (step == .first || step == .more), !isValidating, let target {
-                lockedID = target.id
-                try? await Task.sleep(for: .seconds(0.8))
-                collect()
+    /// Simulator walkthrough (`-onboarding-autoplay`): presses each step's button and fakes the look-around.
+    func autoplay() async {
+        while step != .done && !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(2.2))
+            switch step {
+            case .welcome, .landed: primary()
+            case .look: succeed(then: .camera)
+            case .camera: cameraUnavailable ? primary() : secondary()
+            case .find: if isLocked { collect(at: aimPoint) }
+            case .collection, .calendar: secondary()
+            default: break
             }
         }
     }
     #endif
 
-    /// Fed by the view on every camera change.
+    // MARK: Signals from Home
+
+    /// Every pose the user sees in the Night Sea (gyro or touch).
     func cameraChanged(_ camera: NightSeaCamera) {
         lastCamera = camera
-        guard step == .lift else { return }
         let forward = simd_normalize(camera.forward)
-        guard let reference = liftReference else { liftReference = forward; return }
-        // Give the prompt a moment to be read, then advance on a clear look up or around.
-        guard Date().timeIntervalSince(stepStart) > 1.1 else { return }
-        let turned = acos(min(1, max(-1, simd_dot(forward, reference)))) * 180 / .pi
-        let altitude = asin(min(1, max(-1, forward.z))) * 180 / .pi
-        // Without a gyro (touch mode) a drag of the sky counts, and a patient wait does too.
-        let waited = Date().timeIntervalSince(stepStart)
-        if turned > 14 || (altitude > 20 && waited > 2.2) || (camera.orientation == nil && waited > 4) {
-            placeStars(around: forward)
-            advance(to: .first)
-        }
+        defer { lastForward = forward }
+        guard step == .look, let last = lastForward, !succeeded else { return }
+        // Accumulate how far the view has travelled; ignore hand tremor and jumps.
+        let delta = acos(min(1, max(-1, simd_dot(forward, last)))) * 180 / .pi
+        if delta > 0.12 && delta < 20 { turned += delta }
+        lookProgress = min(1, turned / 50)
+        if lookProgress >= 1 { succeed(then: .camera) }
     }
 
-    /// Lays out a small three-star pattern up and to the right of the current view.
-    private func placeStars(around forward: SIMD3<Double>) {
+    /// The live camera started delivering poses.
+    func liveCameraReady(_ camera: NightSeaCamera) {
+        guard step == .camera, !succeeded, !cameraUnavailable else { return }
+        findsInCamera = true
+        placeStarAhead(of: camera)
+        succeed(then: .find, delay: 0.7)
+    }
+
+    /// Camera permission denied or ARKit failed.
+    func cameraFailed() {
+        guard step == .camera else { return }
+        withAnimation(.smooth(duration: 0.4)) { cameraUnavailable = true }
+    }
+
+    /// Lays the practice star up and to the right of the current view, always in the sky.
+    private func placeStarAhead(of camera: NightSeaCamera?) {
+        let forward = simd_normalize(camera?.forward ?? SIMD3(0, 1, 0.3))
         let heading = atan2(forward.x, forward.y)
         let altitude = asin(min(1, max(-1, forward.z)))
         let degree = Double.pi / 180
-        // Keep the pattern well inside the sky (never on the sea), whatever the phone is doing.
-        let base = min(max(altitude + 8 * degree, 22 * degree), 52 * degree)
-        func direction(_ az: Double, _ alt: Double) -> SIMD3<Double> {
-            let a = heading + az * degree, h = base + alt * degree
-            return SIMD3(sin(a) * cos(h), cos(a) * cos(h), sin(h))
-        }
-        var first = 22.0
+        var azimuth = 24 * degree
+        var h = min(max(altitude + 6 * degree, 20 * degree), 55 * degree)
         #if DEBUG
-        // Screenshot aid: the first star right in the circle.
-        if ProcessInfo.processInfo.arguments.contains("-onboarding-aimed") { first = 0 }
+        // Screenshot aid: the star straight ahead, already in the circle.
+        if ProcessInfo.processInfo.arguments.contains("-onboarding-aimed") { azimuth = 0; h = altitude }
         #endif
-        stars = [
-            PracticeStar(id: -1, direction: first == 0 ? forward : direction(first, 0), color: SIMD3(0.78, 0.86, 1)),
-            PracticeStar(id: -2, direction: direction(36, 9), color: SIMD3(1, 0.93, 0.80)),
-            PracticeStar(id: -3, direction: direction(27, 21), color: SIMD3(0.86, 0.90, 1)),
-        ]
-        connections = []
+        let a = heading + azimuth
+        star = PracticeStar(direction: SIMD3(sin(a) * cos(h), cos(a) * cos(h), sin(h)))
     }
 
-    /// Tap anywhere while a star is locked.
-    func collect() {
-        guard let id = lockedID, !isValidating, let index = stars.firstIndex(where: { $0.id == id }),
-            !stars[index].isCollected
-        else { return }
+    /// Tap anywhere while the star is locked.
+    func collect(at point: CGPoint) {
+        guard step == .find, isLocked, !isValidating, let star else { return }
         isValidating = true
         Task { @MainActor in
             // The crosshair's validate beat, shorter than a real optical check.
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 120 : 420))
-            if !reduceMotion { WormholeFeedback.shared.playShutter() }
-            CrosshairFeedback.shared.suppress(.back, for: 0.8)
-            CrosshairFeedback.shared.play(CrosshairSound.collect)
-            CrosshairFeedback.shared.play(CrosshairHaptic.collect)
-            // Thread from the star collected just before this one, in the order the user found them.
-            let previous = stars.filter(\.isCollected).max { ($0.collectedAt ?? .distantPast) < ($1.collectedAt ?? .distantPast) }
-            shutterAt = Date()
-            stars[index].collectedAt = Date()
-            lockedID = nil
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 120 : 450))
             isValidating = false
-            if let previous {
-                pendingThreads.append(GardenConstellationConnection(
-                    constellation: "practice", startID: previous.id, endID: stars[index].id))
-            }
-            if step == .first {
-                try? await Task.sleep(for: .seconds(reduceMotion ? 0.4 : 1.1))
-                advance(to: .more)
-            } else if remaining == 0 {
-                try? await Task.sleep(for: .seconds(reduceMotion ? 0.3 : 0.9))
-                await reveal()
-            }
+            isLocked = false
+            advance(to: .wormhole)
+            actions.collect(star, point)
         }
     }
 
-    /// Threads wait until the last star lands, then draw together, like the real constellation reveal.
-    @ObservationIgnored private var pendingThreads: [GardenConstellationConnection] = []
-
-    private func reveal() async {
-        advance(to: .reveal)
-        for thread in pendingThreads {
-            connections.append(thread)
-            WormholeFeedback.shared.playSheet()
-            try? await Task.sleep(for: .seconds(reduceMotion ? 0.1 : 0.55))
-        }
-        pendingThreads = []
-        try? await Task.sleep(for: .seconds(reduceMotion ? 1.6 : 3.0))
-        advance(to: .finale)
-        try? await Task.sleep(for: .seconds(reduceMotion ? 1.8 : 3.2))
-        finish()
+    /// Home's handover finished (album closed).
+    func wormholeEnded() {
+        guard step == .wormhole else { return }
+        star = nil
+        advance(to: .landed)
     }
 
-    func finish() {
-        guard step != .done else { return }
-        advance(to: .done)
-        onFinish()
+    /// The collection sheet or the calendar was opened and closed again.
+    func returnedFromFeature() {
+        switch step {
+        case .collection: succeed(then: .calendar, delay: 0.6)
+        case .calendar: succeed(then: .ready, delay: 0.6)
+        default: break
+        }
+    }
+
+    private func succeed(then next: Step, delay: Double = 0.9) {
+        guard !succeeded else { return }
+        withAnimation(.spring(duration: 0.4, bounce: 0.3)) { succeeded = true }
+        CrosshairFeedback.shared.play(CrosshairHaptic.lock)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(reduceMotion ? 0.3 : delay))
+            advance(to: next)
+        }
     }
 
     private func advance(to next: Step) {
         guard next > step else { return }
-        stepStart = Date()
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : .smooth(duration: 0.55)) { step = next }
+        turned = 0
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.55, bounce: 0.12)) {
+            succeeded = false
+            lookProgress = 0
+            step = next
+        }
     }
 
-    // MARK: Prompt
+    // MARK: Copy
 
-    var prompt: (text: String, ready: Bool)? {
+    struct Card: Equatable {
+        var symbol: String
+        var title: String
+        var body: String
+        var primary: String?
+        var secondary: String?
+    }
+
+    var card: Card? {
         switch step {
-        case .intro, .done: return nil
-        case .lift: return ("Raise your phone to the sky", false)
-        case .first, .more:
-            if isValidating { return ("Collecting…", true) }
-            if lockedID != nil { return ("Tap anywhere to collect", true) }
-            if step == .first { return ("Put the star in your circle", false) }
-            return (remaining == 1 ? "One more. Find it" : "Two more are nearby. Collect them", false)
-        case .reveal: return ("Your stars connect into constellations", false)
-        case .finale: return ("Now find a real one tonight", false)
+        case .welcome:
+            return Card(symbol: "sparkles", title: "Welcome to Asterra",
+                body: "Let's take a one-minute walk through the sky. You'll try everything yourself.",
+                primary: "Start the Tour")
+        case .look:
+            return Card(symbol: "move.3d", title: "This is your Night Sea",
+                body: "Every star you collect will shine here. Move your phone to look around.")
+        case .camera:
+            if cameraUnavailable {
+                return Card(symbol: "video.slash", title: "Camera is off",
+                    body: "You can allow it later in Settings. Let's practise in the Night Sea instead.",
+                    primary: "Continue")
+            }
+            return Card(symbol: "camera.viewfinder", title: "See the real sky",
+                body: "Asterra lays your stars over the camera, right where they are above you.",
+                primary: "Turn On Camera", secondary: "Not Now")
+        case .find:
+            if isValidating { return Card(symbol: "hand.tap", title: "Collecting…", body: "Hold steady.") }
+            if isLocked {
+                return Card(symbol: "hand.tap", title: "Got it in your circle",
+                    body: "Tap anywhere on the screen to collect it.")
+            }
+            return Card(symbol: "scope", title: "A star is hiding nearby",
+                body: "Follow the arrow and bring it inside your circle.")
+        case .wormhole: return nil
+        case .landed:
+            return Card(symbol: "checkmark.seal", title: "That's collecting",
+                body: "Real stars stay in your Night Sea, in their true place. This practice one fades away.",
+                primary: "Back to the Night Sea")
+        case .collection:
+            return Card(symbol: "text.book.closed", title: "Your collection",
+                body: "Stars, planets, constellations and sky events you've found, all in one place.",
+                primary: "Open Collection", secondary: "Next")
+        case .calendar:
+            return Card(symbol: "calendar", title: "Sky Calendar",
+                body: "Meteor showers, eclipses and more. Set a reminder so you never miss one.",
+                primary: "Open Calendar", secondary: "Next")
+        case .ready:
+            return Card(symbol: "telescope", title: "You're ready",
+                body: "Tonight, step outside and tap Start Collecting to find your first real star.",
+                primary: "Done")
+        case .done: return nil
         }
+    }
+
+    var progressIndex: Int? {
+        if step == .wormhole { return Step.counted.firstIndex(of: .find) }
+        return Step.counted.firstIndex(of: step)
     }
 }
