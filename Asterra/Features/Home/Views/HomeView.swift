@@ -22,6 +22,9 @@ struct HomeView: View {
     @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
     @State private var gardenUsesGyro = true
+    /// First-run run-through over the Night Sea (replayable from the direction menu).
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var onboarding: OnboardingFlow?
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -36,7 +39,12 @@ struct HomeView: View {
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
                     .ignoresSafeArea()
 
-                if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing {
+                if let onboarding {
+                    OnboardingOverlay(flow:onboarding,camera:gardenCamera)
+                        .transition(.opacity)
+                }
+
+                if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing && onboarding == nil {
                     VStack(spacing:6) {
                         Text("Your sky is still empty").font(.system(size:15,weight:.semibold))
                         Text("Collect your first star and it will shine here.").font(.system(size:13)).opacity(0.7)
@@ -46,6 +54,7 @@ struct HomeView: View {
                 }
             }
             .background(CelyxColor.night)
+            .task { if shouldStartOnboarding { startOnboarding() } }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { screenSize = $0 }
             .onGeometryChange(for:CGFloat.self) { $0.size.width } action:{ screenWidth = $0 }
             .onChange(of:handover?.phase) { _, phase in
@@ -116,6 +125,7 @@ struct HomeView: View {
                 }
                 Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
                 Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
+                Button("Replay intro",systemImage:"sparkles") { startOnboarding() }
             } label: {
                 Group {
                     if gardenUsesGyro {
@@ -138,7 +148,7 @@ struct HomeView: View {
         }
         ToolbarItem(placement:.bottomBar) {
             // Figma: 284pt on a 402pt screen, i.e. the width minus 28pt margins, 12pt gap and the 50pt AR button.
-            StartCollectingButton(action:openStarCamera)
+            StartCollectingButton(invites:onboarding?.step == .finale,action:openStarCamera)
                 .frame(width:max(160,screenWidth-118))
         }
         .sharedBackgroundVisibility(.hidden)
@@ -153,8 +163,32 @@ struct HomeView: View {
 
     /// Keep controls out of the presentation until the reveal and live-camera return finish.
     private var showsChrome: Bool {
+        if let onboarding, onboarding.step < .finale { return false }
         guard let handover else { return true }
         return handover.phase >= .presenting
+    }
+
+    // MARK: Onboarding
+
+    private var shouldStartOnboarding: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-onboarding") { return true }
+        #endif
+        return !hasCompletedOnboarding
+    }
+
+    private func startOnboarding() {
+        let flow = OnboardingFlow()
+        flow.reduceMotion = reduceMotion
+        flow.onFinish = {
+            hasCompletedOnboarding = true
+            withAnimation(.smooth(duration:0.6)) { onboarding = nil }
+        }
+        // The run-through needs the gyro and the virtual sky, facing wherever the phone points.
+        gardenUsesGyro = true
+        gardenUsesCamera = false
+        withAnimation(.smooth(duration:0.5)) { onboarding = flow }
+        Task { await flow.start() }
     }
 
     // MARK: Star camera + wormhole handover
@@ -219,7 +253,10 @@ private struct CompassBadge: View {
 
 /// "Start Collecting" (Figma 998:2695): native Liquid Glass tinted with the Figma inner-shadow stack.
 private struct StartCollectingButton: View {
+    /// End of the run-through: a slow halo breathes around the button to invite the first real collect.
+    var invites = false
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Button(action:action) {
             HStack(spacing:12) {
@@ -232,6 +269,16 @@ private struct StartCollectingButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(CelyxTintedGlassButtonStyle())
+        .background {
+            if invites && !reduceMotion {
+                Capsule().fill(CelyxColor.accent)
+                    .blur(radius:14)
+                    .phaseAnimator([0.25,0.7]) { glow, value in glow.opacity(value).scaleEffect(0.9+value*0.12) }
+                        animation: { _ in .easeInOut(duration:1.3) }
+                    .transition(.opacity)
+            }
+        }
+        .animation(.smooth(duration:0.6),value:invites)
         .accessibilityIdentifier("start-collecting")
     }
 }
