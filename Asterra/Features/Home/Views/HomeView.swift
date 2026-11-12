@@ -157,7 +157,7 @@ struct HomeView: View {
         }
         ToolbarItem(placement:.bottomBar) {
             // Figma: 284pt on a 402pt screen, i.e. the width minus 28pt margins, 12pt gap and the 50pt AR button.
-            StartCollectingButton(invites:onboarding?.step == .ready,action:openStarCamera)
+            StartCollectingButton(action:openStarCamera)
                 .frame(width:max(160,screenWidth-118))
         }
         .sharedBackgroundVisibility(.hidden)
@@ -382,7 +382,11 @@ struct HomeView: View {
     // MARK: Star camera + wormhole handover
 
     /// The star camera is presented like dev does (a full-screen cover), so Ferdi's toolbar renders.
-    private func openStarCamera() { showsStarCamera = true }
+    private func openStarCamera() {
+        // The tour's last step points here: pressing it ends the tour and starts the real thing.
+        if let onboarding, onboarding.step == .ready { onboarding.finish() }
+        showsStarCamera = true
+    }
 
     private func collected(_ result: StarCollectCameraView.CollectResult) {
         switch result {
@@ -441,10 +445,7 @@ private struct CompassBadge: View {
 
 /// "Start Collecting" (Figma 998:2695): native Liquid Glass tinted with the Figma inner-shadow stack.
 private struct StartCollectingButton: View {
-    /// End of the run-through: a slow halo breathes around the button to invite the first real collect.
-    var invites = false
     let action: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Button(action:action) {
             HStack(spacing:12) {
@@ -457,16 +458,6 @@ private struct StartCollectingButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(CelyxTintedGlassButtonStyle())
-        .background {
-            if invites && !reduceMotion {
-                Capsule().fill(CelyxColor.accent)
-                    .blur(radius:14)
-                    .phaseAnimator([0.25,0.7]) { glow, value in glow.opacity(value).scaleEffect(0.9+value*0.12) }
-                        animation: { _ in .easeInOut(duration:1.3) }
-                    .transition(.opacity)
-            }
-        }
-        .animation(.smooth(duration:0.6),value:invites)
         .accessibilityIdentifier("start-collecting")
     }
 }

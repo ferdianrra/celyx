@@ -56,8 +56,10 @@ struct OnboardingOverlay: View {
 
                 if let pointer = flow.pointer, chromeVisible {
                     // Spotlight on the real toolbar control the card asks for.
-                    OnboardingHighlight(diameter: 46)
-                        .position(pointerTarget(pointer, size: size))
+                    let target = pointerTarget(pointer, size: size)
+                    OnboardingHighlight(size: target.size)
+                        .position(target.center)
+                        .id(pointer)
                         .transition(.opacity)
                 }
 
@@ -105,13 +107,20 @@ struct OnboardingOverlay: View {
     }
 
     /// Where Home's toolbar controls sit (native toolbar layout, from the window's safe area).
-    private func pointerTarget(_ pointer: OnboardingFlow.Pointer, size: CGSize) -> CGPoint {
+    private func pointerTarget(_ pointer: OnboardingFlow.Pointer, size: CGSize) -> (center: CGPoint, size: CGSize) {
         let insets = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first?.safeAreaInsets ?? .zero
+        let round = CGSize(width: 46, height: 46)
+        let bottomRow = size.height - insets.bottom - 19
         switch pointer {
-        case .cameraButton: return CGPoint(x: size.width - 48, y: size.height - insets.bottom - 19)
-        case .collectionButton: return CGPoint(x: size.width - 100, y: insets.top + 22)
-        case .calendarButton: return CGPoint(x: size.width - 45, y: insets.top + 22)
+        case .cameraButton: return (CGPoint(x: size.width - 48, y: bottomRow), round)
+        case .collectionButton: return (CGPoint(x: size.width - 100, y: insets.top + 22), round)
+        case .calendarButton: return (CGPoint(x: size.width - 45, y: insets.top + 22), round)
+        case .startCollecting:
+            // Home sizes Start Collecting as the width minus 118pt, left of the 50pt camera button.
+            let width = max(160, size.width - 118)
+            let left = size.width - 48 - 25 - 12 - width
+            return (CGPoint(x: left + width / 2, y: bottomRow), CGSize(width: width, height: 50))
         }
     }
 

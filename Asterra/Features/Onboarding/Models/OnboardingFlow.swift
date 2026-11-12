@@ -88,9 +88,6 @@ final class OnboardingFlow {
         case .welcome: advance(to: .look)
         case .camera where cameraUnavailable: findInNightSea()
         case .landed where cameraUnavailable: advance(to: .collection)
-        case .collection: actions.openCollection()
-        case .calendar: actions.openCalendar()
-        case .ready: finish()
         default: break
         }
     }
@@ -115,7 +112,8 @@ final class OnboardingFlow {
             try? await Task.sleep(for: .seconds(2.2))
             if succeeded { primary(); continue }
             switch step {
-            case .welcome, .ready: primary()
+            case .welcome: primary()
+            case .ready: finish()
             case .look: succeed(then: .camera)
             case .camera: if cameraUnavailable { primary() } else if !cameraStarting { actions.setCamera(true) }
             case .find: if isLocked { collect(at: aimPoint) }
@@ -240,7 +238,7 @@ final class OnboardingFlow {
     }
 
     /// Where the card points: a real control on Home the user should press.
-    enum Pointer { case cameraButton, collectionButton, calendarButton }
+    enum Pointer: Hashable { case cameraButton, collectionButton, calendarButton, startCollecting }
     var pointer: Pointer? {
         guard !succeeded else { return nil }
         switch step {
@@ -248,6 +246,7 @@ final class OnboardingFlow {
         case .landed where !cameraUnavailable: return .cameraButton
         case .collection: return .collectionButton
         case .calendar: return .calendarButton
+        case .ready: return .startCollecting
         default: return nil
         }
     }
@@ -293,16 +292,13 @@ final class OnboardingFlow {
                 body: "Every real star you collect stays in your Night Sea. Tap the same button to go back there.")
         case .collection:
             return Card(symbol: "text.book.closed", title: "Your collection",
-                body: "Everything you find lands here. Tap the book at the top, or the button below.",
-                primary: "Open Collection")
+                body: "Everything you find lands here. Tap the glowing book at the top to look inside.")
         case .calendar:
             return Card(symbol: "calendar", title: "Sky Calendar",
-                body: "Meteor showers, eclipses and more. Tap the calendar at the top, or the button below.",
-                primary: "Open Calendar")
+                body: "Meteor showers, eclipses and more. Tap the glowing calendar at the top to see what's coming.")
         case .ready:
             return Card(symbol: "sparkles", title: "You're ready",
-                body: "Tonight, step outside and tap Start Collecting to find your first real star.",
-                primary: "Done")
+                body: "Tap Start Collecting whenever you're under the sky to find your first real star.")
         case .done: return nil
         }
     }

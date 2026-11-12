@@ -24,40 +24,59 @@ struct OnboardingGuidePill: View {
     }
 }
 
-/// The tour's one way of saying "press this": a soft glow with a slow, subtle ripple leaving the control.
-/// Used on the toolbar buttons and on controls inside sheets alike.
+/// The tour's one way of saying "press this": a bright glow under the control and eased ripples leaving
+/// its outline, each ripple with a soft haptic tap so the phone itself seems to call from the button.
+/// (iPhone haptics can't be placed at a point on the screen; syncing them to the ripple gives that feel.)
 struct OnboardingHighlight: View {
-    var diameter: CGFloat = 48
+    /// The control's size; a circle when width == height, otherwise a capsule.
+    var size: CGSize = CGSize(width: 48, height: 48)
+    var haptics = true
+    @State private var start = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let light = Color(red: 0.66, green: 0.78, blue: 1)
-    private let period = 2.4
+    private let light = Color(red: 0.55, green: 0.78, blue: 1)
+    /// One ripple per beat.
+    private let period = 1.6
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
+            let elapsed = max(0, timeline.date.timeIntervalSince(start))
+            let t = (elapsed / period).truncatingRemainder(dividingBy: 1)
+            let eased = 1 - pow(1 - t, 3)
+            let breath = 0.5 - 0.5 * cos(elapsed * 2 * .pi / (period * 2))
             ZStack {
-                // Breathing glow under the control (ease in-out).
-                let breath = 0.5 - 0.5 * cos(time * 2 * .pi / period)
-                Circle().fill(light)
-                    .frame(width: diameter, height: diameter)
-                    .blur(radius: 12)
-                    .opacity(reduceMotion ? 0.35 : 0.22 + 0.22 * breath)
-                // Two staggered ripples, each easing out as it grows and fades.
+                // A vivid glow under the control, breathing slowly.
+                Capsule().fill(light)
+                    .frame(width: size.width, height: size.height)
+                    .blur(radius: 14)
+                    .opacity(reduceMotion ? 0.7 : 0.55 + 0.35 * breath)
+                Capsule().stroke(.white.opacity(0.85), lineWidth: 1.5)
+                    .frame(width: size.width + 4, height: size.height + 4)
+                    .shadow(color: light, radius: 6)
                 if !reduceMotion {
-                    ForEach(0..<2, id: \.self) { i in
-                        let t = (time / period + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
-                        let eased = 1 - pow(1 - t, 3)
-                        Circle().stroke(light, lineWidth: 1.2)
-                            .frame(width: diameter, height: diameter)
-                            .scaleEffect(1 + eased * 0.55)
-                            .opacity((1 - eased) * 0.55)
-                    }
+                    // The ripple: grows by a fixed margin (same feel on a circle or a long capsule) and fades.
+                    Capsule().stroke(light, lineWidth: 2)
+                        .frame(width: size.width + 4 + eased * 34, height: size.height + 4 + eased * 34)
+                        .shadow(color: light, radius: 4)
+                        .opacity((1 - eased) * 0.95)
                 }
             }
         }
-        .frame(width: diameter * 1.6, height: diameter * 1.6)
+        .frame(width: size.width + 60, height: size.height + 60)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .task {
+            guard haptics else { return }
+            start = Date()
+            let tap = UIImpactFeedbackGenerator(style: .soft)
+            tap.prepare()
+            while !Task.isCancelled {
+                // A soft heartbeat on every ripple: tap, then a lighter echo.
+                tap.impactOccurred(intensity: 0.75)
+                try? await Task.sleep(for: .milliseconds(110))
+                tap.impactOccurred(intensity: 0.35)
+                try? await Task.sleep(for: .seconds(period - 0.11))
+            }
+        }
     }
 }
 

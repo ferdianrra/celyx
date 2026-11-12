@@ -147,7 +147,7 @@ struct CollectedObjectSheet: View {
         .background {
             // Tour: once the card is shown, the way back breathes softly.
             if tourGuide && !editingNote {
-                OnboardingHighlight(diameter: 48).transition(.opacity)
+                OnboardingHighlight(size: CGSize(width: 48, height: 48)).transition(.opacity)
             }
         }
         .accessibilityIdentifier("close-collected-star")
