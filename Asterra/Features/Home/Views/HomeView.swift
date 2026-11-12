@@ -91,7 +91,6 @@ struct HomeView: View {
             },onClose:{ showsCollection = false })
             .presentationDetents([.height(300),.large])
             .presentationDragIndicator(.visible)
-            .presentationBackground { CelyxBluePanel() }
         }
         .fullScreenCover(isPresented:$showsCalibration) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }

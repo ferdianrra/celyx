@@ -18,6 +18,8 @@ struct CollectedObjectSheet: View {
     @State private var photo: UIImage?
     @State private var note = ""
     @State private var editingNote = false
+    @State private var compactNoteEntry = false
+    @State private var noteBounds: CGRect = .null
     @State private var initialized = false
     @State private var noteContentHeight: CGFloat = 300
     @State private var containerBottomInset: CGFloat = 0
@@ -34,6 +36,7 @@ struct CollectedObjectSheet: View {
         self.onSaveNote = onSaveNote; self.onSavePlace = onSavePlace; self.onDelete = onDelete
         _note = State(initialValue: (collection?.collected[item.id] ?? item.record).note ?? "")
         _editingNote = State(initialValue: startsWithNoteEntry)
+        _compactNoteEntry = State(initialValue: startsWithNoteEntry)
         _detent = State(initialValue: startsWithNoteEntry ? .height(300) : .large)
         _photo = State(initialValue: capturedPhoto)
     }
@@ -49,12 +52,12 @@ struct CollectedObjectSheet: View {
     private var content: StarShareContent { .init(item: displayedItem, collectionNumber: nil) }
 
     var body: some View {
-        ScrollView {
+        CelyxSheetScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header.padding(.horizontal, 20).padding(.top, 32)
                 VStack(spacing: 12) {
                     notes
-                    if !editingNote {
+                    if !compactNoteEntry {
                         capturePhoto
                         metadata
                         VStack(spacing: 12) {
@@ -66,16 +69,20 @@ struct CollectedObjectSheet: View {
                                 .accessibilityIdentifier("share-collected-star")
                             Button(role: .destructive) { confirmsDelete = true } label: {
                                 Label("Delete", systemImage: "trash")
-                                    .font(.body).frame(maxWidth: .infinity, minHeight: 50)
+                                    .font(.body).frame(maxWidth: .infinity, minHeight: 44)
                             }
                                 .buttonStyle(.borderless).foregroundStyle(.red)
                                 .accessibilityIdentifier("delete-collected-star")
                         }.padding(.top, 12)
                     }
-                }.padding(16)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, compactNoteEntry ? 16 : 0)
             }
+            .contentShape(Rectangle())
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                guard editingNote, height > 0 else { return }
+                guard compactNoteEntry, height > 0 else { return }
                 // Size the native detent to its content, including the same 16pt bottom/side inset.
                 let fitted = ceil(height)
                 if abs(noteContentHeight - fitted) > 0.5 { noteContentHeight = fitted }
@@ -86,15 +93,20 @@ struct CollectedObjectSheet: View {
             if inset > 0, inset < 100 { containerBottomInset = inset }
         }
         .onChange(of: noteSheetHeight) { _, height in
-            if editingNote { detent = .height(height) }
+            if compactNoteEntry { detent = .height(height) }
         }
+        .coordinateSpace(name: "collected-object-sheet")
+        .simultaneousGesture(SpatialTapGesture(coordinateSpace: .named("collected-object-sheet")).onEnded { tap in
+            guard editingNote, !compactNoteEntry, !noteBounds.isNull,
+                  !noteBounds.contains(tap.location) else { return }
+            finishNote()
+        })
         .overlay(alignment: .topTrailing) { closeButton.padding(.top, 32).padding(.trailing, 20) }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.never)
         .foregroundStyle(.primary)
-        .presentationDetents(editingNote ? [.height(noteSheetHeight)] : [.large], selection: $detent)
+        .presentationDetents(compactNoteEntry ? [.height(noteSheetHeight)] : [.large], selection: $detent)
         .presentationDragIndicator(.visible)
-        .presentationBackground { CelyxBluePanel() }
         .preferredColorScheme(.dark)
         .task {
             guard !initialized else { return }
@@ -155,8 +167,25 @@ struct CollectedObjectSheet: View {
     }
 
     private var notes: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Notes").font(.callout).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            if !compactNoteEntry {
+                HStack {
+                    Text("Note").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        editingNote = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                        .buttonStyle(.borderless)
+                        .disabled(editingNote)
+                        .accessibilityLabel("Edit note")
+                        .accessibilityIdentifier("edit-collected-star-note")
+                }
+                .padding(.bottom, 4)
+            }
             if editingNote {
                 TextField("Write a note…", text: $note, axis: .vertical)
                     .font(.body).textFieldStyle(.plain)
@@ -177,20 +206,18 @@ struct CollectedObjectSheet: View {
                     .accessibilityLabel("Notes")
                     .accessibilityIdentifier("collection-note-editor")
             } else {
-                Button {
-                    editingNote = true; detent = .height(noteSheetHeight)
-                } label: {
-                    Text(note.isEmpty ? "Add a note…" : note)
-                        .font(.body).foregroundStyle(note.isEmpty ? .secondary : .primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }.buttonStyle(.plain)
-                    .accessibilityLabel(note.isEmpty ? "Add a note" : "Edit note: \(note)")
+                Text(note.isEmpty ? "Add a note…" : note)
+                    .font(.body).foregroundStyle(note.isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("collected-star-note")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20).background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 32))
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named("collected-object-sheet"))
+        } action: { noteBounds = $0 }
     }
 
     private var capturePhoto: some View {
@@ -204,7 +231,11 @@ struct CollectedObjectSheet: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .background(.tertiary)
             }
-        }.frame(height: 236).clipShape(RoundedRectangle(cornerRadius: 32))
+        }
+        .frame(height: 236)
+        .clipShape(RoundedRectangle(cornerRadius: 32))
+        // The scaled photo extends past its crop and must not intercept taps on the note.
+        .allowsHitTesting(false)
             .accessibilityIdentifier("collected-star-photo")
     }
 
@@ -236,12 +267,13 @@ struct CollectedObjectSheet: View {
         note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         onSaveNote?(note)
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-            editingNote = false; detent = .large
+            editingNote = false
+            compactNoteEntry = false
+            detent = .large
         }
     }
 }
 
 #Preview {
     CollectedObjectSheet(item: AppPreviewData.item, direction: nil, capturedPhoto: AppPreviewData.albumPhoto, onDelete: {})
-        .presentationBackground { CelyxBluePanel() }
 }
