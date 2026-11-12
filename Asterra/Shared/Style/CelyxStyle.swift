@@ -148,16 +148,13 @@ extension View {
     }
 }
 
-/// Primary tinted-glass button: the gradient + glass stack from `celyxGlass`, pressed as one piece
-/// (a soft squash and a brief brighten), like the system glass buttons.
+/// The primary gradient under Apple's interactive Liquid Glass.
 struct CelyxTintedGlassButtonStyle: ButtonStyle {
     var glow: [CelyxInnerShadow] = .celyxPrimary
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .celyxGlass(glow,in:Capsule())
-            .brightness(configuration.isPressed ? 0.06 : 0)
-            .scaleEffect(configuration.isPressed ? 0.965 : 1)
-            .animation(.spring(duration:0.32,bounce:0.35),value:configuration.isPressed)
+            .glassEffect(.clear.interactive(), in: Capsule())
+            .background { CelyxInnerGlow(shape: Capsule(), layers: glow) }
             .environment(\.colorScheme,.dark)
     }
 }
