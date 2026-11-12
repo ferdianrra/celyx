@@ -16,7 +16,7 @@ struct OnboardingGuidePill: View {
         }
         .foregroundStyle(CelyxColor.primaryLabel)
         .padding(.horizontal, 18).padding(.vertical, 12)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassEffect(.regular.tint(CelyxColor.night.opacity(0.55)), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .environment(\.colorScheme, .dark)
         .id(text)
         .transition(.blurReplace.combined(with: .offset(y: 6)))

@@ -54,16 +54,12 @@ struct OnboardingOverlay: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
 
-                if flow.step == .welcome {
-                    OnboardingWordmark().offset(y: -size.height * 0.12)
-                        .transition(.blurReplace)
-                }
-
-                if flow.step == .collection || flow.step == .calendar {
-                    // Where the feature lives in the toolbar, so the user can find it again later.
-                    OnboardingToolbarPointer()
-                        .position(x: size.width - (flow.step == .collection ? 78 : 36),
-                                  y: geometry.safeAreaInsets.top + 64)
+                if let pointer = flow.pointer, chromeVisible {
+                    // Spotlight on the real toolbar control the card asks for.
+                    let target = pointerTarget(pointer, size: size)
+                    OnboardingSpotlight().position(target.center).transition(.opacity)
+                    OnboardingToolbarPointer(up: target.below)
+                        .position(x: target.center.x, y: target.center.y + (target.below ? 44 : -46))
                         .transition(.opacity)
                 }
 
@@ -89,7 +85,7 @@ struct OnboardingOverlay: View {
             if let card = flow.card {
                 OnboardingCard(card: card, flow: flow)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, chromeVisible ? 76 : 12)
+                    .padding(.bottom, chromeVisible ? 66 : 12)
                     .transition(reduceMotion ? .opacity
                         : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                       removal: .opacity.combined(with: .scale(scale: 0.96))))
@@ -108,6 +104,17 @@ struct OnboardingOverlay: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.5, bounce: 0.12), value: flow.step)
         .onAppear { flow.reduceMotion = reduceMotion }
         .preferredColorScheme(.dark)
+    }
+
+    /// Where Home's toolbar controls sit (native toolbar layout, from the window's safe area).
+    private func pointerTarget(_ pointer: OnboardingFlow.Pointer, size: CGSize) -> (center: CGPoint, below: Bool) {
+        let insets = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first?.safeAreaInsets ?? .zero
+        switch pointer {
+        case .cameraButton: return (CGPoint(x: size.width - 48, y: size.height - insets.bottom - 19), false)
+        case .collectionButton: return (CGPoint(x: size.width - 100, y: insets.top + 22), true)
+        case .calendarButton: return (CGPoint(x: size.width - 45, y: insets.top + 22), true)
+        }
     }
 
     private var crosshairState: CrosshairState {
@@ -135,60 +142,55 @@ struct OnboardingOverlay: View {
 
 // MARK: - Coach card
 
-/// One step of the tour: native Liquid Glass, an SF Symbol, a title, one sentence and the action.
+/// One step of the tour: native Liquid Glass, a title with its symbol, one sentence and the action,
+/// with the same tinted-glass primary button as Start Collecting.
 private struct OnboardingCard: View {
     let card: OnboardingFlow.Card
     let flow: OnboardingFlow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             if let index = flow.progressIndex {
                 OnboardingProgressDots(index: index, count: OnboardingFlow.Step.counted.count)
+                    .padding(.bottom, 18)
             }
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: flow.succeeded ? "checkmark.circle.fill" : card.symbol)
-                    .font(.system(size: 21, weight: .medium))
-                    .foregroundStyle(flow.succeeded ? CelyxColor.ready : CelyxColor.primaryLabel)
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.bounce, value: flow.succeeded)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular, in: Circle())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(card.title).font(.headline)
-                    Text(card.body).font(.subheadline).foregroundStyle(CelyxColor.secondaryLabel)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .id(card.title)
-                .transition(.blurReplace)
-            }
-            if flow.step == .look {
-                ProgressView(value: flow.lookProgress)
-                    .tint(flow.succeeded ? CelyxColor.ready : .white)
-                    .animation(.smooth(duration: 0.3), value: flow.lookProgress)
-            }
-            if card.primary != nil || card.secondary != nil {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    if let secondary = card.secondary {
-                        Button(secondary) { flow.secondary() }
-                            .buttonStyle(.glass)
-                            .controlSize(.large)
-                    }
-                    if let primary = card.primary {
-                        Button { flow.primary() } label: {
-                            Text(primary).frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.glassProminent)
-                        .tint(CelyxColor.primary)
-                        .controlSize(.large)
-                    }
+                    Image(systemName: flow.succeeded ? "checkmark.circle.fill" : card.symbol)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(flow.succeeded ? CelyxColor.ready : Color(red: 0.72, green: 0.82, blue: 1))
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.bounce, value: flow.succeeded)
+                        .frame(width: 26)
+                    Text(card.title).font(.title3.weight(.semibold))
                 }
-                .font(.body.weight(.semibold))
+                Text(card.body).font(.body).foregroundStyle(CelyxColor.secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .id(card.title)
+            .transition(.blurReplace)
+            if flow.step == .look && !flow.succeeded {
+                ProgressView(value: flow.lookProgress)
+                    .tint(.white)
+                    .animation(.smooth(duration: 0.3), value: flow.lookProgress)
+                    .padding(.top, 18)
+            }
+            if let primary = card.primary {
+                Button { flow.primary() } label: {
+                    Text(primary).font(.system(size: 17, weight: .semibold)).tracking(-0.43)
+                        .foregroundStyle(CelyxColor.primaryLabel)
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(CelyxTintedGlassButtonStyle())
+                .padding(.top, 20)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
         .foregroundStyle(CelyxColor.primaryLabel)
-        .padding(20)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .padding(.horizontal, 22).padding(.top, 22).padding(.bottom, card.primary == nil ? 22 : 16)
+        .glassEffect(.regular.tint(CelyxColor.night.opacity(0.35)), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
         .animation(.spring(duration: 0.45, bounce: 0.1), value: card)
         .sensoryFeedback(.success, trigger: flow.succeeded) { _, new in new }
     }
@@ -257,36 +259,32 @@ private struct OnboardingEdgeHint: View {
 
 /// Bobbing arrow toward a toolbar button.
 private struct OnboardingToolbarPointer: View {
+    var up = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        Image(systemName: "arrow.up")
+        Image(systemName: up ? "arrow.up" : "arrow.down")
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(.white)
             .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.9), radius: 8)
-            .phaseAnimator([0.0, 1.0]) { view, t in view.offset(y: reduceMotion ? 0 : -t * 6) }
+            .phaseAnimator([0.0, 1.0]) { view, t in view.offset(y: reduceMotion ? 0 : (up ? -t : t) * 6) }
                 animation: { _ in .easeInOut(duration: 0.75) }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
 
-/// Wordmark that opens the tour.
-private struct OnboardingWordmark: View {
-    @State private var shown = false
+/// A soft ring breathing around the control to press.
+private struct OnboardingSpotlight: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        VStack(spacing: 10) {
-            Text("Asterra").font(.system(size: 48, weight: .semibold)).tracking(0.5)
-            Text("Collect the stars above you").font(.title3).foregroundStyle(CelyxColor.secondaryLabel)
-        }
-        .foregroundStyle(CelyxColor.primaryLabel)
-        .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
-        .opacity(shown ? 1 : 0)
-        .scaleEffect(shown || reduceMotion ? 1 : 0.94)
-        .blur(radius: shown || reduceMotion ? 0 : 8)
-        .onAppear { withAnimation(.smooth(duration: 1.2).delay(0.2)) { shown = true } }
-        .allowsHitTesting(false)
+        Circle().stroke(Color(red: 0.72, green: 0.82, blue: 1), lineWidth: 2)
+            .frame(width: 60, height: 60)
+            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1), radius: 8)
+            .phaseAnimator([false, true]) { ring, out in
+                ring.scaleEffect(reduceMotion ? 1 : (out ? 1.18 : 0.98)).opacity(out ? 0.35 : 0.95)
+            } animation: { _ in .easeInOut(duration: 1.0) }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

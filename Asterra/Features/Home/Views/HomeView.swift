@@ -31,6 +31,7 @@ struct HomeView: View {
     /// The tour's capture cue (frozen frame + when the shutter fired), before its wormhole opens.
     @State private var tourShutter: (start: Date, image: CGImage?)?
     @State private var tourCameraTimeout: Task<Void, Never>?
+    @State private var didAutoStartTour = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -189,7 +190,9 @@ struct HomeView: View {
         let home: HomeView
         func body(content: Content) -> some View {
             content
-                .task { if home.shouldStartOnboarding { home.startOnboarding() } }
+                // Once per launch: returning from a pushed screen re-runs `task`, which must not restart the tour.
+                .task { if home.shouldStartOnboarding && !home.didAutoStartTour { home.didAutoStartTour = true; home.startOnboarding() } }
+                .onChange(of:home.gardenUsesCamera) { _, on in home.tourCameraModeChanged(on) }
                 .onChange(of:home.gardenCamera,initial:true) { _, camera in home.onboarding?.cameraChanged(camera) }
                 .onChange(of:home.cameraLink.pose != nil) { _, ready in
                     guard ready, home.gardenUsesCamera, let pose = home.cameraLink.pose else { return }
@@ -224,7 +227,11 @@ struct HomeView: View {
     /// The toolbars come back once the tour points at them.
     private var tourShowsChrome: Bool {
         guard let onboarding else { return true }
-        return onboarding.step >= .collection && handover == nil
+        guard handover == nil else { return false }
+        switch onboarding.step {
+        case .camera, .landed, .collection, .calendar, .ready: return true
+        default: return false
+        }
     }
 
     /// The tour's layers over the garden: its capture cue, wormhole, captions and coach overlay.
@@ -291,18 +298,28 @@ struct HomeView: View {
         #endif
     }
 
-    /// Turns the garden's camera view on (asking for permission in context) or off.
+    /// Turns the garden's camera view on or off for the tour (the user normally uses the toolbar button).
     private func setTourCamera(_ on: Bool,flow: OnboardingFlow) {
+        withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = on }
+    }
+
+    /// The user switched the camera view with the toolbar button during the tour.
+    private func tourCameraModeChanged(_ on: Bool) {
+        guard let flow = onboarding else { return }
+        flow.cameraModeChanged(on)
         tourCameraTimeout?.cancel()
-        guard on else {
-            withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
-            return
-        }
+        guard on, flow.step == .camera else { return }
         tourCameraTimeout = Task { @MainActor in
-            guard await AVCaptureDevice.requestAccess(for:.video) else { flow.cameraFailed(); return }
-            withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = true }
+            // Ask for the camera in context; the wait for tracking starts after the user answers.
+            if AVCaptureDevice.authorizationStatus(for:.video) == .notDetermined {
+                _ = await AVCaptureDevice.requestAccess(for:.video)
+            }
+            guard AVCaptureDevice.authorizationStatus(for:.video) == .authorized else {
+                withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
+                flow.cameraFailed(); return
+            }
             // No tracked camera pose in time (no ARKit, covered lens): practise in the Night Sea instead.
-            try? await Task.sleep(for:.seconds(7))
+            try? await Task.sleep(for:.seconds(8))
             guard !Task.isCancelled, cameraLink.pose == nil else { return }
             withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
             flow.cameraFailed()
