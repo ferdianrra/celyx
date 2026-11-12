@@ -56,10 +56,8 @@ struct OnboardingOverlay: View {
 
                 if let pointer = flow.pointer, chromeVisible {
                     // Spotlight on the real toolbar control the card asks for.
-                    let target = pointerTarget(pointer, size: size)
-                    OnboardingSpotlight().position(target.center).transition(.opacity)
-                    OnboardingToolbarPointer(up: target.below)
-                        .position(x: target.center.x, y: target.center.y + (target.below ? 44 : -46))
+                    OnboardingHighlight(diameter: 46)
+                        .position(pointerTarget(pointer, size: size))
                         .transition(.opacity)
                 }
 
@@ -85,7 +83,7 @@ struct OnboardingOverlay: View {
             if let card = flow.card {
                 OnboardingCard(card: card, flow: flow)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, chromeVisible ? 66 : 12)
+                    .padding(.bottom, chromeVisible ? 10 : 12)
                     .transition(reduceMotion ? .opacity
                         : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                       removal: .opacity.combined(with: .scale(scale: 0.96))))
@@ -107,13 +105,13 @@ struct OnboardingOverlay: View {
     }
 
     /// Where Home's toolbar controls sit (native toolbar layout, from the window's safe area).
-    private func pointerTarget(_ pointer: OnboardingFlow.Pointer, size: CGSize) -> (center: CGPoint, below: Bool) {
+    private func pointerTarget(_ pointer: OnboardingFlow.Pointer, size: CGSize) -> CGPoint {
         let insets = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first?.safeAreaInsets ?? .zero
         switch pointer {
-        case .cameraButton: return (CGPoint(x: size.width - 48, y: size.height - insets.bottom - 19), false)
-        case .collectionButton: return (CGPoint(x: size.width - 100, y: insets.top + 22), true)
-        case .calendarButton: return (CGPoint(x: size.width - 45, y: insets.top + 22), true)
+        case .cameraButton: return CGPoint(x: size.width - 48, y: size.height - insets.bottom - 19)
+        case .collectionButton: return CGPoint(x: size.width - 100, y: insets.top + 22)
+        case .calendarButton: return CGPoint(x: size.width - 45, y: insets.top + 22)
         }
     }
 
@@ -150,10 +148,6 @@ private struct OnboardingCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let index = flow.progressIndex {
-                OnboardingProgressDots(index: index, count: OnboardingFlow.Step.counted.count)
-                    .padding(.bottom, 18)
-            }
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
                     Image(systemName: flow.succeeded ? "checkmark.circle.fill" : card.symbol)
@@ -163,6 +157,14 @@ private struct OnboardingCard: View {
                         .symbolEffect(.bounce, value: flow.succeeded)
                         .frame(width: 26)
                     Text(card.title).font(.title3.weight(.semibold))
+                    Spacer(minLength: 8)
+                    if let index = flow.progressIndex {
+                        Text("\(index + 1) of \(OnboardingFlow.Step.counted.count)")
+                            .font(.footnote.weight(.medium)).monospacedDigit()
+                            .foregroundStyle(CelyxColor.secondaryLabel)
+                            .contentTransition(.numericText())
+                            .accessibilityLabel("Step \(index + 1) of \(OnboardingFlow.Step.counted.count)")
+                    }
                 }
                 Text(card.body).font(.body).foregroundStyle(CelyxColor.secondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
@@ -196,22 +198,6 @@ private struct OnboardingCard: View {
     }
 }
 
-private struct OnboardingProgressDots: View {
-    let index: Int
-    let count: Int
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<count, id: \.self) { i in
-                Capsule()
-                    .fill(.white.opacity(i <= index ? 0.95 : 0.25))
-                    .frame(width: i == index ? 18 : 6, height: 6)
-            }
-        }
-        .animation(.spring(duration: 0.45, bounce: 0.2), value: index)
-        .accessibilityElement()
-        .accessibilityLabel("Step \(index + 1) of \(count)")
-    }
-}
 
 // MARK: - Pieces
 
@@ -257,36 +243,7 @@ private struct OnboardingEdgeHint: View {
     }
 }
 
-/// Bobbing arrow toward a toolbar button.
-private struct OnboardingToolbarPointer: View {
-    var up = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        Image(systemName: up ? "arrow.up" : "arrow.down")
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.white)
-            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.9), radius: 8)
-            .phaseAnimator([0.0, 1.0]) { view, t in view.offset(y: reduceMotion ? 0 : (up ? -t : t) * 6) }
-                animation: { _ in .easeInOut(duration: 0.75) }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
 
-/// A soft ring breathing around the control to press.
-private struct OnboardingSpotlight: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        Circle().stroke(Color(red: 0.72, green: 0.82, blue: 1), lineWidth: 2)
-            .frame(width: 60, height: 60)
-            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1), radius: 8)
-            .phaseAnimator([false, true]) { ring, out in
-                ring.scaleEffect(reduceMotion ? 1 : (out ? 1.18 : 0.98)).opacity(out ? 0.35 : 0.95)
-            } animation: { _ in .easeInOut(duration: 1.0) }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
 
 #Preview("Onboarding") {
     @Previewable @State var flow = OnboardingFlow()

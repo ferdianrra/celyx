@@ -146,11 +146,8 @@ struct CollectedObjectSheet: View {
         .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
         .background {
             // Tour: once the card is shown, the way back breathes softly.
-            if tourGuide && !editingNote && !reduceMotion {
-                Circle().fill(Color(red: 0.62, green: 0.77, blue: 1)).blur(radius: 10)
-                    .phaseAnimator([0.15, 0.6]) { glow, value in glow.opacity(value).scaleEffect(1 + value * 0.25) }
-                        animation: { _ in .easeInOut(duration: 1.1) }
-                    .transition(.opacity)
+            if tourGuide && !editingNote {
+                OnboardingHighlight(diameter: 48).transition(.opacity)
             }
         }
         .accessibilityIdentifier("close-collected-star")

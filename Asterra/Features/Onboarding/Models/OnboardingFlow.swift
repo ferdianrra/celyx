@@ -300,7 +300,7 @@ final class OnboardingFlow {
                 body: "Meteor showers, eclipses and more. Tap the calendar at the top, or the button below.",
                 primary: "Open Calendar")
         case .ready:
-            return Card(symbol: "telescope", title: "You're ready",
+            return Card(symbol: "sparkles", title: "You're ready",
                 body: "Tonight, step outside and tap Start Collecting to find your first real star.",
                 primary: "Done")
         case .done: return nil

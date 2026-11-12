@@ -86,7 +86,8 @@ struct HomeView: View {
             // Figma "Home Screen" (998:2689): native top toolbar (compass, then a button group with the
             // collection and the calendar) and a native bottom toolbar (Start Collecting, real-sky camera).
             .toolbar { homeToolbar }
-            .toolbarVisibility(showsChrome ? .visible : .hidden,for:.navigationBar,.bottomBar)
+            .toolbarVisibility(showsChrome ? .visible : .hidden,for:.navigationBar)
+            .toolbarVisibility(showsChrome && tourShowsBottomBar ? .visible : .hidden,for:.bottomBar)
             .navigationDestination(for:HomeRoute.self) { route in
                 switch route {
                 case .calendar:
@@ -225,6 +226,15 @@ struct HomeView: View {
     private var tourCameraLink: LiveCameraLink? { onboarding == nil ? nil : cameraLink }
 
     /// The toolbars come back once the tour points at them.
+    /// During the tour the bottom bar shows only for steps about its buttons; the card takes its place otherwise.
+    private var tourShowsBottomBar: Bool {
+        guard let onboarding else { return true }
+        switch onboarding.step {
+        case .camera, .landed, .ready: return true
+        default: return false
+        }
+    }
+
     private var tourShowsChrome: Bool {
         guard let onboarding else { return true }
         guard handover == nil else { return false }
@@ -256,7 +266,7 @@ struct HomeView: View {
             if handover == nil || onboarding.step != .wormhole {
                 OnboardingOverlay(flow:onboarding,
                                   camera:gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera,
-                                  chromeVisible:tourShowsChrome)
+                                  chromeVisible:tourShowsChrome && tourShowsBottomBar)
                     .transition(.opacity)
             }
     }
