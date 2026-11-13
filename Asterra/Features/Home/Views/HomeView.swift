@@ -51,6 +51,13 @@ struct HomeView: View {
 
                 if let onboarding { tourLayer(onboarding) }
 
+                if showsChrome && tourShowsBottomBar {
+                    bottomBar
+                        .frame(maxHeight:.infinity,alignment:.bottom)
+                        .ignoresSafeArea(edges:.bottom)
+                        .transition(.move(edge:.bottom).combined(with:.opacity))
+                }
+
                 if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing && onboarding == nil {
                     VStack(spacing:6) {
                         Text("Your sky is still empty").font(.system(size:15,weight:.semibold))
@@ -89,7 +96,6 @@ struct HomeView: View {
             // collection and the calendar) and a native bottom toolbar (Start Collecting, real-sky camera).
             .toolbar { homeToolbar }
             .toolbarVisibility(showsChrome ? .visible : .hidden,for:.navigationBar)
-            .toolbarVisibility(showsChrome && tourShowsBottomBar ? .visible : .hidden,for:.bottomBar)
             .navigationDestination(for:HomeRoute.self) { route in
                 switch route {
                 case .calendar:
@@ -104,6 +110,7 @@ struct HomeView: View {
         .overlay(alignment:.bottom) { pushedTourGuide }
         // Above the toolbars, in window coordinates: the measured control the tour asks for glows and ripples.
         .overlay { tourHighlight }
+        .animation(.spring(duration:0.45,bounce:0.1),value:showsChrome && tourShowsBottomBar)
         .preferredColorScheme(.dark)
         .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
             CollectionSheet(counts:counts,onSelect:{ category in
@@ -158,20 +165,32 @@ struct HomeView: View {
             Button("Your Collection",systemImage:"text.book.closed") { showsCollection = true }
             Button("Sky Calendar",systemImage:"calendar") { path.append(.calendar) }
         }
-        ToolbarItem(placement:.bottomBar) {
-            // Figma: 284pt on a 402pt screen, i.e. the width minus 28pt margins, 12pt gap and the 50pt AR button.
-            StartCollectingButton(action:openStarCamera)
-                .frame(width:max(160,screenWidth-118))
+    }
+
+    /// The bottom row laid out like the native floating tab bar with a `role: .search` slot (measured on
+    /// iOS 27: 62pt tall, 28pt side margins, 21pt above the screen's bottom edge): Start Collecting fills the
+    /// bar, the real-sky camera sits in the trailing search circle.
+    private var bottomBar: some View {
+        HStack(spacing:TabBarMetrics.searchGap) {
+            StartCollectingButton(height:TabBarMetrics.height,action:openStarCamera)
                 .background(WindowFrameReader { tourTargets[.startCollecting] = $0 })
-        }
-        .sharedBackgroundVisibility(.hidden)
-        ToolbarSpacer(.flexible,placement:.bottomBar)
-        ToolbarItem(placement:.bottomBar) {
             // Switches the garden between the virtual Night Sea and the live camera (gyro + real sky).
-            Button(gardenUsesCamera ? "Show virtual sky" : "Show real sky through the camera",
-                   systemImage:gardenUsesCamera ? "moon.stars.fill" : "arkit") { gardenUsesCamera.toggle() }
-                .contentTransition(.symbolEffect(.replace))
+            Button { gardenUsesCamera.toggle() } label: {
+                Image(systemName:gardenUsesCamera ? "moon.stars.fill" : "arkit")
+                    .font(.system(size:22,weight:.medium))
+                    .foregroundStyle(CelyxColor.primaryLabel)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width:TabBarMetrics.height,height:TabBarMetrics.height)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(),in:Circle())
+            .background(WindowFrameReader { tourTargets[.cameraButton] = $0 })
+            .accessibilityLabel(gardenUsesCamera ? "Show virtual sky" : "Show real sky through the camera")
         }
+        .padding(.horizontal,TabBarMetrics.sideMargin)
+        .padding(.bottom,TabBarMetrics.bottomMargin)
+        .environment(\.colorScheme,.dark)
     }
 
     /// Keep controls out of the presentation until the reveal and live-camera return finish.
@@ -229,13 +248,16 @@ struct HomeView: View {
         else { return nil }
         let size = window.bounds.size, insets = window.safeAreaInsets
         func round(_ x: CGFloat,_ y: CGFloat) -> CGRect { CGRect(x:x-23,y:y-23,width:46,height:46) }
-        let bottomRow = size.height-insets.bottom-19, topRow = insets.top+22
+        let topRow = insets.top+22
         switch pointer {
         case .startCollecting:
             if let frame = tourTargets[.startCollecting] { return frame }
-            let width = max(160,size.width-118)
-            return CGRect(x:size.width-48-25-12-width,y:bottomRow-25,width:width,height:50)
-        case .cameraButton: return round(size.width-48,bottomRow)
+            let m = TabBarMetrics.self
+            let width = size.width-2*m.sideMargin-m.searchGap-m.height
+            return CGRect(x:m.sideMargin,y:size.height-m.bottomMargin-m.height,width:width,height:m.height)
+        case .cameraButton:
+            if let frame = tourTargets[.cameraButton] { return frame }
+            return round(size.width-TabBarMetrics.sideMargin-TabBarMetrics.height/2,size.height-TabBarMetrics.bottomMargin-TabBarMetrics.height/2)
         case .collectionButton: return round(size.width-98.5,topRow)
         case .calendarButton: return round(size.width-43,topRow)
         }
@@ -491,7 +513,18 @@ private struct CompassBadge: View {
 }
 
 /// "Start Collecting" (Figma 998:2695): native Liquid Glass tinted with the Figma inner-shadow stack.
+/// Native floating tab bar metrics, measured on the iOS 27 simulator (iPhone 18 Pro).
+enum TabBarMetrics {
+    static let height: CGFloat = 62
+    static let sideMargin: CGFloat = 28
+    /// From the screen's bottom edge (the bar sits inside the home-indicator area).
+    static let bottomMargin: CGFloat = 21
+    /// Between the bar and the separate search circle.
+    static let searchGap: CGFloat = 12
+}
+
 private struct StartCollectingButton: View {
+    var height: CGFloat = 50
     let action: () -> Void
     var body: some View {
         Button(action:action) {
@@ -501,7 +534,7 @@ private struct StartCollectingButton: View {
                     .foregroundStyle(CelyxColor.primaryLabel)
             }
             .padding(.horizontal,20)
-            .frame(maxWidth:.infinity).frame(height:50)
+            .frame(maxWidth:.infinity).frame(height:height)
             .contentShape(Capsule())
         }
         .buttonStyle(CelyxTintedGlassButtonStyle())
