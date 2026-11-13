@@ -42,7 +42,7 @@ struct OnboardingHighlight: View {
     private let rings = 3
     private let stagger = 0.22
     private let travel = 1.7
-    private let rest = 0.15
+    private let rest = 0.05
     private var cycle: Double { Double(rings - 1) * stagger + travel + rest }
     /// Figma's first ring sits 9pt outside a 46pt control (64pt); the last is 116/64 of it.
     private var inset: CGFloat { 9 }

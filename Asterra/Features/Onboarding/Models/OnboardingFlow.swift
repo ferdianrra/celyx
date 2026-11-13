@@ -137,7 +137,7 @@ final class OnboardingFlow {
         // Accumulate how far the view has travelled; ignore hand tremor and jumps.
         let delta = acos(min(1, max(-1, simd_dot(forward, last)))) * 180 / .pi
         if delta > 0.12 && delta < 20 { turned += delta }
-        lookProgress = min(1, turned / 50)
+        lookProgress = min(1, turned / 240)
         if lookProgress >= 1 { succeed(then: .camera) }
     }
 
@@ -286,7 +286,7 @@ final class OnboardingFlow {
                 primary: "Start the Tour")
         case .look:
             return Card(symbol: "move.3d", title: "This is your Night Sea",
-                body: "Every star you collect will shine here. Move your phone around to look at it.")
+                body: "Every star you collect will shine here. Turn around slowly and explore it: up, down and all the way round.")
         case .camera:
             if cameraUnavailable {
                 return Card(symbol: "video.slash", title: "Camera is off",
