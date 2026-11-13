@@ -24,61 +24,86 @@ struct OnboardingGuidePill: View {
     }
 }
 
-/// The tour's one way of saying "press this": a bright glow under the control and eased ripples leaving
-/// its outline, each ripple with a soft haptic tap so the phone itself seems to call from the button.
-/// (iPhone haptics can't be placed at a point on the screen; syncing them to the ripple gives that feel.)
+/// The tour's one way of saying "press this" (Figma "Frame 2695", 1244:3728): rings leave the control
+/// and, as they grow, their gradient stroke thins (2 → 0.5pt), their soft radial fill and violet glow widen
+/// and fade. Each ring rides an ease-out curve so it bursts out and settles, never a linear pulse. A soft
+/// haptic heartbeat taps in sync with every ring (iPhone haptics can't be placed at a point on screen).
 struct OnboardingHighlight: View {
     /// The control's size; a circle when width == height, otherwise a capsule.
     var size: CGSize = CGSize(width: 48, height: 48)
     var haptics = true
     @State private var start = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Brand: the Celyx accent for the glow, a lighter tint of it for the outline and ripple.
-    private let glow = CelyxColor.accent
-    private let light = Color(hex: 0x9AA2FF)
-    /// One ripple per beat.
-    private let period = 1.6
+    /// Figma: violet #7459DF, periwinkle #99AFE9, lavender centre #CBC9F5.
+    private static let violet = Color(hex: 0x7459DF)
+    private static let periwinkle = Color(hex: 0x99AFE9)
+    private static let lavender = Color(hex: 0xCBC9F5)
+    /// One ring per beat; two rings in flight, half a beat apart.
+    private let period = 2.2
+    /// Figma's first ring sits 9pt outside a 46pt control (64pt); the last is 116/64 of it.
+    private var inset: CGFloat { 9 }
+    private var growth: CGFloat {
+        let figma = (min(size.width, size.height) + inset * 2) * (116.0 / 64.0 - 1)
+        // A wide control (Start Collecting) keeps its rings tight so they don't wash over the card above.
+        return size.width > size.height * 1.5 ? min(figma, 24) : figma
+    }
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { timeline in
             let elapsed = max(0, timeline.date.timeIntervalSince(start))
-            let t = (elapsed / period).truncatingRemainder(dividingBy: 1)
-            let eased = 1 - pow(1 - t, 3)
-            let breath = 0.5 - 0.5 * cos(elapsed * 2 * .pi / (period * 2))
             ZStack {
-                // A vivid halo around the control (never over it), breathing slowly.
-                Capsule().stroke(glow, lineWidth: 10)
-                    .frame(width: size.width + 10, height: size.height + 10)
-                    .blur(radius: 8)
-                    .opacity(reduceMotion ? 0.9 : 0.75 + 0.25 * breath)
-                Capsule().stroke(light, lineWidth: 1.5)
-                    .frame(width: size.width + 4, height: size.height + 4)
-                    .shadow(color: light, radius: 6)
+                // The resting ring (Figma's inner ellipse), breathing very slightly so the target never goes quiet.
+                ring(progress: 0, presence: reduceMotion ? 1 : 0.85 + 0.15 * (0.5 - 0.5 * cos(elapsed * 2 * .pi / period)))
                 if !reduceMotion {
-                    // The ripple: grows by a fixed margin (same feel on a circle or a long capsule) and fades.
-                    Capsule().stroke(light, lineWidth: 2)
-                        .frame(width: size.width + 4 + eased * 34, height: size.height + 4 + eased * 34)
-                        .shadow(color: light, radius: 4)
-                        .opacity((1 - eased) * 0.95)
+                    ForEach(0..<2, id: \.self) { i in
+                        let t = (elapsed / period + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
+                        let eased = 1 - pow(1 - t, 3)
+                        // Quick fade-in, then the ring fades out on its way to the outer size.
+                        let presence = min(1, t / 0.08) * pow(1 - t, 1.4)
+                        ring(progress: eased, presence: presence)
+                    }
                 }
             }
         }
-        .frame(width: size.width + 60, height: size.height + 60)
+        .frame(width: size.width + inset * 2 + growth + 80, height: size.height + inset * 2 + growth + 80)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .task {
-            guard haptics else { return }
+            guard haptics, !reduceMotion else { return }
             start = Date()
             let tap = UIImpactFeedbackGenerator(style: .soft)
             tap.prepare()
             while !Task.isCancelled {
-                // A soft heartbeat on every ripple: tap, then a lighter echo.
-                tap.impactOccurred(intensity: 0.75)
+                // A soft heartbeat as each ring leaves: tap, then a lighter echo.
+                tap.impactOccurred(intensity: 0.7)
                 try? await Task.sleep(for: .milliseconds(110))
-                tap.impactOccurred(intensity: 0.35)
-                try? await Task.sleep(for: .seconds(period - 0.11))
+                tap.impactOccurred(intensity: 0.3)
+                try? await Task.sleep(for: .seconds(period / 2 - 0.11))
             }
         }
+    }
+
+    /// One ring at `progress` 0 (Figma inner ellipse) … 1 (outer ellipse).
+    private func ring(progress p: Double, presence: Double) -> some View {
+        let grow = growth * p
+        let width = size.width + inset * 2 + grow, height = size.height + inset * 2 + grow
+        let line = 2 - 1.5 * p                 // 2 → 1 → 0.5 pt
+        let fill = 1 - 0.6 * p                 // fill opacity 1 → 0.6 → 0.4
+        let glow = 1 - 0.6 * p                 // shadow alpha 1 → 0.8 → 0.4
+        let blur = (12 + 68 * p) / 2           // Figma blur 12 → 24 → 80 (SwiftUI radius ≈ half)
+        return ZStack {
+            Capsule()
+                .fill(RadialGradient(colors: [Self.lavender.opacity(0), Self.violet.opacity(0.32)],
+                                     center: .center, startRadius: 0, endRadius: max(width, height) / 2))
+                .opacity(fill)
+            Capsule()
+                .strokeBorder(LinearGradient(colors: [Self.violet, Self.periwinkle, Self.violet],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing),
+                              lineWidth: line)
+                .shadow(color: Self.violet.opacity(glow), radius: blur)
+        }
+        .frame(width: width, height: height)
+        .opacity(presence)
     }
 }
 
