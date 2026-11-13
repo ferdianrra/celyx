@@ -340,9 +340,9 @@ struct HomeView: View {
     /// What the guide says while the wormhole carries the practice star into the Night Sea.
     private func tourCaption(_ phase: WormholeHandover.Phase) -> String? {
         switch phase {
-        case .wormhole: return "Collected! Hold on, it's going through the wormhole…"
-        case .landed, .reframe, .focusing, .revealing: return "Landing in your Night Sea"
-        case .releasing: return "Here it is. Let's give it a note."
+        // One line for the whole flight: changing captions go by too fast to read.
+        case .wormhole, .landed, .reframe, .focusing, .revealing, .releasing:
+            return "Collected! Watch it fly into your Night Sea."
         case .presenting, .done: return nil
         }
     }
