@@ -5,23 +5,7 @@ import simd
 /// Rejects positive foreground evidence. A compact light alone cannot prove that
 /// it is astronomical, so catalog matching must never stand in for this check.
 nonisolated enum CameraSkyContext {
-    static func hasNearbySurface(
-        direction: SIMD3<Float>, origin: SIMD3<Float>, features: [SIMD3<Float>]
-    ) -> Bool {
-        var support = 0
-        for feature in features {
-            let offset = feature - origin
-            let distance = simd_length(offset)
-            guard distance > 0.2, distance < 80,
-                simd_dot(offset / distance, direction) > cos(0.8 * Float.pi / 180)
-            else { continue }
-            support += 1
-            if support >= 3 { return true }
-        }
-        return false
-    }
-
-    static func permits(_ point: CGPoint, in image: CVPixelBuffer, isDisc: Bool = false) -> Bool {
+    static func permits(_ point: CGPoint, in image: CVPixelBuffer, isDisc: Bool = false, sourceBounds: CGRect? = nil) -> Bool {
         guard CVPixelBufferGetPlaneCount(image) > 0 else { return false }
         CVPixelBufferLockBaseAddress(image, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(image, .readOnly) }
@@ -34,14 +18,25 @@ nonisolated enum CameraSkyContext {
         let cy = Int(point.y * Double(height))
         let radius = max(24, min(72, width / 30))
         let step = max(2, radius / 12)
+        // A solar disc's own bright rim is not foreground texture. Inspect the
+        // surroundings outside its measured extent instead of rejecting that rim.
+        let excludedCore = isDisc ? max(Double(radius) * 0.25,
+            max((sourceBounds?.width ?? 0) * Double(width), (sourceBounds?.height ?? 0) * Double(height)) * 0.6)
+            : Double(radius) * 0.25
         guard cx - radius >= 0, cy - radius >= 0, cx + radius < width, cy + radius < height else {
             return false
         }
+        // A resolved disc has already passed the optical shape/core checks.
+        // Cloud edges and scattering around a visible solar rim are valid sky;
+        // the point-source texture veto would incorrectly erase these detections.
+        // The service still requires a matching solar ephemeris and fresh consensus.
+        if isDisc, let sourceBounds, sourceBounds.width.isFinite, sourceBounds.height.isFinite,
+            sourceBounds.width > 0, sourceBounds.height > 0, sourceBounds.contains(point) { return true }
         func value(_ x: Int, _ y: Int) -> Int { Int(bytes[y * row + x]) }
         var differences: [Int] = []
         for y in stride(from: cy - radius, through: cy + radius, by: step) {
             for x in stride(from: cx - radius, through: cx + radius - 1, by: step)
-            where hypot(Double(x - cx), Double(y - cy)) > Double(radius) * 0.25 {
+            where hypot(Double(x - cx), Double(y - cy)) > excludedCore {
                 differences.append(abs(value(x + 1, y) - value(x, y)))
             }
         }
@@ -56,7 +51,7 @@ nonisolated enum CameraSkyContext {
             var run = 0
             for x in stride(from: cx - radius + step, through: cx + radius - step, by: step) {
                 let distance = hypot(Double(x - cx), Double(y - cy))
-                guard distance > Double(radius) * 0.25 else {
+                guard distance > excludedCore else {
                     run = 0
                     continue
                 }

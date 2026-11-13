@@ -7,6 +7,17 @@ import simd
 @MainActor struct CameraTargetSelectionTests {
     private let center = CGPoint(x: 200, y: 400)
 
+    @Test func acquisitionNeedsTheFixedCenterButExistingExitToleranceStaysWide() {
+        #expect(CameraTargetSelection.canAcquireInReticle(at: center, center: center))
+        #expect(CameraTargetSelection.canAcquireInReticle(at: CGPoint(x: center.x + 28, y: center.y), center: center))
+        for offset in [29.0, 80.0, 160.0] {
+            let point = CGPoint(x: center.x + offset, y: center.y)
+            #expect(!CameraTargetSelection.canAcquireInReticle(at: point, center: center))
+            #expect(CameraTargetSelection.keepsRetainedTarget(at: point, center: center))
+        }
+        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: center.x + 161, y: center.y), center: center))
+    }
+
     @Test func oneContinuouslyVisiblePointSurvivesASmallWorldProjectionShift() {
         #expect(
             CameraTargetSelection.continuesSingleSource(
@@ -16,7 +27,7 @@ import simd
             !CameraTargetSelection.continuesSingleSource(
                 previousPoint: center,
                 point: CGPoint(x: center.x + 80, y: center.y), gap: 0.12))
-        #expect(!CameraTargetSelection.continuesSingleSource(previousPoint: center, point: center, gap: 1))
+        #expect(!CameraTargetSelection.continuesSingleSource(previousPoint: center, point: center, gap: 2))
         #expect(!CameraTargetSelection.continuesSingleSource(previousPoint: nil, point: center, gap: 0.12))
     }
 
@@ -41,7 +52,7 @@ import simd
     @Test func movingFromCanopusToAnotherLightStartsScanningWithoutCollectingCanopus() {
         #expect(
             CameraTargetSelection.beginsNewSource(
-                previousPoint: CGPoint(x: 270, y: 400),
+                previousPoint: CGPoint(x: 380, y: 400),
                 newPoint: center, center: center, observations: 3))
         #expect(
             CameraTargetSelection.beginsNewSource(
@@ -54,8 +65,8 @@ import simd
         #expect(
             !CameraTargetSelection.beginsNewSource(
                 previousPoint: shifted,
-                newPoint: center, center: center, observations: 3))
-        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: 350, y: 400), center: center))
+                newPoint: CGPoint(x: 232, y: 400), center: center, observations: 3))
+        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: 380, y: 400), center: center))
         #expect(!CameraTargetSelection.keepsRetainedTarget(at: nil, center: center))
     }
     @Test func oneFlickeringPixelDoesNotTakeOverTheSelectedSource() {

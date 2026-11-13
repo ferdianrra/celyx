@@ -8,7 +8,7 @@ nonisolated struct CameraReticleGate: Sendable {
             centeredID = nil
             return
         }
-        let radius = centeredID == id ? 40.0 : 28.0
+        let radius = centeredID == id ? Double(CameraTrackingPolicy.holdRadius) : Double(CameraTrackingPolicy.acquisitionRadius)
         centeredID = distance <= radius ? id : nil
     }
     mutating func reset() { centeredID = nil }

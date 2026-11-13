@@ -1,10 +1,10 @@
-import ARKit
+import AVFoundation
 import SwiftUI
 import simd
 
 /// Real star collecting, styled like Figma "Camera Stand by" / "Camera Scanned" / "Camera Captured".
 ///
-/// `SkyFinderService` does the work: GPS + true-north camera orientation (ARKit) project the HYG catalogue
+/// `SkyFinderService` does the work: GPS + true-north camera orientation (Core Motion) project the HYG catalogue
 /// onto the live camera image, and `CameraStarDetector` looks for an actual point of light at that spot.
 /// The crosshair never moves: only what sits inside the centre circle is scanned. Star collection needs
 /// fresh optical evidence. Tapping the camera captures the current frame immediately
@@ -27,25 +27,31 @@ struct StarCollectCameraView: View {
     /// When set, a successful collect hands over to the garden (wormhole) instead of opening the album here.
     var onCollect: ((CollectResult) -> Void)? = nil
     @State private var zoomStart: Double?
-    /// Crosshair interaction: a target shows as collectible (Enable) after a short lock (Locking).
-    @State private var settledID: Int?
-    @State private var isLocking = false
+    @State private var targetCrosshairState: CrosshairState = .default
+    private struct TargetAnimationKey: Equatable {
+        let targetID: Int?
+        let reduceMotion: Bool
+    }
     /// Capture cue ("cekrek"): when the shutter fired, and the frame frozen at that instant.
     @State private var captureStart: CFTimeInterval?
     @State private var captureImage: CGImage?
-    /// The camera feed shows only once ARKit delivers real frames (no skewed first frames).
+    /// The camera feed shows only once the camera delivers real frames (no skewed first frames).
     @State private var feedReady = false
     #if DEBUG
     /// Catalog stars at their real current horizon positions; demo bypasses optical detection.
-    @State private var didPrepareCapricornus = false
+    @State private var didPrepareDemoCollection = false
+    @State private var demoFinalStarID: Int?
     @State private var demoStars: [DemoSky.Entry] = []
     @State private var demoProjections: [DemoSky.Projection] = []
     @State private var demoOn = false
     @State private var showsDemoNotice = false
     @State private var demoDate: Date?
     @State private var demoLocation: ObserverLocation?
+    private var demoTargets: [DemoSky.Projection] {
+        demoProjections.filter { $0.id == demoFinalStarID }
+    }
     private var demoGuide: DemoSky.Projection? {
-        demoProjections.filter { model.collected[$0.id] == nil && $0.id != viewModel.excludedID }
+        demoTargets.filter { model.collected[$0.id] == nil && $0.id != viewModel.excludedID }
             .min { ($0.point.map(distance) ?? .infinity) < ($1.point.map(distance) ?? .infinity) }
     }
     #else
@@ -75,7 +81,7 @@ struct StarCollectCameraView: View {
     private var centerTarget: CenterTarget? {
         #if DEBUG
         if demoOn {
-            guard let target = DemoSky.target(in: demoProjections,
+            guard let target = DemoSky.target(in: demoTargets,
                 collected: Set(model.collected.keys), excludedID: viewModel.excludedID,
                 lockedID: viewModel.lockedID, center: center, radius: captureRadius,
                 lockRadius: viewModel.lockRadius), let point = target.point, viewSize != .zero
@@ -86,19 +92,15 @@ struct StarCollectCameraView: View {
         #endif
         return viewModel.centerTarget
     }
-    /// The target shows as collectible (Enable) once it has held for the short lock.
+    /// Enter at the fixed center reticle. Once locked, use the existing exit/
+    /// retained-photo rules rather than restarting on small hand movements.
     private var shownTarget: CenterTarget? {
-        guard let target = centerTarget, target.id == settledID else { return nil }
-        return target
+        guard let target = centerTarget else { return nil }
+        if viewModel.lockedID == target.id { return target }
+        guard let point = target.detection?.point else { return target }
+        return CameraTargetSelection.canAcquireInReticle(at: point, center: center) ? target : nil
     }
     private func distance(_ point: CGPoint) -> CGFloat { viewModel.distance(point) }
-
-    /// How far the locked star sits from the screen centre (zero when nothing is locked, or for a body
-    /// matched by angle with no light on screen).
-    private var lockOffset: CGSize {
-        guard let point = shownTarget?.detection?.point, viewSize != .zero else { return .zero }
-        return CGSize(width: point.x - center.x, height: point.y - center.y)
-    }
 
     var body: some View {
         NavigationStack {
@@ -117,20 +119,13 @@ struct StarCollectCameraView: View {
                     if service.isCameraRunning {
                         SkyCameraPreview(
                             session: service.session, onViewport: service.updateViewport,
-                            onTap: { point in
-                                if let target = shownTarget {
-                                    collect(target)
-                                } else {
-                                    _ = service.focus(at: point)
-                                }
-                            },
+                            onTap: handleCameraTap,
                             onExposureDrag: { translation, _, ended in
                                 service.dragExposure(translation: translation, ended: ended)
                             },
-                            zoom: service.cameraZoom, showsTrackingCoach: true,
-                            onTrackingReset: service.resetTrackingForCalibration
+                            zoom: service.cameraZoom
                         )
-                        // Hidden behind the night colour until ARKit delivers real frames, then a quick fade.
+                        // Hidden behind the night colour until the camera delivers real frames, then a quick fade.
                         .opacity(feedReady ? 1 : 0)
                         .animation(.easeOut(duration: 0.2), value: feedReady)
                         #if DEBUG
@@ -148,10 +143,9 @@ struct StarCollectCameraView: View {
                     }
                     #if DEBUG
                     if demoOn, handover == nil {
-                        ForEach(demoProjections) { entry in
+                        ForEach(demoTargets.filter { model.collected[$0.id] == nil }) { entry in
                             if let point = entry.point {
                                 DemoStarView(color: entry.star.rgb)
-                                    .opacity(model.collected[entry.id] == nil ? 1 : 0.25)
                                     .position(point)
                             }
                         }
@@ -160,16 +154,13 @@ struct StarCollectCameraView: View {
                     // Cekrek: the frame freezes at the click and over-exposes until the wormhole takes it.
                     if let shutter, shutter < CaptureFlash.duration { CaptureFlashView(image: captureImage, t: shutter) }
                     if let handover { WormholeHandoverView(handover: handover) }
-                    // CrosshairView's reticle sits 10pt above its own centre (see crosshair README).
-                    // Gimbal lock: once a star is collectible the crosshair, its label and the pill ride on the
-                    // star itself; they glide over on a spring when it locks and glide home when it lets go.
-                    let lock = lockOffset
+                    // The reticle stays at screen center; only its visual state animates.
+                    // CrosshairView's own canvas places the reticle 10pt above its center.
                     reticle
                         .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 0.5)
-                        .position(x: geometry.size.width / 2 + lock.width, y: geometry.size.height / 2 + 10 + lock.height)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2 + 10)
                         .allowsHitTesting(false)
                         .opacity(crosshair)
-                        .animation(.spring(duration: 0.45, bounce: 0.12), value: shownTarget?.id)
                 }
                 .scaleEffect(shutter.map(CaptureFlash.squeeze) ?? 1)
                 .overlay { Color.white.opacity(shutter.map(CaptureFlash.white) ?? 0).allowsHitTesting(false) }
@@ -187,11 +178,11 @@ struct StarCollectCameraView: View {
                             : "Tap anywhere to collect", ready: true)
                         sheet(for: target)
                     }
-                    .padding(.horizontal, 20).padding(.bottom, 0)
+                    .padding(.horizontal, 20)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     CameraCollectionPrompt(text: demoOn ? hintText : service.status == .tracking
-                        ? (isAnalyzingLight ? "Scanning this light…" : "Find a star or planet in the sky")
+                        ? (isAnalyzingLight ? service.automaticMappingMessage : "Find a star or planet in the sky")
                         : hintText)
                         .padding(.bottom, 70)
                         .transition(.opacity)
@@ -249,19 +240,19 @@ struct StarCollectCameraView: View {
             try? await Task.sleep(for: .milliseconds(90))
             feedReady = true
         }
-        .task(id: centerTarget?.id) {
-            guard let target = centerTarget else {
-                isLocking = false
-                settledID = nil
-                return
-            }
-            if settledID == target.id { return }
-            settledID = nil
-            isLocking = true
-            try? await Task.sleep(for: .seconds(0.7))
-            guard !Task.isCancelled else { return }
-            isLocking = false
-            settledID = target.id
+        .task(id: TargetAnimationKey(targetID: shownTarget?.id, reduceMotion: reduceMotion)) {
+            guard shownTarget != nil else { targetCrosshairState = .default; return }
+            guard !reduceMotion else { targetCrosshairState = .enable; return }
+            // Use all four Figma variants: acquire, green lock, then green loader.
+            // Presentation only: optical verification and Collect stay independent.
+            targetCrosshairState = .locking
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+                targetCrosshairState = .enable
+                // Let the lock's label/focus animation finish before spinning.
+                try await Task.sleep(for: .milliseconds(850))
+                targetCrosshairState = .validating
+            } catch { return } // A changed/lost target cancels the old sequence.
         }
         // Lock the star the moment it becomes collectible; release it once it leaves the hold radius.
         .onChange(of: shownTarget?.id) { _, id in if let id { viewModel.lockedID = id } }
@@ -294,11 +285,12 @@ struct StarCollectCameraView: View {
         .onChange(of: phase) { _, value in
             if value == .active, viewModel.capturedItem == nil {
                 Task { await service.start() }
-            } else if viewModel.capturedItem == nil {
-                service.suspendForBackground()
-            } else {
-                service.stop()
+            } else if value == .background {
+                if viewModel.capturedItem == nil { service.suspendForBackground() }
+                else { service.stop() }
             }
+            // Inactive includes screenshot editors and Control Center. Native capture
+            // interruptions handle those; do not stop a live session for a brief overlay.
         }
         .sheet(item: $viewModel.capturedItem, onDismiss: { Task { await service.start() } }) {
             item in
@@ -330,8 +322,8 @@ struct StarCollectCameraView: View {
     }
     private var crosshairState: CrosshairState {
         if isChecking { return .validating }
-        if shownTarget != nil { return .enable }
-        if isLocking || isAnalyzingLight { return .locking }
+        if shownTarget != nil { return targetCrosshairState == .default ? .locking : targetCrosshairState }
+        if isAnalyzingLight { return .locking }
         return .default
     }
 
@@ -339,7 +331,7 @@ struct StarCollectCameraView: View {
         #if DEBUG
         if demoOn {
             guard service.observerLocation != nil else { return "Waiting for your location to map Libra, Aries and Capricornus" }
-            if !demoStars.isEmpty, demoStars.allSatisfy({ model.collected[$0.id] != nil }) {
+            if didPrepareDemoCollection && demoFinalStarID == nil {
                 return "All demo stars collected"
             }
             guard let guide = demoGuide else {
@@ -353,7 +345,7 @@ struct StarCollectCameraView: View {
                 }
                 return "Look around to find \(name)"
             }
-            return distance(point) <= captureRadius ? "\(name) is in your circle. Tap to collect" : "\(name) is close. Put it in your circle"
+            return CameraTargetSelection.canAcquireInReticle(at: point, center: center) ? "\(name) is in your circle. Tap to collect" : "Tap \(name) to collect, or bring it into your circle"
         }
         #endif
         switch service.status {
@@ -387,8 +379,9 @@ struct StarCollectCameraView: View {
     }
     private var isAnalyzingLight: Bool {
         guard service.status == .tracking else { return false }
-        if service.pinnedLight?.isIdentified == true { return false }
-        if service.alignment.requiresCalibration { return service.isMappingSky }
+        if service.pinnedLight?.isIdentified == true || service.automaticallyIdentifiedAnnotation != nil
+            || service.retainedCaptureAnnotation != nil { return false }
+        if service.alignment.requiresCalibration { return service.pinnedLight != nil || service.isMappingSky }
         if service.isScanningNewLight { return true }
         if service.isAdjustingCamera { return true }
         if service.pinnedLight != nil {
@@ -404,16 +397,14 @@ struct StarCollectCameraView: View {
 
     private func sheet(for target: CenterTarget) -> some View {
         let star = target.star
-        return CameraCollectionCard(star: star,
-            onCollect: { collect(target) }, onDismiss: {
-                withAnimation(.smooth(duration: 0.3)) {
-                    viewModel.verification = .idle
-                    viewModel.excludedID = star.id
-                    viewModel.lockedID = nil
-                    settledID = nil
-                    service.clearPinnedLight()
-                }
-            })
+        return CameraCollectionCard(star: star, onCollect: { collect(target) }, onDismiss: {
+            withAnimation(.smooth(duration: 0.3)) {
+                viewModel.verification = .idle
+                viewModel.excludedID = star.id
+                viewModel.lockedID = nil
+                service.clearPinnedLight()
+            }
+        })
     }
 
     private var excludedIsNear: Bool {
@@ -426,6 +417,19 @@ struct StarCollectCameraView: View {
     }
 
     // MARK: Actions
+
+    private func handleCameraTap(_ point: CGPoint) {
+        #if DEBUG
+        if demoOn, let tapped = DemoSky.tappedTarget(in: demoTargets, at: point,
+            collected: Set(model.collected.keys), excludedID: viewModel.excludedID), let position = tapped.point {
+            collect(CenterTarget(star: tapped.star,
+                detection: CameraStarAnnotation(star: tapped.star, point: position, size: CGSize(width: 28, height: 28))))
+            return
+        }
+        #endif
+        if let target = shownTarget { collect(target) }
+        else { _ = service.focus(at: point) }
+    }
 
     private func collect(_ target: CenterTarget) {
         #if DEBUG
@@ -499,9 +503,9 @@ struct StarCollectCameraView: View {
         guard handover == nil, !isChecking else { return }
         viewModel.lockedID = nil
         viewModel.excludedID = nil
-        settledID = nil
         demoOn.toggle()
-        didPrepareCapricornus = false
+        didPrepareDemoCollection = false
+        demoFinalStarID = nil
         demoDate = nil
         demoLocation = nil
         demoStars = []; demoProjections = []
@@ -515,10 +519,10 @@ struct StarCollectCameraView: View {
             return
         }
         let now = Date()
-        if !didPrepareCapricornus {
+        if !didPrepareDemoCollection {
             do {
-                try DemoSky.prepareCollection(model: model, date: now, location: location)
-                didPrepareCapricornus = true
+                demoFinalStarID = try DemoSky.prepareCollection(model: model, date: now, location: location)?.id
+                didPrepareDemoCollection = true
             } catch {
                 viewModel.errorMessage = error.localizedDescription
                 return
@@ -536,18 +540,19 @@ struct StarCollectCameraView: View {
     }
 
     private func captureDemo(_ target: CenterTarget) {
-        // Revalidate after the lock delay; never capture against a stale fix or a placeholder camera.
+        // Revalidate the selected virtual source in the current frame. A direct
+        // tap can select a visible star outside the center reticle in demo mode.
         updateDemoProjections()
         guard let location = service.observerLocation,
-            let current = centerTarget, current.id == target.id,
-            let point = current.detection?.point, var freeze = service.wormholeFreeze()
+            let current = demoTargets.first(where: { $0.id == target.id && model.collected[$0.id] == nil }),
+            let point = current.point, var freeze = service.wormholeFreeze()
         else {
             viewModel.verification = .idle
             viewModel.errorMessage = "Wait for location and camera tracking, then aim at the star again."
             return
         }
         let date = Date()
-        freeze.image = DemoSky.composite(freeze.image, stars: demoProjections.compactMap { entry in
+        freeze.image = DemoSky.composite(freeze.image, stars: demoTargets.filter { model.collected[$0.id] == nil }.compactMap { entry in
             entry.point.map { (point: $0, color: entry.star.rgb) }
         }, viewSize: viewSize)
         do {

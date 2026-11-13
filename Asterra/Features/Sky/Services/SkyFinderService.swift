@@ -1,4 +1,4 @@
-import ARKit
+import UIKit
 import AVFoundation
 import CoreImage
 import CoreLocation
@@ -6,7 +6,7 @@ import Observation
 import simd
 
 @MainActor @Observable
-final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDelegate {
+final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationManagerDelegate {
     enum Status: Equatable {
         case preparing, requestingPermission, tracking
         case limited(String)
@@ -17,7 +17,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     private(set) var projection: SkyFinderProjection?
     private(set) var altitude: Double?
     let alignment: CameraSkyAlignment
-    var session: ARSession { alignment.session }
+    var session: SkyCaptureSession { alignment.session }
     private let locationManager = CLLocationManager()
     private let star: CatalogStar?
     private let catalogue: [CatalogStar]
@@ -40,22 +40,34 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     @ObservationIgnored private var automaticMappingTask: Task<Void, Never>?
     @ObservationIgnored private var mappingConsensus = SkyPatternConsensus()
     @ObservationIgnored private var lastMappingAttempt: TimeInterval = -1
-    var isMappingSky: Bool {
-        alignment.requiresCalibration && automaticMapping.isSearching && !canUseEstimatedIdentification
-    }
+    var isMappingSky: Bool { alignment.requiresCalibration && automaticMapping.isSearching && singleLightCandidate == nil }
     var automaticMappingMessage: String {
-        if canUseEstimatedIdentification {
-            return "Finding this star’s name. Hold steady."
+        if pinnedLight?.isDisc == true {
+            switch singleLightIssue {
+            case .compass: return "Light found. Move slowly while the compass direction recovers."
+            case .noCandidate, .ambiguous: return "Bright disc found. Checking its sky position…"
+            default: return "Checking this bright disc…"
+            }
         }
-        if !automaticMapping.isSearching, automaticMapping.lightCount > 0 {
-            return "Light detected. Move slowly while direction recovers."
-        }
-        return automaticMapping.message
+        if pinnedLight != nil { return "Scanning this light…" }
+        return "Point your camera toward a star or planet"
     }
-    var canUseEstimatedIdentification: Bool {
-        alignment.requiresCalibration && status == .tracking && hasLocationFix
-            && automaticMapping.canEstimate(headingAccuracy: cameraHeadingAccuracy)
+    private var automaticIdentification = CameraAutomaticIdentification()
+    /// This is a stable catalog best match, kept separate from verified sky alignment.
+    var automaticallyIdentifiedAnnotation: CameraStarAnnotation? {
+        guard status == .tracking, !isAdjustingCamera,
+            let frame = session.currentFrame, let pin = pinnedLight,
+            automaticIdentification.sourceID == pin.opticalID,
+            let match = automaticIdentification.freshMatch(at: frame.timestamp),
+            (!hasReferenceAlignment || match.star.isSolarDisc),
+            (match.star.isSolarDisc || CameraIdentityPolicy.permitsPointIdentification(sunAltitude: sky?.sunAltitude)),
+            let point = pinnedLightGuide?.point
+        else { return nil }
+        return CameraStarAnnotation(star: match.star, point: point, size: CGSize(width: 18, height: 18),
+            estimatedSeparation: match.separation, sourceDirection: pin.direction, observedAt: pin.lastSeen)
     }
+    private(set) var singleLightCandidate: CameraCandidateMatch?
+    private(set) var singleLightIssue: CameraIdentificationIssue?
     private(set) var isDetectingOnDemand = false
     @ObservationIgnored private var detectionFeedbackTask: Task<Void, Never>?
     var canRequestDetection: Bool {
@@ -67,8 +79,14 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     @ObservationIgnored private var lastCaptureCacheTime: TimeInterval = -1
     var retainedCaptureAnnotation: CameraStarAnnotation? {
         guard running, !isAdjustingCamera,
-            let retainedCapture, retainedCapture.generation == alignment.generation
+            let retainedCapture, retainedCapture.generation == alignment.generation,
+            (retainedCapture.annotation.star.isSolarDisc || CameraIdentityPolicy.permitsPointIdentification(sunAltitude: sky?.sunAltitude))
         else { return nil }
+        if retainedCapture.isAutomaticEstimate {
+            guard retainedCapture.sourceID == pinnedLight?.opticalID,
+                automaticIdentification.sourceID == pinnedLight?.opticalID,
+                automaticIdentification.stableMatch?.star.id == retainedCapture.annotation.id else { return nil }
+        }
         guard let frame = session.currentFrame, let direction = retainedCapture.annotation.sourceDirection
         else { return nil }
         if status != .tracking {
@@ -82,6 +100,16 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             direction: direction,
             view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
             projection: screenProjection(frame), size: viewport)
+        if retainedCapture.isAutomaticEstimate {
+            guard automaticIdentification.canOfferCapturedPhoto(starID: retainedCapture.annotation.id,
+                sourceID: retainedCapture.sourceID, at: frame.timestamp) else { return nil }
+            // A real captured frame keeps Collect available briefly while the observer
+            // lowers or shifts the phone to reach the stationary bottom button.
+            let saved = retainedCapture.annotation
+            return CameraStarAnnotation(star: saved.star, point: guide.point ?? saved.point, size: saved.size,
+                estimatedSeparation: saved.estimatedSeparation, sourceDirection: saved.sourceDirection,
+                observedAt: saved.observedAt)
+        }
         let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
         guard CameraTargetSelection.keepsRetainedTarget(at: guide.point, center: center) else { return nil }
         if let pin = pinnedLight, !pin.isSameSource(direction),
@@ -106,8 +134,6 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     private(set) var isGatheringInitialLight = false
     private var initialSearchStartedAt: TimeInterval?
     @ObservationIgnored private var lastPinAssessment: TimeInterval = -1
-    @ObservationIgnored private var referenceLight: CameraLightPin?
-    @ObservationIgnored private var referenceDirection: SIMD3<Float>?
     @ObservationIgnored private var pendingDetection:
         (
             sources: [CameraLightPoint], time: TimeInterval,
@@ -115,8 +141,6 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         )?
     @ObservationIgnored private var trackMatches: [Int: CameraCandidateMatch] = [:]
     @ObservationIgnored private var trackIssues: [Int: CameraIdentificationIssue] = [:]
-    @ObservationIgnored private var confirmedNames:
-        [Int: (match: CameraCandidateMatch, supportedAt: TimeInterval)] = [:]
 
     func updateVisibility(
         quality: SkyQuality, atmosphere: Atmosphere, filters: VisibilityFilters = .init()
@@ -164,7 +188,6 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         pendingDetection = nil
         trackMatches = [:]
         trackIssues = [:]
-        confirmedNames = [:]
     }
 
     /// Catalog positions for the center reticle, separate from optical detection evidence.
@@ -268,11 +291,11 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     private var cameraSettling = CameraControlSettling()
     private var location: ObserverLocation
     private var hasLocationFix = false
+    private var lastLocationFixDate: Date?
     private var viewport = CGSize.zero
     private var orientation: UIInterfaceOrientation = .portrait
     private var running = false
     private var hasStartedSession = false
-    private var trackingRecovery = CameraTrackingRecovery()
     private var frameStartedAt: TimeInterval = 0
     var isCameraRunning: Bool { hasStartedSession }
     var hasReferenceAlignment: Bool { alignment.reference != nil && !alignment.requiresCalibration }
@@ -285,7 +308,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             let pin = pinnedLight, let frame = session.currentFrame,
             viewport.width > 0, viewport.height > 0
         else { return nil }
-        if alignment.requiresCalibration, lastFrameTime - pin.lastSeen >= 2 { return nil }
+        if alignment.requiresCalibration, !CameraTrackingPolicy.keepsTarget(lastSeen: pin.lastSeen, now: lastFrameTime,
+            referenceAim: pin.aimDirection, currentAim: previousForward) { return nil }
         switch frame.camera.trackingState {
         case .normal, .limited(.insufficientFeatures), .limited(.excessiveMotion): break
         default: return nil
@@ -303,7 +327,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         guard status == .tracking, !isAdjustingCamera,
             let pin = pinnedLight, pin.isDetected(at: lastFrameTime), let match = pin.match,
             let point = pinnedLightGuide?.point,
-            hypot(point.x - viewport.width / 2, point.y - viewport.height / 2) <= 28
+            CameraTrackingPolicy.isNearAim(point, center: CGPoint(x: viewport.width / 2, y: viewport.height / 2), holding: true)
         else { return nil }
         return CameraStarAnnotation(
             star: match.star, point: point, size: CGSize(width: 18, height: 18),
@@ -320,26 +344,10 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     }
     func captureFirstReference() -> CameraReferenceCapture? {
         guard canCaptureReference, let pin = pinnedLight else { return nil }
-        let date = Date()
-        let sky = AstronomyService.snapshot(date: date, location: location)
-        let altitude = asin(Double(pin.direction.y)) * 180 / .pi
-        let candidates = catalogue.filter { !$0.isSolarSystemBody && $0.mag <= 5.5 }.compactMap {
-            star -> CalibrationCandidate? in
-            let d = Refraction.apparent(sky.direction(ra: star.ra_deg, dec: star.dec_deg))
-            let candidate = CalibrationCandidate(
-                star: star, direction: SIMD3(Float(d.x), Float(d.z), Float(-d.y)))
-            return candidate.altitude > 5 && candidate.altitude < 83
-                && abs(candidate.altitude - altitude) <= 3 ? candidate : nil
-        }.sorted {
-            simd_dot(
-                alignedDirection(
-                    SIMD3(Double($0.direction.x), Double(-$0.direction.z), Double($0.direction.y))),
-                pin.direction)
-                > simd_dot(
-                    alignedDirection(
-                        SIMD3(Double($1.direction.x), Double(-$1.direction.z), Double($1.direction.y))),
-                    pin.direction)
-        }
+        let date = Date().addingTimeInterval(-max(0, lastFrameTime - pin.lastSeen))
+        let snapshot = AstronomyService.snapshot(date: date, location: location)
+        let candidates = CameraReferenceCandidates.make(catalogue: catalogue, sky: snapshot,
+                                                        observed: pin.direction)
         return CameraReferenceCapture(
             generation: alignment.generation, direction: pin.direction, date: date, location: location,
             candidates: candidates)
@@ -351,9 +359,9 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             capture.generation == alignment.generation, abs(capture.date.timeIntervalSinceNow) < 120,
             capture.candidates.contains(where: { $0.id == star.id })
         else { return false }
-        let sky = AstronomyService.snapshot(date: capture.date, location: capture.location)
-        let d = Refraction.apparent(sky.direction(ra: star.ra_deg, dec: star.dec_deg))
-        let expected = SIMD3(Float(d.x), Float(d.z), Float(-d.y))
+        // Planet catalog entries do not have fixed stellar RA/Dec. Use the actual
+        // ephemeris direction captured with this observation, including for Jupiter.
+        guard let expected = capture.candidates.first(where: { $0.id == star.id })?.direction else { return false }
         guard running, hasStartedSession,
             let rotation = CalibrationReference.localRotation(
                 expected: expected, observed: capture.direction,
@@ -362,6 +370,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         alignment.save(
             rotation: rotation,
             reference: star.title, date: Date(), location: capture.location)
+        singleLightCandidate = nil
+        singleLightIssue = nil
         discardPendingDetection()
         opticalTracks = []
         candidateHistory = [:]
@@ -369,7 +379,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         unidentifiedLights = []
         skyDate = nil
         self.sky = nil
-        var pin = CameraLightPin(direction: capture.direction, time: lastFrameTime, observations: 2)
+        var pin = CameraLightPin(direction: capture.direction, time: lastFrameTime, observations: 2, aimDirection: previousForward)
         pin.identify(using: CameraCandidateMatch(star: star, separation: 0, score: 0))
         pinnedLight = pin
         lastPinAssessment = -1
@@ -384,11 +394,10 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             id: pinnedLight?.match?.star.id, distance: distance.map { Double($0) },
             enabled: pinnedLight?.isIdentified == true)
     }
-    /// Request fresh optical analysis and catalog matching without changing the AR world.
+    /// Request fresh optical analysis and catalog matching without changing the sensor world.
     @discardableResult
     func requestDetection() -> Bool {
         guard canRequestDetection, !isDetectingOnDemand else { return false }
-        automaticMapping.requestImmediateMatch()
         lastDetectionTime = -1
         lastWideScan = -1
         lastPinAssessment = -1
@@ -406,6 +415,9 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     }
 
     func clearPinnedLight(clearCapture: Bool = true) {
+        singleLightCandidate = nil
+        singleLightIssue = nil
+        automaticIdentification = CameraAutomaticIdentification()
         if clearCapture {
             detectionFeedbackTask?.cancel()
             detectionFeedbackTask = nil
@@ -413,8 +425,6 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             retainedCapture = nil
             lastCaptureCacheTime = -1
         }
-        referenceLight = nil
-        referenceDirection = nil
         pinnedLight = nil
         pinnedPointStack.reset()
         lastPinAssessment = -1
@@ -459,27 +469,22 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         locationManager.delegate = self
     }
 
-    private func screenProjection(_ frame: ARFrame) -> simd_float4x4 {
+    private func screenProjection(_ frame: SkyCaptureFrame) -> simd_float4x4 {
         CameraZoom.projection(
             frame.camera.projectionMatrix(
                 viewRotationAngle: viewRotationAngle,
                 viewportSize: viewport, zNear: 0.01, zFar: 2000), zoom: cameraZoom)
     }
-    private func screenImageTransform(_ frame: ARFrame) -> CGAffineTransform {
+    private func screenImageTransform(_ frame: SkyCaptureFrame) -> CGAffineTransform {
         frame.displayTransform(viewRotationAngle: viewRotationAngle, viewportSize: viewport)
             .concatenating(CameraZoom.normalizedTransform(cameraZoom))
     }
     private func alignedDirection(_ horizon: SIMD3<Double>) -> SIMD3<Float> {
         if alignment.requiresCalibration {
-            // A previous AR world's saved compass correction cannot seed a new estimate.
+            // A previous sensor world's saved compass correction cannot seed a new estimate.
             return SIMD3(Float(horizon.x), Float(horizon.z), Float(-horizon.y))
         }
         return alignment.correct(SkyFinderProjection.worldDirection(horizon))
-    }
-    private func opticalReference() -> CameraCandidateReference? {
-        guard !hasReferenceAlignment, let referenceLight, let referenceDirection else { return nil }
-        return CameraCandidateReference(
-            observed: referenceLight.direction, expected: referenceDirection)
     }
     func captureAlignmentFrame() -> CameraAlignmentFrame? {
         guard running, status == .tracking, hasLocationFix, !isAdjustingCamera,
@@ -574,9 +579,11 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         stop()
     }
     func restartAfterScreenshot() {
-        // Screenshots can lead into the editor or app switcher. Never reuse that map.
-        guard running else { return }
-        resetTrackingForCalibration()
+        // Taking a screenshot does not change camera coordinates or invalidate the sky.
+        // Only recover if the native session actually stopped.
+        guard running, !session.isRunning else { return }
+        hasStartedSession = false
+        authorizeLocation()
     }
     var targetMarker: CameraSkyPrediction? {
         guard !alignment.requiresCalibration, status == .tracking, let star, let sky, let projection
@@ -596,7 +603,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
     {
         if let ready = retainedCaptureAnnotation, ready.id == annotation.id, let retainedCapture {
             let source = CIImage(cgImage: retainedCapture.image)
-            let image = StarCaptureEnhancement.process(source)
+            let image = ready.star.isSolarSystemBody ? source : StarCaptureEnhancement.process(source)
             guard let rendered = photoContext.createCGImage(image, from: source.extent) else {
                 return nil
             }
@@ -609,13 +616,18 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         guard running, let frame = session.currentFrame, case .normal = frame.camera.trackingState,
             hasLocationFix, viewport.width > 0, viewport.height > 0
         else { return nil }
+        let automatic = automaticallyIdentifiedAnnotation
         if alignment.requiresCalibration {
-            guard canUseEstimatedIdentification, annotation.sourceDirection != nil,
-                annotation.observedAt != nil,
-                annotations.contains(where: {
-                    $0.id == annotation.id && $0.observedAt == annotation.observedAt
-                })
-            else { return nil }
+            guard automatic?.id == annotation.id, automatic?.observedAt == annotation.observedAt,
+                annotation.sourceDirection != nil else { return nil }
+        }
+        if !annotation.star.isSolarSystemBody {
+            let verifiedAnnotation = (annotations + (automatic.map { [$0] } ?? [])).contains {
+                $0.id == annotation.id && $0.observedAt == annotation.observedAt && $0.sourceDirection != nil
+            }
+            let verifiedPin = pinnedLight?.observedMatch(at: frame.timestamp)?.star.id == annotation.id
+            guard annotation.sourceDirection != nil, annotation.observedAt != nil,
+                  verifiedAnnotation || verifiedPin else { return nil }
         }
         if let observedAt = annotation.observedAt,
             frame.timestamp - observedAt < 0 || frame.timestamp - observedAt >= 0.65
@@ -667,9 +679,13 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             status = .unavailable("Live camera is available on an iPhone.")
             return
         }
-        guard !running else { return }
+        if running {
+            // A paused native session must not be hidden behind a stale service flag.
+            if !session.isRunning { hasStartedSession = false; authorizeLocation() }
+            return
+        }
         running = true
-        guard AROrientationTrackingConfiguration.isSupported else {
+        guard SkyCaptureSession.isSupported else {
             status = .unavailable("Sky Camera isn’t supported on this device.")
             return
         }
@@ -696,6 +712,9 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         }
         switch locationManager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
+            if let lastLocationFixDate, abs(lastLocationFixDate.timeIntervalSinceNow) < 120 {
+                hasLocationFix = true
+            }
             locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             if !hasLocationFix { status = .limited("Finding your spot under the sky…") }
             locationManager.startUpdatingLocation()
@@ -716,6 +735,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             alignment.pause(reason: "Location access changed. Restart and align the sky again.")
             hasStartedSession = false
             hasLocationFix = false
+            lastLocationFixDate = nil
             projection = nil
         }
         authorizeLocation()
@@ -733,6 +753,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             hasStartedSession = false
         }
         hasLocationFix = true
+        lastLocationFixDate = fix.timestamp
         sky = nil
         runSession()
     }
@@ -742,6 +763,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         alignment.pause(reason: "Location tracking stopped. Restart and align the sky again.")
         hasStartedSession = false
         hasLocationFix = false
+        lastLocationFixDate = nil
         projection = nil
         status = .denied("We can’t find your location yet. Check location access or try an open area.")
     }
@@ -776,50 +798,17 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         cameraSettling.reset()
         isAdjustingCamera = false
         lastFrameTime = 0
-        trackingRecovery = CameraTrackingRecovery()
         automaticMapping = CameraAutomaticMappingProgress()
         frameStartedAt = ProcessInfo.processInfo.systemUptime
         clearPinnedLight()
         session.delegate = self
-        session.delegateQueue = .main
-        let configuration: ARConfiguration
-        let formats: [ARConfiguration.VideoFormat]
-        if ARWorldTrackingConfiguration.isSupported {
-            configuration = ARWorldTrackingConfiguration()
-            formats = ARWorldTrackingConfiguration.supportedVideoFormats
-        } else {
-            configuration = AROrientationTrackingConfiguration()
-            formats = AROrientationTrackingConfiguration.supportedVideoFormats
-        }
-        configuration.worldAlignment = .gravityAndHeading
-        // Collect prioritizes low-light capture; AR scene rendering remains native-rate.
-        let preferredFPS = star == nil && !showsPredictions ? 30 : 60
-        let wideFormats = formats.filter { $0.captureDeviceType == .builtInWideAngleCamera }
-        let preferred = wideFormats.filter { $0.framesPerSecond == preferredFPS }
-        // Avoid selecting a costly high-resolution format just because it appears first.
-        // Match calibration's capture budget so faint-point analysis stays predictable.
-        if let wide = (preferred.isEmpty ? wideFormats : preferred).min(by: {
-            let a = abs($0.imageResolution.width - 1920)
-            let b = abs($1.imageResolution.width - 1920)
-            return a == b ? $0.imageResolution.height < $1.imageResolution.height : a < b
-        }) {
-            configuration.videoFormat = wide
-        }
-        status = .preparing
-        // Share one tracked world frame across camera screens and alignment captures.
-        alignment.run(configuration)
+
+        alignment.run()
     }
+
     private func prepareCameraControls() {
         guard !controlsPrepared else { return }
-        let camera =
-            ARWorldTrackingConfiguration.isSupported
-            ? ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera
-            : AROrientationTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera
-        guard let device = camera else {
-            cameraControlMessage =
-                "Focus and exposure controls aren’t available in this camera mode. Zoom still works."
-            return
-        }
+        guard let device = session.captureDevice else { return }
         controlsPrepared = true
         captureDevice = device
         originalExposure = device.exposureTargetBias
@@ -841,8 +830,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             if device.isExposureModeSupported(.continuousAutoExposure) {
                 device.exposureMode = .continuousAutoExposure
             }
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
+            if device.isFocusModeSupported(.locked), device.isLockingFocusWithCustomLensPositionSupported {
+                device.setFocusModeLocked(lensPosition: 1, completionHandler: nil)
             }
             if device.isAutoFocusRangeRestrictionSupported {
                 originalFocusRange = device.autoFocusRangeRestriction
@@ -964,10 +953,15 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         setZoom(minimumZoom)
     }
     private func restoreCameraControls() {
-        if let device = captureDevice {
-            do {
-                try device.lockForConfiguration()
-                defer { device.unlockForConfiguration() }
+        if captureDevice != nil {
+            let originalExposure = self.originalExposure
+            let originalLowLightBoost = self.originalLowLightBoost
+            let originalFocusRange = self.originalFocusRange
+            let originalFocusPoint = self.originalFocusPoint
+            let originalExposurePoint = self.originalExposurePoint
+            let originalFocusMode = self.originalFocusMode
+            let originalExposureMode = self.originalExposureMode
+            session.configureDevice { device in
                 if let originalExposure {
                     device.setExposureTargetBias(
                         min(
@@ -992,7 +986,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                 if let originalExposureMode, device.isExposureModeSupported(originalExposureMode) {
                     device.exposureMode = originalExposureMode
                 }
-            } catch { /* The session may already have released the capture device. */  }
+            }
         }
         captureDevice = nil
         originalExposure = nil
@@ -1051,13 +1045,14 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         previousForward = nil
         status = .preparing
     }
-    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+    func session(_ session: SkyCaptureSession, didUpdate frame: SkyCaptureFrame) {
         guard running, hasStartedSession, hasLocationFix, frame.timestamp >= frameStartedAt else {
             return
         }
         if lastFrameTime > 0, frame.timestamp - lastFrameTime > 2.5 {
-            resetTrackingForCalibration()
-            return
+            // Native true-north orientation survives a frame gap. Discard stale
+            // analysis, but do not throw away a selected source or its name.
+            discardPendingDetection()
         }
         lastFrameTime = frame.timestamp
         isAdjustingCamera = cameraSettling.isActive(at: ProcessInfo.processInfo.systemUptime)
@@ -1066,16 +1061,6 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             if viewport.width > 0, viewport.height > 0 {
                 imageDisplayTransform = screenImageTransform(frame)
             }
-        }
-        let trackingNormally: Bool
-        if case .normal = frame.camera.trackingState {
-            trackingNormally = true
-        } else {
-            trackingNormally = false
-        }
-        if trackingRecovery.update(isNormal: trackingNormally, time: frame.timestamp) {
-            resetTrackingForCalibration()
-            return
         }
         switch frame.camera.trackingState {
         case .normal: if status != .tracking { status = .tracking }
@@ -1088,14 +1073,14 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             opticalTracks = []
             let message: String
             switch reason {
-            case .initializing: message = "Move your phone slowly while AR maps your surroundings."
+            case .initializing: message = "Waiting for motion sensors…"
             case .insufficientFeatures:
-                message = "Point briefly at a textured wall or nearby objects to help AR track."
-            case .excessiveMotion: message = "Move your phone more slowly so AR can keep its position."
+                message = "Waiting for camera orientation…"
+            case .excessiveMotion: message = "Hold steady to avoid blurring faint stars."
             case .relocalizing:
                 resetTrackingForCalibration()
                 return
-            @unknown default: message = "Hold your phone steady while AR restores tracking."
+            @unknown default: message = "Hold your phone steady while orientation recovers."
             }
             status = .limited(message)
             projection = nil
@@ -1166,7 +1151,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
             projection: screenProjection(frame), size: viewport)
     }
-    private func scan(frame: ARFrame, sky: SkySnapshot) {
+    private func scan(frame: SkyCaptureFrame, sky: SkySnapshot) {
         if initialSearchStartedAt == nil { initialSearchStartedAt = frame.timestamp }
         isGatheringInitialLight = frame.timestamp - (initialSearchStartedAt ?? frame.timestamp) < 6
         guard !isAdjustingCamera, !scannerPaused else {
@@ -1180,7 +1165,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         }
         let forward4 = frame.camera.transform.columns.2
         let forward = SIMD3(forward4.x, forward4.y, forward4.z)
-        // Optical rays are already motion-compensated into this AR world. Turning
+        // Optical rays are already motion-compensated into this sensor world. Turning
         // the camera must not erase their identities or restart every track.
         previousForward = forward
         let view = frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle)
@@ -1231,6 +1216,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             let aimAltitude = asin(min(1, max(-1, Double(-pose.columns.2.y)))) * 180 / .pi
             let stackEnabled = CameraPointStack.isEligible(
                 sunAltitude: sky.sunAltitude, aimAltitude: aimAltitude)
+            let daylight = !CameraIdentityPolicy.permitsPointIdentification(sunAltitude: sky.sunAltitude)
+            let scanSolarDiscs = daylight || sky.moonDirection.z > 0
             let previousStack = pointStack
             let previousPinnedStack = pinnedPointStack
             // Convert the reticle's neighborhood back into native, unrotated image pixels.
@@ -1238,18 +1225,19 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             let scanPoint =
                 focusedPoint.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) }
                 ?? CGPoint(x: size.width / 2, y: size.height / 2)
+            let searchRadius = CameraTrackingPolicy.acquisitionRadius
             let centerRegion = CGRect(
-                x: (scanPoint.x - 48) / size.width, y: (scanPoint.y - 48) / size.height,
-                width: 96 / size.width, height: 96 / size.height
+                x: (scanPoint.x - searchRadius) / size.width, y: (scanPoint.y - searchRadius) / size.height,
+                width: searchRadius * 2 / size.width, height: searchRadius * 2 / size.height
             ).applying(transform.inverted())
-            let broadScanInterval = alignment.requiresCalibration ? 0.25 : 0.7
+            let broadScanInterval = 1.0
             let broadScan = lastWideScan < 0 || time - lastWideScan >= broadScanInterval
             if broadScan { lastWideScan = time }
             let pinnedRegion = pinnedLightGuide?.point.flatMap { point -> CGRect? in
-                guard hypot(point.x - scanPoint.x, point.y - scanPoint.y) > 48 else { return nil }
+                guard hypot(point.x - scanPoint.x, point.y - scanPoint.y) > 32 else { return nil }
                 return CGRect(
-                    x: (point.x - 48) / size.width, y: (point.y - 48) / size.height,
-                    width: 96 / size.width, height: 96 / size.height
+                    x: (point.x - searchRadius) / size.width, y: (point.y - searchRadius) / size.height,
+                    width: searchRadius * 2 / size.width, height: searchRadius * 2 / size.height
                 ).applying(transform.inverted())
             }
             detectionTask = Task { @MainActor [weak self] in
@@ -1259,10 +1247,13 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                     // Inspect the aimed-at light first; background context runs less often.
                     var sources = CameraStarDetector.detect(
                         in: buffer.value, zoom: zoom, focusRegion: focusRegion ?? centerRegion)
-                    if broadScan {
-                        sources +=
-                            CameraStarDetector.detectDiscs(in: buffer.value)
-                            + CameraStarDetector.detect(in: buffer.value, zoom: zoom)
+                    if let pinnedRegion {
+                        sources += CameraStarDetector.detect(in: buffer.value, zoom: zoom, focusRegion: pinnedRegion)
+                    }
+                    if scanSolarDiscs { sources += CameraStarDetector.detectDiscs(in: buffer.value, daylight: daylight) }
+                    if broadScan, let overview = CameraAnalysisOverview.make(from: buffer.value) {
+                        if !scanSolarDiscs { sources += CameraStarDetector.detectDiscs(in: overview) }
+                        sources += CameraStarDetector.detect(in: overview, zoom: zoom)
                     }
                     if stackEnabled {
                         sources += stack.detect(
@@ -1281,7 +1272,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                         pinnedStack.reset()
                     }
                     sources = sources.filter {
-                        CameraSkyContext.permits($0.point, in: buffer.value, isDisc: $0.isDisc)
+                        CameraSkyContext.permits($0.point, in: buffer.value, isDisc: $0.isDisc, sourceBounds: $0.bounds)
                     }
                     return (sources, stack, pinnedStack)
                 }.value
@@ -1298,14 +1289,13 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         }
         let result = pendingDetection
         pendingDetection = nil
-        let didDetect = result.map { time - $0.time >= 0 && time - $0.time < 0.8 } ?? false
+        let didDetect = result.map { CameraTrackingPolicy.acceptsAnalysis(capturedAt: $0.time, now: time) } ?? false
+        let observationTime = didDetect ? result?.time : nil
         if didDetect, let result {
             // Unproject with the analyzed frame's pose, then project into the current frame.
             // Using the new pose to interpret old pixels would make markers drift when panning.
             let inverseProjection = simd_inverse(result.projection)
             let inverseView = simd_inverse(result.view)
-            let origin = frame.camera.transform.columns.3
-            let nearbyFeatures = frame.rawFeaturePoints?.points ?? []
             let lights = result.sources.compactMap { light -> (CGPoint, CGSize, Bool, SIMD3<Float>)? in
                 let normalized = light.point.applying(result.transform)
                 guard normalized.x > 0, normalized.x < 1, normalized.y > 0, normalized.y < 1 else {
@@ -1316,25 +1306,25 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                 let local = simd_normalize(SIMD3(camera.x, camera.y, camera.z))
                 let world = inverseView * SIMD4(local.x, local.y, local.z, 0)
                 let ray = simd_normalize(SIMD3(world.x, world.y, world.z))
-                guard
-                    !CameraSkyContext.hasNearbySurface(
-                        direction: ray, origin: SIMD3(origin.x, origin.y, origin.z),
-                        features: nearbyFeatures)
-                else { return nil }
                 guard let point = projectLight(ray) else { return nil }
                 let bounds = light.bounds.applying(result.transform)
                 return (
                     point,
                     CGSize(
-                        width: max(5, min(14, abs(bounds.width) * result.size.width + 3)),
-                        height: max(5, min(14, abs(bounds.height) * result.size.height + 3))), light.isDisc,
+                        width: max(5, min(light.isDisc ? result.size.width : 14, abs(bounds.width) * result.size.width + 3)),
+                        height: max(5, min(light.isDisc ? result.size.height : 14, abs(bounds.height) * result.size.height + 3))), light.isDisc,
                     ray
                 )
             }
             detectedLightCount = lights.count
+            // Native and overview detectors may report the same source twice.
+            // Count that as one visible light for continuity, not two competing targets.
+            let singleSource = lights.first.map { first in
+                lights.dropFirst().allSatisfy { hypot($0.0.x - first.0.x, $0.0.y - first.0.y) < 16 }
+            } ?? false
             var tracks: [CameraOpticalTrack] = []
             var usedTracks: Set<Int> = []
-            for light in lights {
+            for light in lights.sorted(by: { $0.2 && !$1.2 }) {
                 // Several peaks can belong to the same blurred source, especially at high zoom.
                 guard
                     !tracks.contains(where: { track in
@@ -1342,18 +1332,18 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                         return hypot(point.x - light.0.x, point.y - light.0.y) < 16
                     })
                 else { continue }
-                var previous = opticalTracks.filter { !usedTracks.contains($0.id) && time - $0.time < 0.9 }
+                var previous = opticalTracks.filter { !usedTracks.contains($0.id) && $0.isDisc == light.2 && result.time > $0.time && result.time - $0.time <= CameraTrackingPolicy.trackGap }
                     .compactMap { track -> (CameraOpticalTrack, Double)? in
                         guard let point = projectLight(track.direction) else { return nil }
                         return (track, hypot(point.x - light.0.x, point.y - light.0.y))
                     }.filter { $0.1 < min(22, max(12, 10 * sqrt(cameraZoom))) }.min { $0.1 < $1.1 }?.0
-                if previous == nil, lights.count == 1 {
+                if previous == nil, singleSource {
                     let recent = opticalTracks.filter {
-                        !usedTracks.contains($0.id) && $0.hits >= 2 && time - $0.time <= 0.25
+                        !usedTracks.contains($0.id) && $0.isDisc == light.2 && $0.hits >= 1 && result.time - $0.time <= CameraTrackingPolicy.trackGap
                     }
                     if recent.count == 1, let same = recent.first,
                         CameraTargetSelection.continuesSingleSource(
-                            previousPoint: same.screenPoint, point: light.0, gap: time - same.time)
+                            previousPoint: same.screenPoint, point: light.0, gap: result.time - same.time)
                     {
                         previous = same
                     }
@@ -1369,13 +1359,61 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                 tracks.append(
                     CameraOpticalTrack(
                         id: id, hits: (previous?.hits ?? 0) + 1, direction: light.3, size: light.1,
-                        time: time,
-                        isDisc: light.2, screenPoint: light.0))
+                        time: result.time,
+                        isDisc: light.2, screenPoint: light.0, firstSeen: previous?.firstSeen ?? result.time))
             }
             // A faint source may disappear for one analysis pass as exposure/noise changes.
             // Retain its track briefly instead of restarting confirmation from zero.
-            tracks += opticalTracks.filter { !usedTracks.contains($0.id) && time - $0.time < 0.9 }
+            tracks += opticalTracks.filter { !usedTracks.contains($0.id) && time - $0.time <= CameraTrackingPolicy.trackGap }
             opticalTracks = tracks
+        }
+        let permitsPoints = CameraIdentityPolicy.permitsPointIdentification(sunAltitude: sky.sunAltitude)
+        if !permitsPoints {
+            opticalTracks.removeAll { !$0.isDisc }
+            if pinnedLight?.isDisc == false { clearPinnedLight() }
+            annotations.removeAll { !$0.star.isSolarDisc }
+            if let retainedCapture, !retainedCapture.annotation.star.isSolarDisc { self.retainedCapture = nil }
+        }
+        if didDetect {
+            let angular = scanDirections.map { ($0.0, alignedDirection($0.1)) }
+            let observed = opticalTracks.filter { $0.time == observationTime && $0.direction.y > 0 }
+            let matchedDiscs = observed.filter { track in
+                track.isDisc && CameraSolarDiscPolicy.assess(direction: track.direction, isDisc: true,
+                    headingAccuracy: cameraHeadingAccuracy, hasReferenceAlignment: hasReferenceAlignment,
+                    candidates: angular).match != nil
+            }
+            let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+            // Track a real central disc even while heading recovers. Detection
+            // and naming are separate: this fallback cannot itself unlock Collect.
+            let centralDisc = permitsPoints ? nil : CameraSolarDiscPolicy.preferredCore(
+                from: observed.filter { track in
+                    guard let point = projectLight(track.direction) else { return false }
+                    return CameraTargetSelection.canAcquireInReticle(at: point, center: center)
+                }, center: center, project: projectLight)
+            let solar = CameraSolarDiscPolicy.preferredCore(from: matchedDiscs, center: center, project: projectLight)
+            var fresh = observed.filter { !$0.isDisc } + matchedDiscs
+            if let centralDisc, !fresh.contains(where: { $0.id == centralDisc.id }) { fresh.append(centralDisc) }
+            if let selected = solar ?? centralDisc ?? CameraTrackingPolicy.select(fresh: fresh, pinned: pinnedLight, now: time,
+                center: center, currentAim: forward, project: projectLight) {
+                if pinnedLight?.isDisc == selected.isDisc,
+                    CameraTrackingPolicy.continuesPinnedSource(selected, pinned: pinnedLight, fresh: fresh) {
+                    if let old = pinnedLight, simd_dot(old.direction, selected.direction) > cos(0.5 * Float.pi / 180) {
+                        automaticIdentification.continueSource(from: old.opticalID, to: selected.id)
+                    }
+                    pinnedLight?.observe(direction: selected.direction, time: selected.time,
+                        opticalID: selected.id, aimDirection: forward)
+                } else {
+                    pinnedLight = CameraLightPin(direction: selected.direction, time: selected.time,
+                        observations: selected.hits, opticalID: selected.id, firstSeen: selected.firstSeen,
+                        aimDirection: forward, isDisc: selected.isDisc)
+                }
+            }
+        }
+        if let pin = pinnedLight, !CameraTrackingPolicy.keepsTarget(lastSeen: pin.lastSeen, now: time,
+            referenceAim: pin.aimDirection, currentAim: forward) { clearPinnedLight(clearCapture: false) }
+        if pinnedLight?.isDisc == true {
+            updateSingleLightCandidate(at: time)
+            return
         }
         if alignment.requiresCalibration {
             automaticMapping.update(
@@ -1385,52 +1423,26 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                         && $0.direction.y > sin(8 * Float.pi / 180)
                         && $0.direction.y < sin(83 * Float.pi / 180)
                 }.count)
-            if canUseEstimatedIdentification {
-                if didDetect { attemptAutomaticMapping(at: time, project: projectLight) }
-            } else {
-                if let match = pinnedLight?.match, retainedCapture?.annotation.id != match.star.id {
-                    clearPinnedLight(clearCapture: false)
-                }
-                // Recovery still detects real light, but never supplies a guessed catalog identity.
-                annotations = []
-                predictions = []
-                unidentifiedLights = []
-                trackMatches = [:]
-                trackIssues = [:]
-                confirmedNames = [:]
-                candidateHistory = [:]
-                if didDetect {
-                    let fresh = opticalTracks.filter {
-                        $0.time == time && $0.hits >= 2 && !$0.isDisc && $0.direction.y > 0
-                    }
-                    let centered = fresh.compactMap { track -> (CameraOpticalTrack, Double)? in
-                        guard let point = projectLight(track.direction) else { return nil }
-                        let distance = hypot(point.x - viewport.width / 2, point.y - viewport.height / 2)
-                        return distance <= 28 ? (track, distance) : nil
-                    }.min { $0.1 < $1.1 }?.0
-                    if let centered {
-                        if pinnedLight?.isSameSource(centered.direction) == true {
-                            pinnedLight?.observe(
-                                direction: centered.direction, time: centered.time, opticalID: centered.id)
-                        } else {
-                            pinnedLight = CameraLightPin(
-                                direction: centered.direction, time: centered.time,
-                                observations: centered.hits, opticalID: centered.id)
-                        }
-                    } else if let returning = fresh.first(where: {
-                        pinnedLight?.isSameSource($0.direction) == true
-                    }) {
-                        pinnedLight?.observe(
-                            direction: returning.direction, time: returning.time, opticalID: returning.id)
-                    }
-                    // A remembered direction is not a newly detected source in this recovery flow.
-                    if let pin = pinnedLight, time - pin.lastSeen >= 2 {
-                        clearPinnedLight(clearCapture: false)
-                    }
-                    attemptAutomaticMapping(at: time, project: projectLight)
-                }
-                return
+            if let match = pinnedLight?.match, retainedCapture?.annotation.id != match.star.id {
+                clearPinnedLight(clearCapture: false)
             }
+            // Recovery still detects real light, but never supplies a guessed catalog identity.
+            annotations = []
+            predictions = []
+            unidentifiedLights = []
+            trackMatches = [:]
+            trackIssues = [:]
+            candidateHistory = [:]
+            if didDetect {
+                attemptAutomaticMapping(at: time, project: projectLight)
+            }
+            if let pin = pinnedLight, !CameraTrackingPolicy.keepsTarget(lastSeen: pin.lastSeen, now: time,
+                referenceAim: pin.aimDirection, currentAim: forward) {
+                clearPinnedLight(clearCapture: false)
+            }
+            // Naming continues using the observed ray through brief flicker or aim drift.
+            updateSingleLightCandidate(at: time)
+            return
         }
         let angularCandidates =
             didDetect
@@ -1438,10 +1450,6 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         if didDetect {
             trackMatches = [:]
             trackIssues = [:]
-        }
-        let activeIDs = Set(opticalTracks.map(\.id))
-        confirmedNames = confirmedNames.filter {
-            activeIDs.contains($0.key) && time - $0.value.supportedAt < 0.9
         }
         var visible: [CameraStarAnnotation] = []
         var unknown: [CameraLightAnnotation] = []
@@ -1460,53 +1468,22 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                     candidates: angularCandidates, hasOpticalEvidence: track.hits >= 2)
                 match = assessment.match
                 issue = assessment.issue
-                if let saved = pinnedLight?.stableMatch(for: track.id, direction: track.direction) {
-                    // A new candidate is not evidence of a different observed light.
-                    match = saved
-                    issue = .stabilizing
-                }
-                // Keep an already established identity across a brief ambiguous reading, only
-                // while the same light is still observed close to that object's direction.
-                if match == nil, opticalReference() == nil,
-                    let established = confirmedNames[track.id], time - established.supportedAt < 0.9,
-                    alignment.reference != nil
-                        || (cameraHeadingAccuracy.map { $0 >= 0 && $0 <= 25 } ?? false),
-                    let expected = angularCandidates.first(where: { $0.0.id == established.match.star.id })
-                {
-                    let separation =
-                        Double(acos(min(1, max(-1, simd_dot(track.direction, expected.1))))) * 180 / .pi
-                    let allowed =
-                        hasReferenceAlignment ? 1.5 : min(12, max(6, (cameraHeadingAccuracy ?? 10) * 0.75))
-                    if separation <= allowed {
-                        match = CameraCandidateMatch(
-                            star: established.match.star, separation: separation,
-                            score: established.match.score)
-                    }
-                }
                 trackMatches[track.id] = match
                 trackIssues[track.id] = issue
-                if let match,
-                    assessment.match?.star.id == match.star.id || (track.hits >= 6 && issue == .alignment)
-                {
-                    // Refresh support only on a genuine new observation, never cached frames.
-                    if track.time == time, candidateHistory[track.id]?.starID == match.star.id,
-                        (candidateHistory[track.id]?.hits ?? 0) >= 2
-                    {
-                        confirmedNames[track.id] = (match, time)
-                    }
-                }
             } else {
                 match = trackMatches[track.id]
             }
             let previous = candidateHistory[track.id]
             if let match {
-                let observedThisPass = didDetect && track.time == time
+                let observedThisPass = didDetect && track.time == observationTime
                 let hits =
                     observedThisPass
                     ? (previous?.starID == match.star.id ? (previous?.hits ?? 0) + 1 : 1)
                     : (previous?.starID == match.star.id ? previous?.hits ?? 0 : 0)
                 nextHistory[track.id] = (match.star.id, hits)
-                if track.hits >= 3, hits >= 2, visible.count < 8,
+                if CameraIdentityPolicy.hasPersistentEvidence(
+                    hits: track.hits, firstSeen: track.firstSeen, lastSeen: track.time),
+                    hits >= 3, visible.count < 8,
                     !visible.contains(where: {
                         $0.star.id == match.star.id || hypot($0.point.x - point.x, $0.point.y - point.y) < 90
                     }),
@@ -1531,7 +1508,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         candidateHistory = nextHistory
         annotations = visible
         unidentifiedLights = unknown
-        updatePinnedLight(at: time, didDetect: didDetect, sky: sky, project: projectLight)
+        updatePinnedLight(at: time, observationTime: observationTime, sky: sky, project: projectLight)
     }
 
     private struct RetainedStarCapture {
@@ -1541,11 +1518,14 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         let contrast: Double
         let date: Date
         let location: ObserverLocation
+        let isAutomaticEstimate: Bool
+        let sourceID: Int?
     }
-    private func retainRecognizedFrame(_ frame: ARFrame) {
+    private func retainRecognizedFrame(_ frame: SkyCaptureFrame) {
         guard status == .tracking, !isAdjustingCamera, !scannerPaused,
-            let pin = pinnedLight, let match = pin.observedMatch(at: frame.timestamp),
-            !match.star.isSolarSystemBody,
+            let pin = pinnedLight,
+            let match = pin.observedMatch(at: frame.timestamp)
+                ?? (automaticIdentification.sourceID == pin.opticalID ? automaticIdentification.freshMatch(at: frame.timestamp) : nil),
             retainedCapture?.annotation.id != match.star.id || lastCaptureCacheTime < 0
                 || frame.timestamp - lastCaptureCacheTime >= 0.25,
             viewport.width > 0, viewport.height > 0,
@@ -1565,9 +1545,10 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         .applying(imageDisplayTransform.inverted())
         let contrast = StarCaptureEnhancement.contrast(in: frame.capturedImage, at: normalized)
         if let previous = retainedCapture, previous.generation == alignment.generation,
-            previous.annotation.id == annotation.id, previous.contrast >= contrast
+            previous.annotation.id == annotation.id, previous.sourceID == pin.opticalID,
+            previous.isAutomaticEstimate == !hasReferenceAlignment, previous.contrast >= contrast
         {
-            pinnedLight?.identify(using: match)
+            if hasReferenceAlignment { pinnedLight?.identify(using: match) }
             return
         }
         let rotation: CGImagePropertyOrientation =
@@ -1582,8 +1563,9 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         guard let image = photoContext.createCGImage(source, from: crop) else { return }
         retainedCapture = RetainedStarCapture(
             generation: alignment.generation, annotation: annotation,
-            image: image, contrast: contrast, date: Date(), location: location)
-        pinnedLight?.identify(using: match)
+            image: image, contrast: contrast, date: Date(), location: location,
+            isAutomaticEstimate: !hasReferenceAlignment, sourceID: pin.opticalID)
+        if hasReferenceAlignment { pinnedLight?.identify(using: match) }
     }
 
     private func attemptAutomaticMapping(
@@ -1596,7 +1578,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         guard tracks.count >= SkyPatternMatcher.minimumAutomaticPatternStars,
             let anchor = tracks.filter({ track in
                 guard let point = project(track.direction) else { return false }
-                return hypot(point.x - viewport.width / 2, point.y - viewport.height / 2) <= 28
+                return CameraTrackingPolicy.isNearAim(point, center: CGPoint(x: viewport.width / 2, y: viewport.height / 2), holding: true)
             }).min(by: {
                 simd_dot($0.direction, pinnedLight?.direction ?? $0.direction)
                     > simd_dot($1.direction, pinnedLight?.direction ?? $1.direction)
@@ -1643,7 +1625,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             self.annotations = []
             self.unidentifiedLights = []
             self.clearPinnedLight()
-            var pin = CameraLightPin(direction: anchor.direction, time: time, observations: anchor.hits)
+            var pin = CameraLightPin(direction: anchor.direction, time: time, observations: anchor.hits, aimDirection: self.previousForward)
             pin.identify(
                 using: CameraCandidateMatch(star: star, separation: solution.residualDegrees, score: 0))
             self.pinnedLight = pin
@@ -1652,28 +1634,53 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
 
     // MARK: Last observed light (independent of the reticle)
 
+    private func updateSingleLightCandidate(at time: TimeInterval) {
+        guard let pin = pinnedLight, CameraTrackingPolicy.keepsTarget(lastSeen: pin.lastSeen, now: time,
+            referenceAim: pin.aimDirection, currentAim: previousForward) else {
+            singleLightCandidate = nil; singleLightIssue = nil
+            automaticIdentification = CameraAutomaticIdentification()
+            return
+        }
+        if automaticIdentification.sourceID != pin.opticalID {
+            automaticIdentification = CameraAutomaticIdentification()
+        }
+        guard CameraIdentityPolicy.hasPersistentEvidence(hits: pin.observationCount,
+            firstSeen: pin.firstSeen, lastSeen: pin.lastSeen) else {
+            singleLightCandidate = nil; singleLightIssue = nil; return
+        }
+        guard pin.isDisc || CameraIdentityPolicy.permitsPointIdentification(sunAltitude: sky?.sunAltitude) else {
+            singleLightCandidate = nil; singleLightIssue = .noCandidate
+            automaticIdentification = CameraAutomaticIdentification()
+            return
+        }
+        let candidates = scanDirections.map { ($0.0, alignedDirection($0.1)) }
+        let result = pin.isDisc
+            ? CameraSolarDiscPolicy.assess(direction: pin.direction, isDisc: true,
+                headingAccuracy: cameraHeadingAccuracy, hasReferenceAlignment: hasReferenceAlignment, candidates: candidates)
+            : CameraIdentityPolicy.suggest(direction: pin.direction, isDisc: false,
+                zoom: cameraZoom, headingAccuracy: cameraHeadingAccuracy, candidates: candidates)
+        singleLightCandidate = result.match
+        singleLightIssue = result.issue
+        if let sourceID = pin.opticalID {
+            if pin.isDisc {
+                automaticIdentification.updateSolarDisc(result, sourceID: sourceID, observedAt: pin.lastSeen)
+            } else {
+                automaticIdentification.update(candidate: result.match, sourceID: sourceID, observedAt: pin.lastSeen)
+            }
+        }
+    }
+
     private func assessCameraCandidate(
         direction: SIMD3<Float>, isDisc: Bool,
         candidates: [(CatalogStar, SIMD3<Float>)], hasOpticalEvidence: Bool
     ) -> CameraCandidateAssessment {
-        let reference = opticalReference()
-        func assess(reference: CameraCandidateReference?) -> CameraCandidateAssessment {
-            CameraCandidateMatcher.assess(
-                direction: direction, isDisc: isDisc, zoom: cameraZoom,
-                headingAccuracy: alignment.reference == nil ? cameraHeadingAccuracy : nil,
-                candidates: candidates,
-                maximumSeparation: hasReferenceAlignment ? 1.5 : nil, isCalibrated: hasReferenceAlignment,
-                reference: reference, hasOpticalEvidence: hasOpticalEvidence)
-        }
-        let result = assess(reference: reference)
-        if result.match == nil, reference != nil, !hasReferenceAlignment {
-            return assess(reference: nil)
-        }
-        return result
+        CameraIdentityPolicy.assess(direction: direction, isDisc: isDisc, zoom: cameraZoom,
+            hasReferenceAlignment: hasReferenceAlignment, candidates: candidates,
+            hasOpticalEvidence: hasOpticalEvidence)
     }
 
     private func updatePinnedLight(
-        at time: TimeInterval, didDetect: Bool, sky: SkySnapshot,
+        at time: TimeInterval, observationTime: TimeInterval?, sky: SkySnapshot,
         project: (SIMD3<Float>) -> CGPoint?
     ) {
         var observation: CameraOpticalTrack?
@@ -1685,13 +1692,13 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         let center =
             focusedPoint.map { CGPoint(x: $0.x * viewport.width, y: $0.y * viewport.height) }
             ?? CGPoint(x: viewport.width / 2, y: viewport.height / 2)
-        if didDetect, sky.sunAltitude < -6 {
-            let fresh = opticalTracks.filter { $0.time == time && $0.hits >= 2 && $0.direction.y > 0 }
+        if let observationTime, sky.sunAltitude < -6 {
+            let fresh = opticalTracks.filter { $0.time == observationTime && $0.hits >= 2 && $0.direction.y > 0 }
             // Continue an existing source anywhere in the frame. A different light replaces
             // it only when the user aims near that new source.
             let returning = fresh.filter {
                 pinnedLight?.canReacquire(
-                    $0.direction, identifiedAs: identifiedMatch(for: $0, at: time), opticalID: $0.id)
+                    $0.direction, identifiedAs: identifiedMatch(for: $0, at: observationTime), opticalID: $0.id)
                     == true
             }.sorted {
                 guard let pin = pinnedLight else { return false }
@@ -1704,33 +1711,32 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
                 || simd_dot(returning[0].direction, returning[1].direction) > cos(0.15 * Float.pi / 180)
             if uniqueReturn, let same = returning.first {
                 pinnedLight?.observe(
-                    direction: same.direction, time: time, identifiedAs: identifiedMatch(for: same, at: time),
-                    opticalID: same.id)
+                    direction: same.direction, time: same.time, identifiedAs: identifiedMatch(for: same, at: observationTime),
+                    opticalID: same.id, aimDirection: previousForward)
                 observation = same
             }
             let nearest = fresh.compactMap { track -> (CameraOpticalTrack, Double)? in
                 guard let point = project(track.direction) else { return nil }
                 let distance = hypot(point.x - center.x, point.y - center.y)
-                return distance <= 64 ? (track, distance) : nil
+                return distance <= CameraTrackingPolicy.acquisitionRadius ? (track, distance) : nil
             }.min { $0.1 < $1.1 }?.0
             newLightIssue = nearest.flatMap {
                 pinnedLight?.isSameSource($0.direction) == true ? nil : trackIssues[$0.id] ?? .stabilizing
             }
             isScanningNewLight = newLightIssue == .stabilizing
             if let nearest, pinnedLight?.isSameSource(nearest.direction) != true {
-                let identified = identifiedMatch(for: nearest, at: time)
+                let identified = identifiedMatch(for: nearest, at: observationTime)
                 // A deliberate aim at a different observed light starts a new scan.
                 // Its old photo stays cached independently of the active optical pin.
                 let nextPoint = project(nearest.direction) ?? CGPoint(x: -1000, y: -1000)
                 let startsNew = CameraTargetSelection.beginsNewSource(
                     previousPoint: pinnedLight.flatMap { project($0.direction) }, newPoint: nextPoint,
                     center: center, observations: nearest.hits)
-                if startsNew
-                    || (pinnedLight?.canBeReplaced(by: nearest.direction, identifiedAs: identified) ?? true)
+                if startsNew || pinnedLight == nil
                 {
                     pinnedLight = CameraLightPin(
-                        direction: nearest.direction, time: time, observations: nearest.hits,
-                        opticalID: nearest.id)
+                        direction: nearest.direction, time: nearest.time, observations: nearest.hits,
+                        opticalID: nearest.id, firstSeen: nearest.firstSeen, aimDirection: previousForward)
                     if let identified { pinnedLight?.identify(using: identified) }
                     pinnedPointStack.reset()
                     lastPinAssessment = -1
@@ -1750,26 +1756,17 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
             direction: pin.direction, isDisc: false,
             candidates: candidates, hasOpticalEvidence: pin.observationCount >= 2)
         pin.assess(assessment)
-        if let observation, let identified = identifiedMatch(for: observation, at: time) {
+        if let observation, let identified = identifiedMatch(for: observation, at: observation.time) {
             pin.identify(using: identified)
         }
         let point = project(pin.direction)
         let inReticle =
-            point.map { hypot($0.x - viewport.width / 2, $0.y - viewport.height / 2) <= 28 } ?? false
-        pin.confirm(assessment, observedAt: observation?.time, insideReticle: inReticle)
+            point.map { CameraTrackingPolicy.isNearAim($0, center: CGPoint(x: viewport.width / 2, y: viewport.height / 2), holding: true) } ?? false
+        let persistent = observation.map {
+            CameraIdentityPolicy.hasPersistentEvidence(hits: $0.hits, firstSeen: $0.firstSeen, lastSeen: $0.time)
+        } ?? false
+        pin.confirm(assessment, observedAt: persistent ? observation?.time : nil, insideReticle: inReticle)
         pinnedLight = pin
-        // Preserve the first observed estimate across target switches. It constrains
-        // relative geometry only; it does not silently become a confirmed alignment.
-        if pin.isIdentified, observation != nil,
-            referenceLight == nil
-                || referenceLight?.identifiedMatch?.star.id == pin.identifiedMatch?.star.id,
-            let expected = scanDirections.first(where: { $0.0.id == pin.identifiedMatch?.star.id })
-        {
-            referenceLight = pin
-            // Expected and observed rays must describe the same instant. Recomputing
-            // only the expected ray later would mistake Earth's rotation for drift.
-            referenceDirection = alignedDirection(expected.1)
-        }
         updateReticleGate()
     }
 
@@ -1787,7 +1784,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         return match
     }
 
-    func session(_ session: ARSession, didFailWithError error: Error) {
+    func session(_ session: SkyCaptureSession, didFailWithError error: Error) {
         clearPinnedLight()
         alignment.invalidate(reason: "Camera tracking stopped. Restart and calibrate the sky again.")
         discardPendingDetection()
@@ -1799,7 +1796,7 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         hasStartedSession = false
         status = .unavailable("The camera stopped: \(error.localizedDescription)")
     }
-    func sessionWasInterrupted(_ session: ARSession) {
+    func sessionWasInterrupted(_ session: SkyCaptureSession) {
         clearPinnedLight()
         alignment.invalidate(
             reason:
@@ -1812,8 +1809,8 @@ final class SkyFinderService: NSObject, ARSessionDelegate, CLLocationManagerDele
         opticalTracks = []
         status = .limited("Camera paused. Come back to the app to keep looking.")
     }
-    func sessionShouldAttemptRelocalization(_ session: ARSession) -> Bool { false }
-    func sessionInterruptionEnded(_ session: ARSession) {
+
+    func sessionInterruptionEnded(_ session: SkyCaptureSession) {
         hasStartedSession = false
         if running { authorizeLocation() }
     }

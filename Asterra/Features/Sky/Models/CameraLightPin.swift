@@ -1,11 +1,13 @@
 import Foundation
 import simd
 
-/// One real optical source retained in the current AR world. A remembered source is
+/// One real optical source retained in the current sensor world. A remembered source is
 /// navigation evidence only; collection still needs fresh light inside the reticle.
 struct CameraLightPin {
     private(set) var direction: SIMD3<Float>
+    let isDisc: Bool
     private(set) var opticalID: Int?
+    private(set) var aimDirection: SIMD3<Float>?
     let firstSeen: TimeInterval
     private(set) var lastSeen: TimeInterval
     private(set) var observationCount: Int
@@ -16,26 +18,27 @@ struct CameraLightPin {
     private(set) var confirmedAt: TimeInterval?
     private var confirmationCount = 0
 
-    init(direction: SIMD3<Float>, time: TimeInterval, observations: Int, opticalID: Int? = nil) {
+    init(direction: SIMD3<Float>, time: TimeInterval, observations: Int, opticalID: Int? = nil, firstSeen: TimeInterval? = nil, aimDirection: SIMD3<Float>? = nil, isDisc: Bool = false) {
+        self.isDisc = isDisc
         self.opticalID = opticalID
+        self.aimDirection = aimDirection
         self.direction = direction
-        firstSeen = time
+        self.firstSeen = firstSeen ?? time
         lastSeen = time
         observationCount = observations
     }
-    /// A repeat optical sighting with a supported candidate is enough to offer a photo.
-    /// Pattern calibration and long-lived identity confirmation can continue independently.
+    /// A candidate alone cannot unlock collection; require fresh identity confirmation.
     func observedMatch(at time: TimeInterval) -> CameraCandidateMatch? {
         guard observationCount >= 2, time >= lastSeen, time - lastSeen < 0.65 else { return nil }
-        if let identifiedMatch { return identifiedMatch }
-        return issue == .stabilizing ? match : nil
+        guard issue == .stabilizing, isDetected(at: time) else { return nil }
+        return identifiedMatch
     }
     func stableMatch(for opticalID: Int, direction: SIMD3<Float>) -> CameraCandidateMatch? {
         guard let identifiedMatch, self.opticalID == opticalID || isSameSource(direction) else { return nil }
         return identifiedMatch
     }
     func canUseAsReference(at time: TimeInterval, distance: Double) -> Bool {
-        observationCount >= 2 && time >= lastSeen && time - lastSeen < 0.65 && distance <= 28
+        observationCount >= 2 && time >= lastSeen && time - lastSeen < CameraTrackingPolicy.referenceFreshness && distance <= CameraTrackingPolicy.holdRadius
     }
     func isSameSource(_ ray: SIMD3<Float>) -> Bool {
         simd_dot(direction, ray) > cos(0.75 * Float.pi / 180)
@@ -57,12 +60,13 @@ struct CameraLightPin {
     }
     mutating func observe(
         direction: SIMD3<Float>, time: TimeInterval, identifiedAs candidate: CameraCandidateMatch? = nil,
-        opticalID: Int? = nil
+        opticalID: Int? = nil, aimDirection: SIMD3<Float>? = nil
     ) {
         guard time > lastSeen, canReacquire(direction, identifiedAs: candidate, opticalID: opticalID) else {
             return
         }
         if let opticalID { self.opticalID = opticalID }
+        if let aimDirection { self.aimDirection = aimDirection }
         self.direction = direction
         lastSeen = time
         observationCount += 1

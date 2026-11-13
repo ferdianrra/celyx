@@ -1,4 +1,4 @@
-import ARKit
+import AVFoundation
 import SwiftUI
 import simd
 
@@ -185,7 +185,7 @@ struct SkyCalibrationView: View {
             guard viewModel.previewState == nil else { return }
             if value == .active, !viewModel.cameraDenied {
                 viewModel.engine.start()
-            } else {
+            } else if value == .background {
                 viewModel.outcome = .none
                 viewModel.engine.stop()
                 viewModel.engine.alignment.enterBackground()

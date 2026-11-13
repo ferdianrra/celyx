@@ -78,7 +78,7 @@ struct DemoSkyTests {
         #expect(model.collected[160]?.note == "My Sadalsuud")
         #expect(model.collected[160]?.photoFilename == "keep.jpg")
         let restored = HomeViewModel(defaults: defaults)
-        try DemoSky.prepareCollection(model: restored, date: Date(), location: AppPreviewData.location)
+        try DemoSky.prepareCollection(model: restored, date: AppPreviewData.date, location: AppPreviewData.location)
         #expect(restored.collected.count == 16)
         #expect(restored.collected[160]?.latitude == 12)
         let figure = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
@@ -89,6 +89,53 @@ struct DemoSkyTests {
             let ra = star.ra_deg * .pi / 180, dec = star.dec_deg * .pi / 180
             let point = SIMD3(cos(dec) * cos(ra), cos(dec) * sin(ra), sin(dec))
             #expect(acos(min(1, max(-1, simd_dot(center, point)))) < 30 * .pi / 180)
+        }
+    }
+
+    @Test func morningDemoFinalCaptureCompletesAVisibleConstellation() throws {
+        let suite = "asterra.demo.mission.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let model = HomeViewModel(defaults: defaults)
+        defer {
+            for record in model.collected.values {
+                if let filename = record.photoFilename { StarPhotoStore.remove(filename) }
+            }
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-11-11T01:06:00Z"))
+        let location = AppPreviewData.location
+        let final = try #require(try DemoSky.prepareCollection(model: model, date: date, location: location))
+        let figure = try #require(GardenZodiacFigure.load().first { $0.requiredStarIDs.contains(final.id) })
+        let collected = Set(model.collected.keys)
+        #expect(figure.requiredStarIDs.subtracting(collected) == [final.id])
+        #expect((AstronomyService.snapshot(date: date, location: location).basis * figure.figure.center).z > 0)
+        #expect(GardenZodiacFigure.unlocked([figure], collected: collected).isEmpty)
+        let image = try #require(DemoSky.composite(nil,
+            stars: [(point: CGPoint(x: 40, y: 60), color: final.rgb)],
+            viewSize: CGSize(width: 80, height: 120)))
+        try DemoSky.save(star: final, image: image, date: date, location: location, model: model)
+        let restored = HomeViewModel(defaults: defaults)
+        #expect(GardenZodiacFigure.unlocked([figure], collected: Set(restored.collected.keys)).count == 1)
+        #expect(StarPhotoStore.load(restored.collected[final.id]?.photoFilename) != nil)
+    }
+
+    @Test func finishedConstellationDoesNotLeaveDemoWithoutANextMission() throws {
+        let suite = "asterra.demo.next.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = HomeViewModel(defaults: defaults)
+        let capricornus = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        try model.seedDemoObservations(capricornus.requiredStarIDs.map {
+            CollectedStar(id: $0, date: AppPreviewData.date, latitude: 12, longitude: 34, note: "Keep existing observation")
+        })
+        let final = try #require(try DemoSky.prepareCollection(model: model, date: AppPreviewData.date,
+                                                               location: AppPreviewData.location))
+        #expect(!capricornus.requiredStarIDs.contains(final.id))
+        let next = try #require(GardenZodiacFigure.load().first { $0.requiredStarIDs.contains(final.id) })
+        #expect(next.requiredStarIDs.subtracting(Set(model.collected.keys)) == [final.id])
+        for id in capricornus.requiredStarIDs {
+            #expect(model.collected[id]?.note == "Keep existing observation")
+            #expect(model.collected[id]?.latitude == 12)
         }
     }
 
@@ -150,6 +197,28 @@ struct DemoSkyTests {
         #expect(target(collected: [b.id]) == a.id)
         #expect(target(excluded: b.id) == a.id)
         #expect(target(collected: [a.id, b.id]) == nil)
+    }
+
+    @Test func directTapSelectsAVirtualStarOutsideTheReticleAndPrefersTheTappedSource() throws {
+        let stars = DemoSky.stars(in: try SkyAssets.stars())
+        let a = stars[0], b = stars[1]
+        let reticle = CGPoint(x: 196, y: 426)
+        let projections: [DemoSky.Projection] = [
+            .init(star: a, point: CGPoint(x: 100, y: 680), arrow: nil),
+            .init(star: b, point: reticle, arrow: nil)
+        ]
+        #expect(DemoSky.target(in: projections, collected: [], excludedID: nil, lockedID: b.id,
+            center: reticle, radius: 96, lockRadius: 160)?.id == b.id)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 115, y: 675),
+            collected: [], excludedID: nil)?.id == a.id)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 115, y: 675),
+            collected: [a.id], excludedID: nil) == nil)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 115, y: 675),
+            collected: [], excludedID: a.id) == nil)
+        #expect(DemoSky.tappedTarget(in: [.init(star: a, point: nil, arrow: CGVector(dx: 0, dy: 1))],
+            at: .zero, collected: [], excludedID: nil) == nil)
+        #expect(DemoSky.tappedTarget(in: projections, at: CGPoint(x: 380, y: 800),
+            collected: [], excludedID: nil) == nil)
     }
 
     @Test func everyDemoMemberPersistsWithItsRealObservationContextAndBypassMetadata() throws {
