@@ -42,14 +42,15 @@ struct OnboardingHighlight: View {
     private let rings = 3
     private let stagger = 0.22
     private let travel = 1.7
-    private let rest = 0.3
+    private let rest = 0.15
     private var cycle: Double { Double(rings - 1) * stagger + travel + rest }
     /// Figma's first ring sits 9pt outside a 46pt control (64pt); the last is 116/64 of it.
     private var inset: CGFloat { 9 }
     private var growth: CGFloat {
-        let figma = (min(size.width, size.height) + inset * 2) * (116.0 / 64.0 - 1)
+        // Figma's 64 → 116 spread, tempered to about half so the rings stay close to the control.
+        let spread = (min(size.width, size.height) + inset * 2) * (116.0 / 64.0 - 1) * 0.5
         // A wide control (Start Collecting) keeps its rings tight so they don't wash over the card above.
-        return size.width > size.height * 1.5 ? min(figma, 26) : figma
+        return size.width > size.height * 1.5 ? min(spread, 16) : spread
     }
 
     var body: some View {

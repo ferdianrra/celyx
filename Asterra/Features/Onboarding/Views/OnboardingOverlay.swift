@@ -79,7 +79,7 @@ struct OnboardingOverlay: View {
             if let card = flow.card {
                 OnboardingCard(card: card, flow: flow)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, chromeVisible ? 62 : 12)
+                    .padding(.bottom, chromeVisible ? 53 : 12)
                     .transition(reduceMotion ? .opacity
                         : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                       removal: .opacity.combined(with: .scale(scale: 0.96))))

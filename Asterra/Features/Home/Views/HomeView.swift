@@ -515,10 +515,11 @@ private struct CompassBadge: View {
 /// "Start Collecting" (Figma 998:2695): native Liquid Glass tinted with the Figma inner-shadow stack.
 /// Native floating tab bar metrics, measured on the iOS 27 simulator (iPhone 18 Pro).
 enum TabBarMetrics {
-    static let height: CGFloat = 62
+    /// The large control size (50pt), centred where the native 62pt bar sits.
+    static let height: CGFloat = 50
     static let sideMargin: CGFloat = 28
     /// From the screen's bottom edge (the bar sits inside the home-indicator area).
-    static let bottomMargin: CGFloat = 21
+    static let bottomMargin: CGFloat = 27
     /// Between the bar and the separate search circle.
     static let searchGap: CGFloat = 12
 }
