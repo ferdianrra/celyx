@@ -8,7 +8,7 @@
 import Testing
 import Foundation
 import MetalKit
-import SceneKit
+import AVFoundation
 import UIKit
 import CoreVideo
 import simd
@@ -146,7 +146,7 @@ struct celyxTests {
         #expect(container.cameraView.transform.a == 3 && container.cameraView.transform.d == 3)
         let point = container.cameraView.convert(CGPoint(x:210,y:400),to:container)
         #expect(abs(point.x-230) < 0.001 && abs(point.y-400) < 0.001)
-        container.cameraView.isPlaying = false
+        container.cameraView.stopRendering()
     }
 
     private func cameraLuminanceBuffer(width: Int = 320,height: Int = 240,
@@ -270,26 +270,12 @@ struct celyxTests {
         #expect(defaults.data(forKey:"cameraSkyAlignment.v1") == nil)
     }
 
-    @Test func skyMarkersKeepTheirWorldNodesWhenCameraGuidesMoveAndRemoveFilteredObjects() throws {
-        let view = FinderCameraView(frame:.zero)
-        let scene = SCNScene()
-        view.scene = scene
-        let star = try #require(HomeViewModel.preview().stars.first)
-        let first = CameraSkyPrediction(direction:SIMD3(0,0,-1),star:star,
-            guide:SkyFinderProjection(point:CGPoint(x:100,y:100),arrow:.zero,separation:0))
-        view.updateSkyMarkers([first],labeledIDs:[star.id],selectedID:nil)
-        let node = try #require(scene.rootNode.childNode(withName:"sky:\(star.id)",recursively:false))
-        let position = node.simdPosition
-        let movedGuide = CameraSkyPrediction(direction:first.direction,star:star,
-            guide:SkyFinderProjection(point:CGPoint(x:300,y:400),arrow:.zero,separation:20))
-        view.updateSkyMarkers([movedGuide],labeledIDs:[],selectedID:star.id)
-        #expect(scene.rootNode.childNode(withName:"sky:\(star.id)",recursively:false) === node)
-        #expect(node.simdPosition == position)
-        #expect(node.childNode(withName:"label",recursively:false)?.isHidden == true)
-        #expect(node.childNode(withName:"ring",recursively:false)?.simdScale.x == 1.2)
-        view.updateSkyMarkers([],labeledIDs:[],selectedID:nil)
-        #expect(node.parent == nil)
-        view.isPlaying = false
+    @Test func nativePreviewUsesAspectFillAndRemovesFilteredMarkers() {
+        let view = FinderCameraView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        #expect(view.preview.videoGravity == .resizeAspectFill)
+        view.updateSkyMarkers([], labeledIDs: [], selectedID: nil)
+        #expect(view.subviews.isEmpty)
+        view.stopRendering()
     }
 
     @Test func daylightFilterCanBeDisabledWithoutChangingTimeOrCollectionEligibility() throws {

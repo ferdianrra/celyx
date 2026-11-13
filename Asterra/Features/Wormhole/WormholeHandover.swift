@@ -8,7 +8,7 @@ import simd
 
 /// The camera frame frozen at the moment the collect succeeded, oriented and cropped like the screen.
 struct WormholeFreeze {
-    /// Frozen camera image (nil on the Simulator or when ARKit has no frame yet).
+    /// Frozen camera image (nil on the Simulator or when the camera has no frame yet).
     var image: CGImage?
     /// Screen size in points.
     var size: CGSize
@@ -18,7 +18,7 @@ struct WormholeFreeze {
     var focal: Double
 
     /// Builds the orientation from an AR view matrix (with the interface rotation applied)
-    /// and the alignment that maps horizon directions into the AR world.
+    /// and the alignment that maps horizon directions into the sensor world.
     static func make(image: CGImage?,size: CGSize,view: simd_float4x4,projection: simd_float4x4,alignment: simd_quatf) -> WormholeFreeze {
         let inverse = simd_inverse(view)
         func horizon(_ c: SIMD4<Float>) -> SIMD3<Double> {
@@ -47,7 +47,7 @@ struct WormholeFreeze {
 }
 
 extension SkyFinderProjection {
-    /// Inverse of `worldDirection`: AR world direction → horizon [east, north, up].
+    /// Inverse of `worldDirection`: sensor world direction → horizon [east, north, up].
     static func horizonDirection(_ world: SIMD3<Float>) -> SIMD3<Double> {
         let c = SkyCalibration.arCos, s = SkyCalibration.arSin
         let east1 = Double(world.x), up = Double(world.y), north1 = -Double(world.z)
@@ -98,7 +98,8 @@ final class WormholeHandover: Identifiable {
     @ObservationIgnored private var focusPose: NightSeaCamera?
     var focusStart: Double { landing + WormholeTimeline.flyEnd + 560 }
     var revealAt: Double { focusStart + 800 }
-    var returnAt: Double { revealAt + 2700 }
+    private var revealsConstellation = false
+    var returnAt: Double { revealAt + (revealsConstellation ? 2700 : 700) }
     static let returnDuration: Double = 1100
     var revealIsVisible: Bool { phase >= .revealing }
 
@@ -164,7 +165,8 @@ final class WormholeHandover: Identifiable {
     func finish() { showsSheet = false; phase = .done }
 
     /// Fit collected neighbors (or the completed pattern) inside a comfortable screen margin.
-    func configureFocus(directions: [SIMD3<Double>]) {
+    func configureFocus(directions: [SIMD3<Double>], revealsConstellation: Bool) {
+        self.revealsConstellation = revealsConstellation
         let points = directions.isEmpty ? [starDirection] : directions
         let sum = points.reduce(SIMD3<Double>.zero, +)
         let forward = simd_length(sum) > 0.001 ? simd_normalize(sum) : starDirection

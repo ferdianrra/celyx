@@ -8,7 +8,7 @@ struct StarShareView: View {
     @State private var photo: UIImage?
     @State private var isPreparing = false
     @State private var isLoadingPhoto = true
-    @State private var activity: ShareActivity?
+    @State private var activity: ShareCardFile?
     @State private var message: String?
     @State private var errorMessage: String?
     @State private var layout: ShareCardLayout = .polaroid
@@ -74,7 +74,9 @@ struct StarShareView: View {
             message = nil
         }
         .sheet(item: $activity) { activity in
-            StarShareActivitySheet(image: activity.image, fileURL: activity.file?.url)
+            StarShareActivitySheet(fileURL: activity.url) {
+                errorMessage = $0.localizedDescription
+            }
         }
         .alert("Couldn’t share card", isPresented: Binding(get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } })) {
@@ -108,11 +110,9 @@ struct StarShareView: View {
             case .instagram:
                 do { try await StarSocialShare.instagram(image) }
                 catch { errorMessage = error.localizedDescription }
-            case .whatsapp:
-                do { activity = ShareActivity(image: image, file: try StarSocialShare.whatsappFile(image)) }
-                catch { errorMessage = error.localizedDescription }
             case .more:
-                activity = ShareActivity(image: image)
+                do { activity = try StarSocialShare.pngFile(image) }
+                catch { errorMessage = error.localizedDescription }
             }
         }
     }
@@ -126,8 +126,6 @@ struct StarShareView: View {
                             Circle().fill(Color(hex: 0x141C2A))
                             if destination == .instagram {
                                 Image("asterra-instagram").resizable().frame(width: 51, height: 51).offset(x: -0.5, y: -0.5)
-                            } else if destination == .whatsapp {
-                                Image("asterra-whatsapp").resizable().frame(width: 44, height: 44).offset(x: -0.5)
                             } else {
                                 Image(systemName: destination.symbol).font(.system(size: 17, weight: .regular))
                             }
@@ -150,19 +148,12 @@ struct StarShareView: View {
     }
 }
 
-private struct ShareActivity: Identifiable {
-    let id = UUID()
-    let image: UIImage
-    var file: WhatsAppShareRequest? = nil
-}
-
 private enum ShareDestination: String, CaseIterable, Identifiable {
-    case instagram, whatsapp, copy, save, more
+    case instagram, copy, save, more
     var id: String { rawValue }
     var title: String {
         switch self {
         case .instagram: "Instagram\nStory"
-        case .whatsapp: "Send to\nWhatsApp"
         case .copy: "Copy"
         case .save: "Save"
         case .more: "More"
@@ -172,7 +163,6 @@ private enum ShareDestination: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .instagram: "camera"
-        case .whatsapp: "phone.bubble"
         case .copy: "document.on.document"
         case .save: "square.and.arrow.down"
         case .more: "square.and.arrow.up"

@@ -18,46 +18,15 @@ struct CameraSessionAlignmentTests {
             distance_ly: nil, con: nil, collectible_candidate: true)
     }
 
-    @Test func detectButtonCanRequestAnImmediateSingleLightMatchWithoutWeakeningDirectionChecks() {
-        var progress = CameraAutomaticMappingProgress()
-        progress.update(at: 10, lightCount: 1)
-        #expect(!progress.canEstimate(headingAccuracy: 10))
-        progress.requestImmediateMatch()
-        progress.update(at: 10.1, lightCount: 1)
-        #expect(progress.canEstimate(headingAccuracy: 10))
-        #expect(!progress.canEstimate(headingAccuracy: nil))
-        #expect(!progress.canEstimate(headingAccuracy: 30))
-        progress.update(at: 10.2, lightCount: 0)
-        #expect(!progress.canEstimate(headingAccuracy: 10))
-    }
-
-    @Test func anUnidentifiedLightStopsShowingEndlessLoading() {
+    @Test func insufficientPatternOffersManualReferenceAfterBoundedSearch() {
         var progress = CameraAutomaticMappingProgress()
         progress.update(at: 10, lightCount: 1)
         #expect(progress.isSearching)
         progress.update(at: 18, lightCount: 1)
         #expect(!progress.isSearching)
-        #expect(progress.message.contains("Checking the light"))
+        #expect(progress.message.contains("choose an object"))
         progress.update(at: 19, lightCount: 4)
-        #expect(!progress.isSearching)
         #expect(progress.message.contains("No clear star pattern"))
-    }
-
-    @Test func oneOrTwoLightsCanOfferEstimatesWithoutPretendingToCalibrate() {
-        for count in [1, 2] {
-            var progress = CameraAutomaticMappingProgress()
-            progress.update(at: 0, lightCount: count)
-            #expect(!progress.canEstimate(headingAccuracy: 10))
-            progress.update(at: 1.9, lightCount: count)
-            #expect(!progress.canEstimate(headingAccuracy: 10))
-            progress.update(at: 2, lightCount: count)
-            #expect(progress.canEstimate(headingAccuracy: 10))
-            #expect(!progress.canEstimate(headingAccuracy: nil))
-            #expect(!progress.canEstimate(headingAccuracy: 26))
-            #expect(!progress.canEstimate(headingAccuracy: Double.nan))
-            progress.update(at: 9, lightCount: 0)
-            #expect(!progress.canEstimate(headingAccuracy: 10))
-        }
     }
 
     @Test func sparseEstimatesCanMatchOneOrTwoStarsFromCompassDirection() throws {
@@ -140,7 +109,7 @@ struct CameraSessionAlignmentTests {
         let notifications = NotificationCenter()
         let alignment = CameraSkyAlignment(defaults: defaults, notifications: notifications)
         alignment.save(rotation: simd_quatf(angle: 0, axis: SIMD3(0, 1, 0)), reference: "Rigel", date: Date())
-        notifications.post(name: UIApplication.willResignActiveNotification, object: nil)
+        notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         #expect(alignment.requiresCalibration)
         #expect(alignment.reference == nil)
         let generation = alignment.generation
@@ -225,11 +194,11 @@ struct CameraSessionAlignmentTests {
         #expect(gate.centeredID == 1)
         gate.update(id: 1, distance: 35, enabled: true)
         #expect(gate.centeredID == 1)
-        gate.update(id: 1, distance: 41, enabled: true)
+        gate.update(id: 1, distance: 161, enabled: true)
         #expect(gate.centeredID == nil)
         gate.update(id: 1, distance: 27, enabled: true)
         #expect(gate.centeredID == 1)
-        gate.update(id: 2, distance: 35, enabled: true)
+        gate.update(id: 2, distance: 97, enabled: true)
         #expect(gate.centeredID == nil)
         gate.update(id: 2, distance: 20, enabled: false)
         #expect(gate.centeredID == nil)

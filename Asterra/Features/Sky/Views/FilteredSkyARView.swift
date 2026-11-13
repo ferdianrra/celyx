@@ -106,7 +106,7 @@ struct FilteredSkyARView: View {
                 Task { await start() }
             } else if value == .background {
                 service.suspendForBackground()
-            } else {
+            } else if value == .active, showsCalibration {
                 service.stop()
             }
         }

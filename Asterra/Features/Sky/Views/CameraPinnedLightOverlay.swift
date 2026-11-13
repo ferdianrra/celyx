@@ -6,6 +6,7 @@ struct CameraPinnedLightOverlay: View {
     let title: String
     let isRecognizing: Bool
     var subtitle: String? = nil
+    var showsLabel = true
 
     var body: some View {
         GeometryReader { geometry in
@@ -13,7 +14,8 @@ struct CameraPinnedLightOverlay: View {
             if let point = guide.point {
                 Circle().stroke(CelyxColor.primaryLabel, lineWidth: 1.5).frame(width: 18, height: 18)
                     .overlay(alignment: .top) {
-                        VStack(spacing: 2) {
+                        if showsLabel {
+                            VStack(spacing: 2) {
                             HStack(spacing: 6) {
                                 if isRecognizing {
                                     ProgressView().tint(CelyxColor.primaryLabel).scaleEffect(0.75)
@@ -30,6 +32,7 @@ struct CameraPinnedLightOverlay: View {
                         )
                         .background(.black.opacity(0.65), in: Capsule())
                         .fixedSize().offset(y: 24)
+                        }
                     }
                     .position(point)
             }
@@ -47,7 +50,7 @@ struct CameraPinnedLightOverlay: View {
     }
     private func needsArrow(from center: CGPoint) -> Bool {
         guard let point = guide.point else { return true }
-        return hypot(point.x - center.x, point.y - center.y) > 28
+        return hypot(point.x - center.x, point.y - center.y) > CameraTrackingPolicy.holdRadius
     }
 }
 

@@ -13,8 +13,10 @@ struct GardenCaptureSequenceTests {
 
     @Test func revealsThenReturnsToGyroBeforeRequestingTheAlbum() async {
         let handover = transition()
+        handover.configureFocus(directions: [], revealsConstellation: true)
         var phases: [WormholeHandover.Phase] = []
-        await handover.run { _ in
+        await handover.run { deadline in
+            if handover.phase == .revealing { #expect(deadline == handover.revealAt + 2700) }
             phases.append(handover.phase)
             #expect(!handover.showsSheet)
         }
@@ -22,6 +24,16 @@ struct GardenCaptureSequenceTests {
         #expect(handover.phase == .presenting && handover.showsSheet)
         handover.finish()
         #expect(handover.phase == .done && !handover.showsSheet)
+    }
+
+    @Test func isolatedStarPausesBrieflyAfterFocus() async {
+        let handover = transition()
+        var returnDeadline: Double?
+        await handover.run { deadline in
+            if handover.phase == .revealing { returnDeadline = deadline }
+        }
+        #expect(returnDeadline == handover.revealAt + 700)
+        #expect(handover.showsSheet)
     }
 
     @Test func reduceMotionRevealsWithoutCameraFlightBeforeTheAlbum() async {
@@ -48,7 +60,7 @@ struct GardenCaptureSequenceTests {
         let handover = transition()
         let a = simd_normalize(SIMD3<Double>(-0.2, 1, 0.5))
         let b = simd_normalize(SIMD3<Double>(0.2, 1, 0.5))
-        handover.configureFocus(directions: [a, b])
+        handover.configureFocus(directions: [a, b], revealsConstellation: true)
         let focused = handover.camera(handover.revealAt)
         let size = handover.freeze.size
         for point in [a, b] {

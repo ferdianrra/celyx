@@ -1,15 +1,16 @@
-import ARKit
+import UIKit
+import AVFoundation
 import Observation
 import simd
 
 @MainActor @Observable
-final class SkyPatternCalibrationService: NSObject, ARSessionDelegate {
+final class SkyPatternCalibrationService: NSObject, SkyCaptureSessionDelegate {
     struct Light: Identifiable {
         let id: Int
         let point: CGPoint
     }
     let alignment: CameraSkyAlignment
-    var session: ARSession { alignment.session }
+    var session: SkyCaptureSession { alignment.session }
     var location: ObserverLocation?
     var viewport = CGSize.zero
     var orientation: UIInterfaceOrientation = .portrait
@@ -123,27 +124,10 @@ final class SkyPatternCalibrationService: NSObject, ARSessionDelegate {
         running = true
         resetSearch()
         session.delegate = self
-        session.delegateQueue = .main
-        let configuration: ARConfiguration =
-            ARWorldTrackingConfiguration.isSupported
-            ? ARWorldTrackingConfiguration() : AROrientationTrackingConfiguration()
-        configuration.worldAlignment = .gravityAndHeading
-        let formats =
-            ARWorldTrackingConfiguration.isSupported
-            ? ARWorldTrackingConfiguration.supportedVideoFormats
-            : AROrientationTrackingConfiguration.supportedVideoFormats
-        let wideFormats = formats.filter {
-            $0.captureDeviceType == .builtInWideAngleCamera && $0.framesPerSecond == 30
-        }
-        if let format = wideFormats.min(by: {
-            let a = abs($0.imageResolution.width - 1920)
-            let b = abs($1.imageResolution.width - 1920)
-            return a == b ? $0.imageResolution.height < $1.imageResolution.height : a < b
-        }) {
-            configuration.videoFormat = format
-        }
-        alignment.run(configuration)
+
+        alignment.run()
     }
+
     func stop(preservingAlignment: Bool = false) {
         guard running else { return }
         running = false
@@ -187,14 +171,14 @@ final class SkyPatternCalibrationService: NSObject, ARSessionDelegate {
 
     // MARK: Camera analysis
 
-    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+    func session(_ session: SkyCaptureSession, didUpdate frame: SkyCaptureFrame) {
         guard running, solution == nil, analysisTask == nil else { return }
         guard case .normal = frame.camera.trackingState else {
             consensus.reset()
             progress = 0
             referenceReady = false
             centerDirection = nil
-            message = "Move slowly past nearby textured objects until camera tracking is ready."
+            message = "Hold steady while the camera and motion sensors get ready."
             return
         }
         guard let location, viewport.width > 0, viewport.height > 0 else {
@@ -231,6 +215,7 @@ final class SkyPatternCalibrationService: NSObject, ARSessionDelegate {
                 var discs: [Bool] = []
                 var points: [CGPoint] = []
                 for source in sources {
+                    guard CameraSkyContext.permits(source.point, in: buffer.value, isDisc: source.isDisc) else { continue }
                     let x =
                         (Float(source.point.x * resolution.width) - intrinsics.columns.2.x)
                         / intrinsics.columns.0.x
@@ -329,18 +314,18 @@ final class SkyPatternCalibrationService: NSObject, ARSessionDelegate {
 
     // MARK: Tracking interruptions
 
-    func sessionWasInterrupted(_ session: ARSession) {
+    func sessionWasInterrupted(_ session: SkyCaptureSession) {
         guard running else { return }
         resetSearch()
-        alignment.enterBackground()
+        alignment.invalidate(reason: "Camera interrupted. Reacquire the sky reference.")
         message = "Camera interrupted. Reacquire the star pattern."
     }
-    func sessionInterruptionEnded(_ session: ARSession) {
+    func sessionInterruptionEnded(_ session: SkyCaptureSession) {
         guard running else { return }
         running = false
         start()
     }
-    func session(_ session: ARSession, didFailWithError error: Error) {
+    func session(_ session: SkyCaptureSession, didFailWithError error: Error) {
         guard running else { return }
         running = false
         resetSearch()

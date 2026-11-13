@@ -8,11 +8,11 @@ nonisolated struct SkyFinderProjection: Sendable {
     let separation: Double
     var isAligned: Bool { separation <= 3 }
 
-    // Astronomy: east, north, up. ARKit gravityAndHeading: east, up, south.
-    // The calibrated compass error is removed here: ARKit's north is turned to true north, so every
+    // Astronomy: east, north, up. Camera world: east, up, south.
+    // The calibrated compass error is removed here: The camera's north is turned to true north, so every
     // catalogue position (projection, light matching, crosshair) uses the corrected heading.
     static func worldDirection(_ horizon: SIMD3<Double>) -> SIMD3<Float> {
-        // Where ARKit's frame shows an azimuth A, the true azimuth is A + offset: rotate by −offset.
+        // Where the sensor frame shows an azimuth A, the true azimuth is A + offset: rotate by −offset.
         let c = SkyCalibration.arCos
         let s = SkyCalibration.arSin
         let east = horizon.x * c - horizon.y * s

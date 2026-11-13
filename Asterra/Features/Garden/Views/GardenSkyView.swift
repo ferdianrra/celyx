@@ -57,9 +57,8 @@ struct GardenSkyView: View {
                 GardenCameraLayer(
                     placed: viewModel.placed, selectedID: viewModel.selected?.id,
                     connections: shownConnections, zodiacFigures: shownZodiacFigures,
-                    equatorial: viewModel.equatorial, isActive: gardenIsActive,
-                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
-                    link: cameraLink
+                    equatorial: viewModel.equatorial, isActive: refreshesSkyPositions,
+                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose }
                 ) { viewModel.selected = $0 }
                 .opacity(showsCaptureSequence ? 0 : 1)
                 .allowsHitTesting(!showsCaptureSequence)
@@ -109,7 +108,10 @@ struct GardenSkyView: View {
                 let edges = viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
                 var ids = completed?.requiredStarIDs ?? Set(edges.flatMap { [$0.startID, $0.endID] })
                 if let id { ids.insert(id) }
-                handover.configureFocus(directions: handover.scene.objects.filter { ids.contains($0.id) }.map(\.direction))
+                handover.configureFocus(
+                    directions: handover.scene.objects.filter { ids.contains($0.id) }.map(\.direction),
+                    revealsConstellation: completed != nil || !edges.isEmpty
+                )
             }
         }
         // The handover requests the album only after the reveal and return to live tracking.

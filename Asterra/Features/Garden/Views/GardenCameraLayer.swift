@@ -1,12 +1,12 @@
 import SwiftUI
-import ARKit
+import AVFoundation
 import simd
 
 /// Garden in camera mode: the live back camera with the collected objects glowing on top,
 /// each pinned to where it really is in the sky right now.
 ///
-/// Uses the same ARKit pipeline as the collecting camera (true-north `gravityAndHeading`,
-/// the camera's own view/projection matrices, and the calibrated compass correction in
+/// Uses the same AVFoundation + Core Motion pipeline as the collecting camera (true-north orientation,
+/// the measured camera intrinsics and sensor orientation, and the calibrated compass correction in
 /// `SkyFinderProjection.worldDirection`), so the overlay lines up with the real image.
 struct GardenCameraLayer: View {
     let placed: [GardenPlacedObject]
@@ -20,7 +20,7 @@ struct GardenCameraLayer: View {
     var link: LiveCameraLink? = nil
     let onSelect: (GardenCollectionItem) -> Void
 
-    @State private var session = ARSession()
+    @State private var session = SkyCaptureSession()
     @State private var viewport: CGSize = .zero
     @State private var denied = false
     @Environment(\.scenePhase) private var phase
@@ -96,8 +96,11 @@ struct GardenCameraLayer: View {
         .background(Color.black)
         .task { link?.session = session; await start() }
         .onChange(of:isActive) { _, active in active ? run() : session.pause() }
-        .onChange(of:phase) { _, value in value == .active && isActive ? run() : session.pause() }
-        .onDisappear { session.pause(); link?.pose = nil }
+        .onChange(of:phase) { _, value in
+            if value == .active && isActive { run() }
+            else if value == .background { session.pause() }
+        }
+        .onDisappear { session.pause() }
     }
 
     private var statusMessage: String? {
@@ -121,10 +124,8 @@ struct GardenCameraLayer: View {
         if isActive { run() }
     }
     private func run() {
-        guard !denied, AROrientationTrackingConfiguration.isSupported else { return }
-        let configuration = AROrientationTrackingConfiguration()
-        configuration.worldAlignment = .gravityAndHeading
-        session.run(configuration)
+        guard !denied, SkyCaptureSession.isSupported else { return }
+        session.run()
     }
 
     // MARK: Projection (identical to the collecting camera)

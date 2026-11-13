@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Phone compasses are often off by 5–30° because of local magnetic interference. The two sensor paths
 /// are corrected separately because they fuse the compass differently:
-/// - `arHeadingOffset`: ARKit (`gravityAndHeading`), used by the collecting camera.
+/// - `arHeadingOffset`: Camera east/up/south coordinates, used by the collecting camera.
 /// - `motionHeadingOffset`: CoreMotion (`xTrueNorthZVertical`), used by the garden.
 /// Each is "true azimuth − what the sensor reported", in radians, east of north positive.
 nonisolated enum SkyCalibration {

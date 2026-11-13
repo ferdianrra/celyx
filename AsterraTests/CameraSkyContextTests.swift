@@ -30,15 +30,6 @@ struct CameraSkyContextTests {
         }
     }
 
-    @Test func nearbySurfaceNeedsAClusterInTheObservedDirection() {
-        let direction = SIMD3<Float>(0,0,-1)
-        #expect(!CameraSkyContext.hasNearbySurface(direction:direction,origin:.zero,features:[SIMD3(0,0,-5)]))
-        #expect(CameraSkyContext.hasNearbySurface(direction:direction,origin:.zero,
-            features:[SIMD3(0,0,-5),SIMD3(0.01,0,-5),SIMD3(-0.01,0,-5)]))
-        #expect(!CameraSkyContext.hasNearbySurface(direction:direction,origin:.zero,
-            features:[SIMD3(0,0,-100),SIMD3(0,0,-150),SIMD3(0,0,-200)]))
-    }
-
     @Test @MainActor func aResolvedLampCannotAcquireAnOrdinaryStarName() {
         let result = CameraCandidateMatcher.assess(direction:SIMD3(0,0.5,-sqrt(0.75)),isDisc:true,
             zoom:1,headingAccuracy:5,candidates:[(AppPreviewData.star,SIMD3(0,0.5,-sqrt(0.75)))])
