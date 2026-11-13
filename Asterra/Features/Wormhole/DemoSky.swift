@@ -31,41 +31,27 @@ enum DemoSky {
         return catalogue.filter { ids.contains($0.id) }.sorted { $0.id < $1.id }
     }
 
-    /// Keep one missing member for a final capture without changing saved observations.
-    private static func preparePattern(_ figure: GardenZodiacFigure, model: HomeViewModel,
-                                       date: Date, location: ObserverLocation) throws -> CatalogStar? {
+    /// Keep one uncollected Capricornus member for the final capture; never erase real observations.
+    /// A fresh collection leaves Deneb Algedi (the brightest pattern member) uncollected.
+    @discardableResult
+    static func prepareCapricornus(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
+        guard let figure = GardenZodiacFigure.load().first(where: { $0.id == "Cap" }) else { return nil }
         let stars = model.stars.filter { figure.requiredStarIDs.contains($0.id) }.sorted {
             $0.mag == $1.mag ? $0.id < $1.id : $0.mag < $1.mag
         }
         guard let last = stars.first(where: { model.collected[$0.id] == nil }) else { return nil }
-        let name = ConstellationNames.name(for: figure.id) ?? figure.id
         let records = stars.filter { $0.id != last.id && model.collected[$0.id] == nil }.map {
             CollectedStar(id: $0.id, date: date, latitude: location.latitude, longitude: location.longitude,
-                identificationNote: "Pre-collected \(name) demo star (debug build). Added for testing constellation completion; no camera capture was performed.")
+                identificationNote: "Pre-collected Capricornus demo star (debug build). Added for testing constellation completion; no camera capture was performed.")
         }
         try model.seedDemoObservations(records)
         return last
     }
 
-    /// Retained for the explicit Capricornus demo and existing preparation tests.
-    @discardableResult
-    static func prepareCapricornus(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
-        guard let figure = GardenZodiacFigure.load().first(where: { $0.id == "Cap" }) else { return nil }
-        return try preparePattern(figure, model: model, date: date, location: location)
-    }
-
-    /// One demo capture completes one zodiac. Prefer Capricornus when visible;
-    /// choose another unfinished visible pattern rather than a hidden/finished one.
+    /// Adds the surrounding demo sky without replacing any saved observations.
     @discardableResult
     static func prepareCollection(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
-        let figures = GardenZodiacFigure.load()
-        let unfinished = ["Cap", "Lib", "Ari"].compactMap { code in
-            figures.first { $0.id == code && !$0.requiredStarIDs.isSubset(of: Set(model.collected.keys)) }
-        }
-        let sky = AstronomyService.snapshot(date: date, location: location)
-        let selected = unfinished.first { (sky.basis * $0.figure.center).z > 0.15 }
-            ?? unfinished.max { (sky.basis * $0.figure.center).z < (sky.basis * $1.figure.center).z }
-        let finalStar = try selected.flatMap { try preparePattern($0, model: model, date: date, location: location) }
+        let finalStar = try prepareCapricornus(model: model, date: date, location: location)
         let records = model.stars.filter { nearbyStarIDs.contains($0.id) && model.collected[$0.id] == nil }.map {
             CollectedStar(id: $0.id, date: date, latitude: location.latitude, longitude: location.longitude,
                 identificationNote: "Pre-collected nearby demo star (debug build). Added around Capricornus; no camera capture was performed.")
@@ -92,14 +78,6 @@ enum DemoSky {
         }
         if let held = candidates.first(where: { $0.id == lockedID && distance($0) <= lockRadius }) { return held }
         return candidates.filter { distance($0) <= radius }.min { distance($0) < distance($1) }
-    }
-
-    /// Visible virtual stars can be tapped directly; they do not need optical
-    /// detection or to be inside the aim reticle. Collected sources stay excluded.
-    static func tappedTarget(in projections: [Projection], at point: CGPoint,
-                             collected: Set<Int>, excludedID: Int?, radius: CGFloat = 44) -> Projection? {
-        target(in: projections, collected: collected, excludedID: excludedID,
-               lockedID: nil, center: point, radius: radius, lockRadius: radius)
     }
 
     /// Paint the simulated sky into the saved frame, including when no camera is available.

@@ -98,7 +98,8 @@ final class WormholeHandover: Identifiable {
     @ObservationIgnored private var focusPose: NightSeaCamera?
     var focusStart: Double { landing + WormholeTimeline.flyEnd + 560 }
     var revealAt: Double { focusStart + 800 }
-    var returnAt: Double { revealAt + 2700 }
+    private var revealsConstellation = false
+    var returnAt: Double { revealAt + (revealsConstellation ? 2700 : 700) }
     static let returnDuration: Double = 1100
     var revealIsVisible: Bool { phase >= .revealing }
 
@@ -164,7 +165,8 @@ final class WormholeHandover: Identifiable {
     func finish() { showsSheet = false; phase = .done }
 
     /// Fit collected neighbors (or the completed pattern) inside a comfortable screen margin.
-    func configureFocus(directions: [SIMD3<Double>]) {
+    func configureFocus(directions: [SIMD3<Double>], revealsConstellation: Bool) {
+        self.revealsConstellation = revealsConstellation
         let points = directions.isEmpty ? [starDirection] : directions
         let sum = points.reduce(SIMD3<Double>.zero, +)
         let forward = simd_length(sum) > 0.001 ? simd_normalize(sum) : starDirection
