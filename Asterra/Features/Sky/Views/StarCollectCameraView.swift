@@ -228,7 +228,10 @@ struct StarCollectCameraView: View {
         .task {
             service.updateVisibility(quality: model.quality, atmosphere: model.atmosphere)
             viewModel.onSaved = { target in handleSaved(target) }
-            if onCollect != nil { WormholeFeedback.shared.prepare() }
+            if onCollect != nil {
+                WormholeFeedback.shared.prepare()
+                if !reduceMotion { WormholeRenderer.prepare() }
+            }
             await service.start()
         }
         .task {
