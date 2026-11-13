@@ -38,29 +38,37 @@ struct OnboardingHighlight: View {
     private static let violet = Color(hex: 0x7459DF)
     private static let periwinkle = Color(hex: 0x99AFE9)
     private static let lavender = Color(hex: 0xCBC9F5)
-    /// One ring per beat; two rings in flight, half a beat apart.
-    private let period = 2.2
+    /// A wave: three rings leave one after another, travel out, then a short rest before the next wave.
+    private let rings = 3
+    private let stagger = 0.22
+    private let travel = 1.7
+    private let rest = 0.9
+    private var cycle: Double { Double(rings - 1) * stagger + travel + rest }
     /// Figma's first ring sits 9pt outside a 46pt control (64pt); the last is 116/64 of it.
     private var inset: CGFloat { 9 }
     private var growth: CGFloat {
         let figma = (min(size.width, size.height) + inset * 2) * (116.0 / 64.0 - 1)
         // A wide control (Start Collecting) keeps its rings tight so they don't wash over the card above.
-        return size.width > size.height * 1.5 ? min(figma, 24) : figma
+        return size.width > size.height * 1.5 ? min(figma, 26) : figma
     }
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { timeline in
             let elapsed = max(0, timeline.date.timeIntervalSince(start))
+            let local = elapsed.truncatingRemainder(dividingBy: cycle)
             ZStack {
-                // The resting ring (Figma's inner ellipse), breathing very slightly so the target never goes quiet.
-                ring(progress: 0, presence: reduceMotion ? 1 : 0.85 + 0.15 * (0.5 - 0.5 * cos(elapsed * 2 * .pi / period)))
-                if !reduceMotion {
-                    ForEach(0..<2, id: \.self) { i in
-                        let t = (elapsed / period + Double(i) * 0.5).truncatingRemainder(dividingBy: 1)
-                        let eased = 1 - pow(1 - t, 3)
-                        // Quick fade-in, then the ring fades out on its way to the outer size.
-                        let presence = min(1, t / 0.08) * pow(1 - t, 1.4)
-                        ring(progress: eased, presence: presence)
+                if reduceMotion {
+                    ring(progress: 0.3, presence: 1)
+                } else {
+                    // Every ring is always moving: born at the control's edge, it bursts out on an
+                    // ease-out curve, thinning and fading until it's gone. Nothing sits still.
+                    ForEach(0..<rings, id: \.self) { i in
+                        let t = (local - Double(i) * stagger) / travel
+                        if t > 0 && t < 1 {
+                            let eased = 1 - pow(1 - t, 3)
+                            let presence = min(1, t / 0.12) * pow(1 - t, 1.3)
+                            ring(progress: eased, presence: presence)
+                        }
                     }
                 }
             }
@@ -69,24 +77,24 @@ struct OnboardingHighlight: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .task {
-            guard haptics, !reduceMotion else { return }
             start = Date()
+            guard haptics, !reduceMotion else { return }
             let tap = UIImpactFeedbackGenerator(style: .soft)
             tap.prepare()
             while !Task.isCancelled {
-                // A soft heartbeat as each ring leaves: tap, then a lighter echo.
+                // A soft heartbeat as each wave leaves: tap, then a lighter echo with the second ring.
                 tap.impactOccurred(intensity: 0.7)
-                try? await Task.sleep(for: .milliseconds(110))
+                try? await Task.sleep(for: .seconds(stagger))
                 tap.impactOccurred(intensity: 0.3)
-                try? await Task.sleep(for: .seconds(period / 2 - 0.11))
+                try? await Task.sleep(for: .seconds(cycle - stagger))
             }
         }
     }
 
     /// One ring at `progress` 0 (Figma inner ellipse) … 1 (outer ellipse).
     private func ring(progress p: Double, presence: Double) -> some View {
-        let grow = growth * p
-        let width = size.width + inset * 2 + grow, height = size.height + inset * 2 + grow
+        let grow = (growth + inset * 2) * p
+        let width = size.width + 4 + grow, height = size.height + 4 + grow
         let line = 2 - 1.5 * p                 // 2 → 1 → 0.5 pt
         let fill = 1 - 0.6 * p                 // fill opacity 1 → 0.6 → 0.4
         let glow = 1 - 0.6 * p                 // shadow alpha 1 → 0.8 → 0.4
