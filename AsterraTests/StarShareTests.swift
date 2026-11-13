@@ -78,26 +78,36 @@ struct StarShareTests {
             .lightTravel == "A moment under your sky.")
     }
 
-    @Test func instagramRequiresARealAppIDAndBuildsTheStoriesURL() throws {
-        for id in [nil, "", "  ", "$(ASTERRA_META_APP_ID)", "com.academy.celyx", "12&other=1"] as [String?] {
-            #expect(throws: StarSocialShare.Failure.self) { try StarSocialShare.instagramURL(appID: id) }
+    @Test func instagramUsesTheBundleIDAndStickerWithoutAMetaID() throws {
+        let image = Data([1, 2, 3])
+        let bundleID = "com.para-apple-intelligence.asterra"
+        for id in [nil, "", "  ", "$(ASTERRA_META_APP_ID)", "12&other=1"] as [String?] {
+            let handoff = try StarSocialShare.instagramHandoff(imageData: image, appID: id, bundleID: bundleID)
+            let parts = try #require(URLComponents(url: handoff.url, resolvingAgainstBaseURL: false))
+            #expect(parts.scheme == "instagram-stories")
+            #expect(parts.host == "share")
+            #expect(parts.queryItems == [URLQueryItem(name: "source_application", value: bundleID)])
+            #expect(handoff.items["com.instagram.sharedSticker.stickerImage"] as? Data == image)
+            #expect(handoff.items["com.instagram.sharedSticker.backgroundImage"] == nil)
         }
-        let url = try StarSocialShare.instagramURL(appID: " 123456789 ")
-        let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        #expect(parts.scheme == "instagram-stories")
-        #expect(parts.host == "share")
-        #expect(parts.queryItems == [URLQueryItem(name: "source_application", value: "123456789")])
+        let registered = try StarSocialShare.instagramHandoff(
+            imageData: image, appID: " 123456789 ", bundleID: bundleID)
+        #expect(registered.url.query == "source_application=123456789")
+        #expect(registered.items["com.instagram.sharedSticker.backgroundImage"] as? Data == image)
+        #expect(throws: StarSocialShare.Failure.self) {
+            try StarSocialShare.instagramHandoff(imageData: image, appID: nil, bundleID: nil)
+        }
     }
 
-    @Test func whatsappHandoffContainsARealImageAndCanBeCleanedUp() throws {
-        let request = try StarSocialShare.whatsappFile(AppPreviewData.albumPhoto)
+    @Test func moreHandoffContainsAPNGAndCanBeCleanedUp() throws {
+        let request = try StarSocialShare.pngFile(AppPreviewData.albumPhoto)
         defer { request.removeFile() }
-        #expect(request.url.pathExtension == "jpg")
+        #expect(request.url.pathExtension == "png")
         let data = try Data(contentsOf: request.url)
-        #expect(data.starts(with: [0xFF, 0xD8, 0xFF]))
+        #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
         let image = try #require(UIImage(data: data))
         #expect(image.size.width == AppPreviewData.albumPhoto.size.width)
-        let another = try StarSocialShare.whatsappFile(AppPreviewData.albumPhoto)
+        let another = try StarSocialShare.pngFile(AppPreviewData.albumPhoto)
         defer { another.removeFile() }
         #expect(request.url != another.url)
         request.removeFile()
@@ -145,6 +155,7 @@ struct StarShareTests {
             let image = try #require(StarShareRenderer.image(content: content, layout: layout, photo: AppPreviewData.albumPhoto))
             #expect(image.cgImage?.width == 1080)
             #expect(image.cgImage?.height == 1920)
+
         }
     }
 }

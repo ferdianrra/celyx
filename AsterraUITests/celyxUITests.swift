@@ -25,7 +25,7 @@ final class celyxUITests: XCTestCase {
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["share-layout-polaroid"].exists)
         XCTAssertFalse(app.buttons["share-layout-fullPhoto"].exists)
-        for destination in ["instagram", "whatsapp", "copy", "save", "more"] {
+        for destination in ["instagram", "copy", "save", "more"] {
             let button = app.buttons["share-destination-\(destination)"]
             XCTAssertTrue(button.exists)
             XCTAssertTrue(button.isEnabled)
@@ -159,14 +159,16 @@ final class celyxUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
         alert.buttons["OK"].tap()
 
-        // Exercise the real sheet lifecycle even without WhatsApp installed in the simulator.
+        // Exercise the real sheet lifecycle using the More button.
         for _ in 0..<2 {
-            app.buttons["share-destination-whatsapp"].tap()
+            app.buttons["share-destination-more"].tap()
             let cancel = app.buttons["header.closeButton"]
             XCTAssertTrue(cancel.waitForExistence(timeout: 10))
             cancel.tap()
             let copy = app.buttons["share-destination-copy"]
-            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND enabled == true"), object: copy)
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                copy.exists && copy.isEnabled && copy.isHittable
+            }, object: copy)
             XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed)
             copy.tap()
             XCTAssertTrue(app.staticTexts["Card copied"].waitForExistence(timeout: 5))

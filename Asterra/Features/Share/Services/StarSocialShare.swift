@@ -8,42 +8,56 @@ enum StarSocialShare {
         var errorDescription: String? {
             switch self {
             case .notInstalled(let app): "Install \(app) to share this card there, or use More to choose another app."
-            case .instagramNotConfigured: "Instagram Story sharing isn’t configured yet. You can still share your card using More or Save."
+            case .instagramNotConfigured: "Couldn’t identify Asterra for Instagram Stories. You can still use More or Save."
             case .image: "The share image couldn’t be prepared. Please try again."
             case .open(let app): "Couldn’t share the image with \(app). Try sharing your card using More."
             }
         }
     }
 
-    static let instagramImageKey = "com.instagram.sharedSticker.backgroundImage"
-
-    static func instagramURL(appID: String?) throws -> URL {
+    static func instagramHandoff(imageData: Data, appID: String?, bundleID: String?) throws
+        -> (url: URL, items: [String: Any])
+    {
         let id = appID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !id.isEmpty, id.allSatisfy({ $0.isASCII && $0.isNumber }) else {
+        let hasMetaID = !id.isEmpty && id.allSatisfy { $0.isASCII && $0.isNumber }
+        guard let source = hasMetaID ? id : bundleID, !source.isEmpty else {
             throw Failure.instagramNotConfigured
         }
-        var url = URLComponents()
-        url.scheme = "instagram-stories"
-        url.host = "share"
-        url.queryItems = [URLQueryItem(name: "source_application", value: id)]
-        return url.url!
+        var components = URLComponents()
+        components.scheme = "instagram-stories"
+        components.host = "share"
+        components.queryItems = [URLQueryItem(name: "source_application", value: source)]
+        guard let url = components.url else { throw Failure.instagramNotConfigured }
+
+        if hasMetaID {
+            return (url, ["com.instagram.sharedSticker.backgroundImage": imageData])
+        }
+        return (url, [
+            "com.instagram.sharedSticker.stickerImage": imageData,
+            "com.instagram.sharedSticker.backgroundTopColor": "#1C2450",
+            "com.instagram.sharedSticker.backgroundBottomColor": "#080D20"
+        ])
     }
 
     static func instagram(_ image: UIImage) async throws {
-        let url = try instagramURL(appID: Bundle.main.object(forInfoDictionaryKey: "FacebookAppID") as? String)
-        guard UIApplication.shared.canOpenURL(url) else { throw Failure.notInstalled("Instagram") }
         guard let data = image.pngData() else { throw Failure.image }
-        // Instagram reads its background image from the pasteboard on opening its composer.
+        let handoff = try instagramHandoff(
+            imageData: data,
+            appID: Bundle.main.object(forInfoDictionaryKey: "FacebookAppID") as? String,
+            bundleID: Bundle.main.bundleIdentifier
+        )
+        guard UIApplication.shared.canOpenURL(handoff.url) else { throw Failure.notInstalled("Instagram") }
+        // Instagram reads the image from the pasteboard on opening its composer.
         // Expire the temporary payload rather than leaving the captured photo on the clipboard.
-        UIPasteboard.general.setItems([[instagramImageKey: data]], options: [
+        UIPasteboard.general.setItems([handoff.items], options: [
             .expirationDate: Date().addingTimeInterval(300), .localOnly: true
         ])
-        guard await UIApplication.shared.open(url) else { throw Failure.open("Instagram") }
+        guard await UIApplication.shared.open(handoff.url) else { throw Failure.open("Instagram") }
     }
 
-    /// A standard JPEG file for WhatsApp's share extension (also works with WhatsApp Business).
-    static func whatsappFile(_ image: UIImage) throws -> WhatsAppShareRequest {
-        guard let data = image.jpegData(compressionQuality: 0.95) else { throw Failure.image }
+    /// A PNG file for the share sheet, preserving the card’s alpha channel.
+    static func pngFile(_ image: UIImage) throws -> ShareCardFile {
+        guard let data = image.pngData() else { throw Failure.image }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AsterraShares", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Remove abandoned handoffs from earlier app sessions; keep active/recent requests intact.
@@ -53,13 +67,13 @@ enum StarSocialShare {
             if let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
                date < staleDate { try? FileManager.default.removeItem(at: file) }
         }
-        let file = directory.appendingPathComponent("Asterra-\(UUID().uuidString).jpg")
+        let file = directory.appendingPathComponent("Asterra-\(UUID().uuidString).png")
         try data.write(to: file, options: .atomic)
-        return WhatsAppShareRequest(url: file)
+        return ShareCardFile(url: file)
     }
 }
 
-struct WhatsAppShareRequest: Identifiable {
+struct ShareCardFile: Identifiable {
     let id = UUID()
     let url: URL
     func removeFile() { try? FileManager.default.removeItem(at: url) }
