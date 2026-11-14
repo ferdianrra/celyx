@@ -11,7 +11,7 @@ struct SkyCalendarView: View {
     private var filters: Set<SkyEvent.Kind> { viewModel.filters }
 
     init(
-        store: SkyEventStore, events: [SkyEvent] = SkyEvent.catalogue,
+        store: SkyEventStore, events: [SkyEvent]? = nil,
         onSelect: @escaping (SkyEvent) -> Void
     ) {
         self.store = store
