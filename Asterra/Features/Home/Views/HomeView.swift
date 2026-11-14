@@ -26,10 +26,16 @@ struct HomeView: View {
     /// First-run run-through over the Night Sea (replayable from the direction menu).
     @AppStorage("hasCompletedTour") private var hasCompletedOnboarding = false
     @State private var onboarding: OnboardingFlow?
+    @AppStorage("hasSeenCollectionHint") private var hasSeenCollectionHint = false
+    @AppStorage("hasSeenCalendarHint") private var hasSeenCalendarHint = false
+    @State private var showsCollectionHint = false
+    @State private var showsCalendarHint = false
+    @State private var didPrepareDiscovery = false
     /// The tour's view into the live camera mode.
     @State private var cameraLink = LiveCameraLink()
     /// The tour's capture cue (frozen frame + when the shutter fired), before its wormhole opens.
     @State private var tourShutter: (start: Date, image: CGImage?)?
+    @State private var tourCaptureTask: Task<Void, Never>?
     @State private var tourCameraTimeout: Task<Void, Never>?
     @State private var didAutoStartTour = false
     /// Where the tour's highlighted controls really are (measured, so it fits every device).
@@ -46,7 +52,7 @@ struct HomeView: View {
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false },
-                              cameraLink:tourCameraLink)
+                              cameraLink:tourCameraLink, onTourNoteCompleted:{ onboarding?.noteCompleted() })
                     .ignoresSafeArea()
 
                 if let onboarding { tourLayer(onboarding) }
@@ -99,7 +105,9 @@ struct HomeView: View {
             .navigationDestination(for:HomeRoute.self) { route in
                 switch route {
                 case .calendar:
-                    SkyCalendarView(store:events) { path.append(.event($0)) }
+                    SkyCalendarView(store:events, showsDiscovery:$showsCalendarHint,
+                        onDiscoveryShown:{ hasSeenCalendarHint = true }) { path.append(.event($0)) }
+                        .onDisappear { showsCalendarHint = false }
                 case .event(let event):
                     SkyEventDetailView(event:event,store:events) { camera = .event(event) }
                 case .collection(let category):
@@ -107,25 +115,40 @@ struct HomeView: View {
                 }
             }
         }
-        .overlay(alignment:.bottom) { pushedTourGuide }
         // Above the toolbars, in window coordinates: the measured control the tour asks for glows and ripples.
         .overlay { tourHighlight }
         .animation(.spring(duration:0.45,bounce:0.1),value:showsChrome && tourShowsBottomBar)
         .preferredColorScheme(.dark)
-        .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
+        .sheet(isPresented:$showsCollection,onDismiss:{ showsCollectionHint = false; openSelectedCollection() }) {
             CollectionSheet(counts:counts,onSelect:{ category in
                 pendingCollectionCategory = category
                 showsCollection = false
-            },onClose:{ showsCollection = false })
-            .safeAreaInset(edge:.bottom,spacing:0) { collectionTourGuide }
-            .presentationDetents([.height(onboarding?.step == .collection ? 380 : 300),.large])
+            },onClose:{ showsCollection = false }, showsDiscovery:$showsCollectionHint,
+                onDiscoveryShown:{ hasSeenCollectionHint = true })
+            .presentationDetents([.height(300),.large])
             .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented:$showsCalibration) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
         }
         .fullScreenCover(isPresented:$showsStarCamera) {
-            StarCollectCameraView(model:model,handover:handover,onCollect:collected) { showsStarCamera = false }
+            StarCollectCameraView(model:model,handover:handover,onCollect:collected) {
+                showsStarCamera = false
+                onboarding?.realCameraClosed()
+            }
+            .safeAreaInset(edge: .top) {
+                if let flow = onboarding, flow.isFindingRealObject, handover == nil {
+                    VStack(spacing: 8) {
+                        OnboardingGuidePill(text: flow.isDaytime ? OnboardingCopy.realDayGuide : OnboardingCopy.realNightGuide)
+                        Button(OnboardingCopy.cannotSeeObject) {
+                            showsStarCamera = false
+                            flow.useVirtualStar()
+                        }
+                        .buttonStyle(.glass)
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
         }
         .fullScreenCover(item:$camera) { mode in
             CollectCameraView(mode:mode,model:model,events:events) { finished in
@@ -144,7 +167,7 @@ struct HomeView: View {
                 }
                 Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
                 Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
-                Button("Replay intro",systemImage:"sparkles") { startOnboarding() }
+                Button(OnboardingCopy.replayIntro,systemImage:"sparkles") { startOnboarding() }
             } label: {
                 Group {
                     if gardenUsesGyro {
@@ -162,8 +185,14 @@ struct HomeView: View {
         }
         .sharedBackgroundVisibility(.hidden)
         ToolbarItemGroup(placement:.topBarTrailing) {
-            Button("Your Collection",systemImage:"text.book.closed") { showsCollection = true }
-            Button("Sky Calendar",systemImage:"calendar") { path.append(.calendar) }
+            Button("Your Collection",systemImage:"text.book.closed") {
+                showsCollectionHint = !hasSeenCollectionHint
+                showsCollection = true
+            }
+            Button("Sky Calendar",systemImage:"calendar") {
+                showsCalendarHint = !hasSeenCalendarHint
+                path.append(.calendar)
+            }
         }
     }
 
@@ -215,16 +244,46 @@ struct HomeView: View {
         func body(content: Content) -> some View {
             content
                 // Once per launch: returning from a pushed screen re-runs `task`, which must not restart the tour.
-                .task { if home.shouldStartOnboarding && !home.didAutoStartTour { home.didAutoStartTour = true; home.startOnboarding() } }
+                .task {
+                    #if DEBUG
+                    if !home.didPrepareDiscovery, ProcessInfo.processInfo.arguments.contains("-ui-testing-reset-discovery") {
+                        home.didPrepareDiscovery = true
+                        home.hasSeenCollectionHint = false
+                        home.hasSeenCalendarHint = false
+                        UserDefaults.standard.set(false, forKey: "hasSeenEventCardHint")
+                    }
+                    #endif
+                    if home.shouldStartOnboarding && !home.didAutoStartTour { home.didAutoStartTour = true; home.startOnboarding() } }
+                .onChange(of:home.model.snapshot?.sunAltitude, initial:true) { _, altitude in
+                    home.onboarding?.updateSky(sunAltitude:altitude)
+                }
                 .onChange(of:home.gardenUsesCamera) { _, on in home.tourCameraModeChanged(on) }
                 .onChange(of:home.gardenCamera,initial:true) { _, camera in home.onboarding?.cameraChanged(camera) }
-                .onChange(of:home.cameraLink.pose != nil) { _, ready in
-                    guard ready, home.gardenUsesCamera, let pose = home.cameraLink.pose else { return }
-                    home.tourCameraTimeout?.cancel()
-                    home.onboarding?.liveCameraReady(pose)
+                .onChange(of:home.cameraLink.pose) { _, pose in
+                    if let pose { home.onboarding?.cameraChanged(pose) }
+                }
+                .onChange(of:home.cameraLink.state) { _, state in
+                    guard home.gardenUsesCamera, let flow = home.onboarding else { return }
+                    switch state {
+                    case .streaming:
+                        home.tourCameraTimeout?.cancel()
+                        flow.liveCameraReady(home.cameraLink.pose)
+                    case .failed(let message):
+                        guard flow.step == .camera else { return }
+                        home.tourCameraTimeout?.cancel()
+                        flow.cameraFailed(.capture(message))
+                        home.gardenUsesCamera = false
+                    default: break
+                    }
+                }
+                .onChange(of:home.phase) { _, phase in
+                    if phase == .background { home.tourCameraTimeout?.cancel() }
+                    else if phase == .active, home.gardenUsesCamera,
+                            home.onboarding?.step == .camera, home.onboarding?.succeeded == false {
+                        home.tourCameraModeChanged(true)
+                    }
                 }
                 .onChange(of:home.handover == nil) { _, ended in if ended { home.onboarding?.wormholeEnded() } }
-                .onChange(of:home.featureOpen) { _, open in if !open { home.onboarding?.returnedFromFeature() } }
         }
     }
 
@@ -246,9 +305,8 @@ struct HomeView: View {
     private func tourTarget(_ pointer: OnboardingFlow.Pointer) -> CGRect? {
         guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
         else { return nil }
-        let size = window.bounds.size, insets = window.safeAreaInsets
+        let size = window.bounds.size
         func round(_ x: CGFloat,_ y: CGFloat) -> CGRect { CGRect(x:x-23,y:y-23,width:46,height:46) }
-        let topRow = insets.top+22
         switch pointer {
         case .startCollecting:
             if let frame = tourTargets[.startCollecting] { return frame }
@@ -258,27 +316,6 @@ struct HomeView: View {
         case .cameraButton:
             if let frame = tourTargets[.cameraButton] { return frame }
             return round(size.width-TabBarMetrics.sideMargin-TabBarMetrics.height/2,size.height-TabBarMetrics.bottomMargin-TabBarMetrics.height/2)
-        case .collectionButton: return round(size.width-98.5,topRow)
-        case .calendarButton: return round(size.width-43,topRow)
-        }
-    }
-
-    /// The guide on screens pushed during the tour (collection list, Sky Calendar).
-    @ViewBuilder private var pushedTourGuide: some View {
-        if let onboarding, !path.isEmpty, onboarding.step == .collection || onboarding.step == .calendar {
-            OnboardingGuidePill(text:onboarding.step == .calendar
-                ? "Upcoming sky events live here. Tap ‹ at the top when you're done looking."
-                : "Everything you collect will be listed here. Tap ‹ at the top to come back.")
-                .padding(.horizontal,16).padding(.bottom,24)
-                .allowsHitTesting(false)
-        }
-    }
-
-    @ViewBuilder private var collectionTourGuide: some View {
-        if onboarding?.step == .collection {
-            OnboardingGuidePill(text:"Tap a category to look inside, or swipe down to close.")
-                .frame(maxWidth:.infinity,alignment:.leading)
-                .padding(.horizontal,16).padding(.top,8).padding(.bottom,4)
         }
     }
 
@@ -342,26 +379,36 @@ struct HomeView: View {
         switch phase {
         // One line for the whole flight: changing captions go by too fast to read.
         case .wormhole, .landed, .reframe, .focusing, .revealing, .releasing:
-            return "Collected! Watch it fly into your Night Sea."
+            return OnboardingCopy.wormholeCaption
         case .presenting, .done: return nil
         }
     }
 
-    /// The collection sheet, a collection list or the calendar is open.
-    private var featureOpen: Bool { showsCollection || !path.isEmpty || pendingCollectionCategory != nil }
-
     private func startOnboarding() {
         let flow = OnboardingFlow()
         flow.reduceMotion = reduceMotion
+        flow.updateSky(sunAltitude:model.snapshot?.sunAltitude)
         flow.actions = .init(
             setCamera:{ on in setTourCamera(on,flow:flow) },
-            openCollection:{ showsCollection = true },
-            openCalendar:{ path.append(.calendar) },
             collect:{ star, point in collectPractice(star,at:point) },
+            findRealObject:{ showsStarCamera = true },
+            cancel:{
+                tourCaptureTask?.cancel()
+                tourCaptureTask = nil
+                handoverTask?.cancel()
+                handover?.finish()
+                handover = nil
+                sheetRequest = nil
+                tourShutter = nil
+                demoShowing = false
+                showsStarCamera = false
+            },
             finish:{
                 hasCompletedOnboarding = true
+                gardenUsesCamera = false
                 tourCameraTimeout?.cancel()
-                withAnimation(.smooth(duration:0.6)) { onboarding = nil }
+                tourCaptureTask?.cancel()
+                withAnimation(.smooth(duration:0.25)) { onboarding = nil }
             })
         // The tour starts in the virtual sky with the gyro, facing wherever the phone points.
         gardenUsesGyro = true
@@ -379,6 +426,7 @@ struct HomeView: View {
 
     /// Turns the garden's camera view on or off for the tour (the user normally uses the toolbar button).
     private func setTourCamera(_ on: Bool,flow: OnboardingFlow) {
+        guard onboarding === flow, flow.step != .done else { return }
         withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = on }
     }
 
@@ -388,27 +436,39 @@ struct HomeView: View {
         flow.cameraModeChanged(on)
         tourCameraTimeout?.cancel()
         guard on, flow.step == .camera else { return }
+        // Each opening must get fresh readiness, including replaying the tour.
+        if cameraLink.state == .streaming {
+            flow.liveCameraReady(cameraLink.pose)
+            return
+        }
         tourCameraTimeout = Task { @MainActor in
-            // Ask for the camera in context; the wait for tracking starts after the user answers.
             if AVCaptureDevice.authorizationStatus(for:.video) == .notDetermined {
                 _ = await AVCaptureDevice.requestAccess(for:.video)
             }
+            guard !Task.isCancelled, flow.step == .camera, !flow.succeeded else { return }
             guard AVCaptureDevice.authorizationStatus(for:.video) == .authorized else {
-                withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
-                flow.cameraFailed(); return
+                flow.cameraFailed(.permissionDenied)
+                gardenUsesCamera = false
+                return
             }
-            // No tracked camera pose in time (no ARKit, covered lens): practise in the Night Sea instead.
-            try? await Task.sleep(for:.seconds(8))
-            guard !Task.isCancelled, cameraLink.pose == nil else { return }
-            withAnimation(.smooth(duration:0.5)) { gardenUsesCamera = false }
-            flow.cameraFailed()
+            do { try await Task.sleep(for:.seconds(8)) } catch { return }
+            guard !Task.isCancelled, flow.step == .camera, !flow.succeeded,
+                  gardenUsesCamera, phase == .active else { return }
+            // Motion-limited frames are still a working camera. Never turn a visible feed off
+            // just because it is not yet suitable for astronomical identification.
+            if cameraLink.state == .streaming {
+                flow.liveCameraReady(cameraLink.pose)
+            } else {
+                flow.cameraFailed(.timedOut)
+                gardenUsesCamera = false
+            }
         }
     }
 
     /// The practice star's capture: cekrek on the frozen frame, then the real wormhole into the Night Sea
     /// and the note sheet. A WormholeDemo shows it there without saving anything to the collection.
     private func collectPractice(_ star: OnboardingFlow.PracticeStar,at point: CGPoint) {
-        guard handover == nil else { return }
+        guard handover == nil, let flow = onboarding, flow.step == .wormhole else { return }
         let size = screenSize
         let liveFreeze = gardenUsesCamera ? cameraLink.freeze() : nil
         let view = gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera
@@ -417,7 +477,7 @@ struct HomeView: View {
             focal:view.focalLength(in:size))
         let location = model.location
         let record = CollectedStar(id:star.id,date:Date(),latitude:location?.latitude ?? 0,longitude:location?.longitude ?? 0,
-                                   identificationNote:"Practice star from the Asterra tour. Not saved to your collection.")
+                                   identificationNote:OnboardingCopy.practiceStarIdentificationNote)
         let demo = WormholeDemo(item:GardenCollectionItem(star:star.catalogStar,record:record),
             object:NightSeaObject(id:star.id,direction:star.direction,
                                   radius:NightSeaObject.starRadius(magnitude:star.catalogStar.mag)*1.3,
@@ -436,14 +496,16 @@ struct HomeView: View {
         WormholeFeedback.shared.prepare()
         WormholeFeedback.shared.playShutter()
         tourShutter = (Date(),freeze.image)
-        Task { @MainActor in
-            try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.handoverDelay)))
+        tourCaptureTask = Task { @MainActor in
+            do { try await Task.sleep(for:.milliseconds(Int(CaptureFlash.handoverDelay))) } catch { return }
+            guard !Task.isCancelled, onboarding === flow, flow.step == .wormhole else { return }
             for sound in CrosshairSound.allCases { CrosshairFeedback.shared.suppress(sound,for:4) }
             WormholeFeedback.shared.play(landing:transition.landing)
             handover = transition
             handoverTask?.cancel()
             handoverTask = Task { await transition.run() }
-            try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.duration-CaptureFlash.handoverDelay)+20))
+            do { try await Task.sleep(for:.milliseconds(Int(CaptureFlash.duration-CaptureFlash.handoverDelay)+20)) } catch { return }
+            guard !Task.isCancelled, onboarding === flow else { return }
             tourShutter = nil
         }
     }
@@ -458,6 +520,7 @@ struct HomeView: View {
     }
 
     private func collected(_ result: StarCollectCameraView.CollectResult) {
+        onboarding?.realObjectCollected()
         switch result {
         case .wormhole(let handover):
             self.handover = handover
@@ -531,7 +594,7 @@ private struct StartCollectingButton: View {
         Button(action:action) {
             HStack(spacing:12) {
                 Image("celyx-icon-telescope").resizable().frame(width:28,height:28)
-                Text("Start Collecting").font(.system(size:17,weight:.semibold)).tracking(-0.43)
+                Text(OnboardingCopy.startCollecting).font(.system(size:17,weight:.semibold)).tracking(-0.43)
                     .foregroundStyle(CelyxColor.primaryLabel)
             }
             .padding(.horizontal,20)

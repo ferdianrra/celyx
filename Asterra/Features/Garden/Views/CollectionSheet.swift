@@ -6,6 +6,17 @@ struct CollectionSheet: View {
     let counts: Counts
     let onSelect: (CollectionCategory) -> Void
     let onClose: () -> Void
+    @Binding var showsDiscovery: Bool
+    var onDiscoveryShown: () -> Void
+
+    init(counts: Counts, onSelect: @escaping (CollectionCategory) -> Void, onClose: @escaping () -> Void,
+         showsDiscovery: Binding<Bool> = .constant(false), onDiscoveryShown: @escaping () -> Void = {}) {
+        self.counts = counts
+        self.onSelect = onSelect
+        self.onClose = onClose
+        _showsDiscovery = showsDiscovery
+        self.onDiscoveryShown = onDiscoveryShown
+    }
 
     var body: some View {
         CelyxSheetScrollView {
@@ -28,6 +39,14 @@ struct CollectionSheet: View {
                         CollectionTile(title: "Stars", count: counts.stars, action: { onSelect(.stars) }) {
                             Image("celyx-tile-stars").resizable().frame(width: 178, height: 109).offset(
                                 x: 61, y: -19)
+                        }
+                        .accessibilityIdentifier("collection-stars-tile")
+                        .popover(isPresented: $showsDiscovery, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                            DiscoveryTooltip(title: "Your collected stars",
+                                message: "Open Stars to revisit your photos, notes and sky memories.",
+                                onDismiss: { showsDiscovery = false })
+                                .accessibilityIdentifier("collection-discovery-tip")
+                                .onAppear(perform: onDiscoveryShown)
                         }
                         CollectionTile(title: "Planet", count: counts.planets, action: { onSelect(.planets) })
                         {

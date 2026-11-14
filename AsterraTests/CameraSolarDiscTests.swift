@@ -98,6 +98,28 @@ private final class SolarDiscFixtureBundle: NSObject {}
         #expect(hypot(disc.point.x * 640 - 320, disc.point.y * 480 - 240) < 10)
     }
 
+    @Test(arguments: [false, true], [0.55, 0.7, 0.85])
+    func dimCloudFilteredSunSurvivesExposureAndPartialOcclusion(videoRange: Bool, transmission: Double) throws {
+        var output: CVPixelBuffer?
+        let format = videoRange ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        CVPixelBufferCreate(kCFAllocatorDefault, 640, 480, format, nil, &output)
+        let image = try #require(output)
+        CVPixelBufferLockBaseAddress(image, [])
+        let bytes = try #require(CVPixelBufferGetBaseAddressOfPlane(image, 0)).assumingMemoryBound(to: UInt8.self)
+        let row = CVPixelBufferGetBytesPerRowOfPlane(image, 0)
+        for y in 0..<480 { for x in 0..<640 {
+            let dx = x - 320, dy = y - 240
+            let disc = dx * dx + dy * dy <= 14 * 14
+            // A cloud band hides the top of a small, underexposed solar disc.
+            let value = Int(Double(disc && dy > -5 ? 240 : 160) * transmission)
+            bytes[y * row + x] = UInt8(videoRange ? 16 + value * 219 / 255 : value)
+        } }
+        CVPixelBufferUnlockBaseAddress(image, [])
+        let disc = try #require(CameraStarDetector.detectDiscs(in: image, daylight: true).first)
+        #expect(hypot(disc.point.x * 640 - 320, disc.point.y * 480 - 240) < 10)
+        #expect(CameraSkyContext.permits(disc.point, in: image, isDisc: true, sourceBounds: disc.bounds))
+    }
+
     @Test func flatCloudAndAnIsolatedHotPixelCannotSupplySolarDiscEvidence() throws {
         for hotPixel in [false, true] {
             var output: CVPixelBuffer?

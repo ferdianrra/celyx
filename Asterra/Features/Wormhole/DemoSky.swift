@@ -110,6 +110,23 @@ enum DemoSky {
     }
 }
 
+/// Brief neutral-glass confirmation when entering demo mode.
+struct DemoModeNotice: View {
+    var body: some View {
+        Text("Demo mode")
+            .font(.body.weight(.medium))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 0.5)
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .glassEffect(.regular, in: Capsule())
+            .environment(\.colorScheme, .dark)
+            .allowsHitTesting(false)
+    }
+}
+#endif
+
+import SwiftUI
+
 /// A believable bright star over the live camera: soft core, glow, slight twinkle.
 struct DemoStarView: View {
     let color: SIMD3<Double>
@@ -135,18 +152,3 @@ struct DemoStarView: View {
         .accessibilityHidden(true)
     }
 }
-
-/// Brief neutral-glass confirmation when entering demo mode.
-struct DemoModeNotice: View {
-    var body: some View {
-        Text("Demo mode")
-            .font(.body.weight(.medium))
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 0.5)
-            .padding(.horizontal, 18).padding(.vertical, 10)
-            .glassEffect(.regular, in: Capsule())
-            .environment(\.colorScheme, .dark)
-            .allowsHitTesting(false)
-    }
-}
-#endif

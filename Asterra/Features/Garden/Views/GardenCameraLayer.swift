@@ -17,7 +17,7 @@ struct GardenCameraLayer: View {
     var isActive = true
     var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
     /// The onboarding tour's view of this camera (pose every frame, frozen frame on demand).
-    var link: LiveCameraLink? = nil
+    let link: LiveCameraLink?
     let onSelect: (GardenCollectionItem) -> Void
 
     @State private var session = SkyCaptureSession()
@@ -29,12 +29,24 @@ struct GardenCameraLayer: View {
         let entry: GardenPlacedObject
         let point: CGPoint
         var id: Int { entry.id }
+
+        var hitRadius: CGFloat {
+            let scale: Double = entry.object.kind == .star ? 7.0 / 1.3 : 1.0
+            return CGFloat(max(36, entry.object.radius * scale * 0.6))
+        }
+
+        var labelPosition: CGPoint {
+            let scale: Double = entry.object.kind == .star ? 7.0 / 1.3 : 1.0
+            let offset = entry.object.radius * scale * 0.45 + 16
+            return CGPoint(x: point.x, y: point.y + CGFloat(offset))
+        }
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                SkyCameraPreview(session:session,onViewport:{ size,_ in viewport = size })
+                SkyCameraPreview(session:session,onViewport:{ size,_ in viewport = size; link?.viewport = size },
+                    onPreviewingChanged:{ previewing in link?.previewChanged(previewing, from: session) })
                 TimelineView(.animation(paused:!isActive)) { timeline in
                     let size = viewport == .zero ? geometry.size : viewport
                     let sprites = project(in:size)
@@ -59,7 +71,7 @@ struct GardenCameraLayer: View {
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .position(x:sprite.point.x,y:sprite.point.y+sprite.entry.object.radius*(sprite.entry.object.kind == .star ? 7/1.3 : 1)*0.45+16)
+                            .position(sprite.labelPosition)
                             .accessibilityLabel("\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
                         }
                     if let message = statusMessage {
@@ -73,7 +85,7 @@ struct GardenCameraLayer: View {
                     }
                     }
                     .onChange(of: timeline.date) { _, _ in
-                        guard onCameraUpdate != nil || link != nil, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
+                        guard onCameraUpdate != nil, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
                         let freeze = WormholeFreeze.make(image: nil, size: size,
                             view: frame.camera.viewMatrix(viewRotationAngle: 90),
                             projection: frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000),
@@ -81,7 +93,6 @@ struct GardenCameraLayer: View {
                         var pose = NightSeaCamera()
                         pose.orientation = freeze.orientation; pose.focalOverride = freeze.focal
                         onCameraUpdate?(pose)
-                        if let link { link.viewport = size; link.pose = pose }
                     }
                 }
             }
@@ -89,18 +100,21 @@ struct GardenCameraLayer: View {
             .simultaneousGesture(SpatialTapGesture().onEnded { value in
                 let size = viewport == .zero ? geometry.size : viewport
                 let hits = project(in:size).map { ($0,hypot($0.point.x-value.location.x,$0.point.y-value.location.y)) }
-                    .filter { $0.1 <= max(36,$0.0.entry.object.radius*($0.0.entry.object.kind == .star ? 7/1.3 : 1)*0.6) }
+                    .filter { $0.1 <= $0.0.hitRadius }
                 if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.item) }
             })
         }
         .background(Color.black)
-        .task { link?.session = session; await start() }
-        .onChange(of:isActive) { _, active in active ? run() : session.pause() }
+        .task { link?.connect(to: session); await start() }
+        .onChange(of:isActive) { _, active in
+            if active { run() }
+            else { session.pause(); link?.sessionWasInterrupted(session) }
+        }
         .onChange(of:phase) { _, value in
             if value == .active && isActive { run() }
-            else if value == .background { session.pause() }
+            else if value == .background { session.pause(); link?.sessionWasInterrupted(session) }
         }
-        .onDisappear { session.pause() }
+        .onDisappear { session.pause(); link?.disconnect(from: session) }
     }
 
     private var statusMessage: String? {
@@ -121,6 +135,11 @@ struct GardenCameraLayer: View {
         default: granted = false
         }
         guard granted else { denied = true; return }
+        guard SkyCaptureSession.isSupported else {
+            link?.session(session, didFailWithError: NSError(domain: "SkyCapture", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Camera or motion tracking is unavailable on this device."]))
+            return
+        }
         if isActive { run() }
     }
     private func run() {
@@ -210,6 +229,6 @@ struct GardenCameraLayer: View {
 }
 
 #Preview("Garden camera") {
-    GardenCameraLayer(placed:[],selectedID:nil,isActive:false,onSelect:{ _ in })
+    GardenCameraLayer(placed:[],selectedID:nil,isActive:false,link:nil,onSelect:{ _ in })
         .preferredColorScheme(.dark)
 }

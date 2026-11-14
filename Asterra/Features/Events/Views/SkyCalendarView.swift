@@ -4,16 +4,33 @@ import SwiftUI
 struct SkyCalendarView: View {
     let store: SkyEventStore
     let onSelect: (SkyEvent) -> Void
+    @Binding var showsDiscovery: Bool
+    var onDiscoveryShown: () -> Void
+    @AppStorage("hasSeenEventCardHint") private var hasSeenEventCardHint = false
+    @State private var showsEventHelp = false
     @State private var viewModel: SkyCalendarViewModel
     private typealias DisplayMode = SkyCalendarViewModel.DisplayMode
     private var calendar: Calendar { viewModel.calendar }
     private var month: Date { viewModel.month }
     private var filters: Set<SkyEvent.Kind> { viewModel.filters }
 
+    private struct DiscoveryContext: Equatable {
+        let calendarTipVisible: Bool
+        let listVisible: Bool
+        let firstEventID: String?
+    }
+    private var discoveryContext: DiscoveryContext {
+        DiscoveryContext(calendarTipVisible: showsDiscovery,
+            listVisible: viewModel.displayMode == .list, firstEventID: monthEvents.first?.id)
+    }
+
     init(
         store: SkyEventStore, events: [SkyEvent] = SkyEvent.catalogue,
+        showsDiscovery: Binding<Bool> = .constant(false), onDiscoveryShown: @escaping () -> Void = {},
         onSelect: @escaping (SkyEvent) -> Void
     ) {
+        _showsDiscovery = showsDiscovery
+        self.onDiscoveryShown = onDiscoveryShown
         self.store = store
         self.onSelect = onSelect
         _viewModel = State(initialValue: SkyCalendarViewModel(events: events))
@@ -25,13 +42,7 @@ struct SkyCalendarView: View {
     // native toolbar, overlapped by a rounded bottom section whose items scroll under soft scroll edges.
     var body: some View {
         VStack(spacing:0) {
-            CelyxSegmentedControl(selection:$viewModel.displayMode,segments:[
-                .init(value:.list,title:"List",systemImage:"list.bullet"),
-                .init(value:.calendar,title:"Calendar",systemImage:"calendar")
-            ])
-            .padding(16)
-            .padding(.bottom,24)
-            .background(alignment:.top) { topSurface }
+            calendarHeader
             bottomSection
         }
         .background(CelyxColor.screen)
@@ -40,6 +51,16 @@ struct SkyCalendarView: View {
         .toolbar(.visible,for:.navigationBar)
         .toolbarBackgroundVisibility(.hidden,for:.navigationBar)
         .preferredColorScheme(.dark)
+        .task(id: discoveryContext) {
+            guard !showsDiscovery, viewModel.displayMode == .list,
+                  !hasSeenEventCardHint, !monthEvents.isEmpty else { return }
+            // Let the Calendar popover finish closing before presenting the next anchor.
+            // Re-run when that popover closes or the user returns to the list, within this visit.
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            guard !Task.isCancelled, !hasSeenEventCardHint else { return }
+            showsEventHelp = true
+        }
+        .onChange(of: month) { _, _ in showsEventHelp = false }
         .confirmationDialog(viewModel.selectedDay?.formatted(date:.complete,time:.omitted) ?? "Choose an event",
                             isPresented:$viewModel.showsDayEventChoices,titleVisibility:.visible) {
             ForEach(viewModel.dayEventChoices) { event in
@@ -47,6 +68,35 @@ struct SkyCalendarView: View {
             }
             Button("Cancel",role:.cancel) {}
         }
+    }
+
+    private var calendarHeader: some View {
+        // Keep the decorative surface outside the control's accessibility bounds.
+        VStack(spacing: 0) {
+            CelyxSegmentedControl(selection:$viewModel.displayMode,segments:[
+                .init(value:.list,title:"List",systemImage:"list.bullet"),
+                .init(value:.calendar,title:"Calendar",systemImage:"calendar")
+            ])
+            .background {
+                // Anchor to the Calendar half of the real segmented control, not the whole header.
+                GeometryReader { geometry in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Color.clear.frame(width: geometry.size.width / 2)
+                            .popover(isPresented: $showsDiscovery, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                                DiscoveryTooltip(title: "Calendar view",
+                                    message: "Tap Calendar to see upcoming sky events by date.",
+                                    onDismiss: { showsDiscovery = false })
+                                    .accessibilityIdentifier("calendar-discovery-tip")
+                                    .onAppear(perform: onDiscoveryShown)
+                            }
+                    }
+                }
+            }
+            .padding(16)
+            .padding(.bottom,24)
+        }
+        .background(alignment: .top) { topSurface.accessibilityHidden(true) }
     }
 
     /// TOP SECTION (998:2109): dark fill lit from the top by the blue/violet inner-shadow stack.
@@ -97,12 +147,25 @@ struct SkyCalendarView: View {
                     .padding(.top,40)
             }
             ForEach(monthEvents) { event in
-                Button { onSelect(event) } label: {
-                    SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
-                }
-                .buttonStyle(.plain)
+                if event.id == monthEvents.first?.id {
+                    eventRow(event)
+                        .popover(isPresented: $showsEventHelp, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                            DiscoveryTooltip(title: "Sky event cards",
+                                message: "Tap a card for viewing details. Use its bell to turn a reminder on or off.",
+                                onDismiss: { showsEventHelp = false })
+                                .accessibilityIdentifier("event-card-discovery-tip")
+                                .onAppear { hasSeenEventCardHint = true }
+                        }
+                } else { eventRow(event) }
             }
         }
+    }
+
+    private func eventRow(_ event: SkyEvent) -> some View {
+        Button { onSelect(event) } label: {
+            SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
+        }
+        .buttonStyle(.plain)
     }
 
     private var calendarBody: some View {
@@ -120,6 +183,11 @@ struct SkyCalendarView: View {
             Text(month.formatted(.dateTime.month(.wide).year().locale(Locale(identifier:"en_US"))))
                 .font(.system(size:17,weight:.semibold)).tracking(-0.43).foregroundStyle(.white)
                 .contentTransition(.numericText())
+            Button("About sky events", systemImage: "info.circle") { showsEventHelp = true }
+                .labelStyle(.iconOnly).font(.system(size: 15))
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(width: 34, height: 34).buttonStyle(.plain)
+                .disabled(monthEvents.isEmpty)
             Spacer()
             HStack(spacing:8) {
                 monthButton("chevron.left",by:-1).accessibilityLabel("Previous month")

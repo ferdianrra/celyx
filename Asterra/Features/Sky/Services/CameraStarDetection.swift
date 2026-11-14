@@ -259,11 +259,13 @@ nonisolated enum CameraStarDetector {
         // A single low threshold joins the Sun to illuminated cloud edges.
         // Resolve the saturated core first, then the lower-contrast lunar disc.
         let peakLevel = sorted[sorted.count - 1]
-        let thresholds = Array(Set([peakLevel - 5, peakLevel - 15, peakLevel - 35, max(160, background + 30)]
+        let levels = [peakLevel - 5, peakLevel - 15, peakLevel - 35, max(160, background + 30)]
+            + (daylight ? [background + 12, background + 20] : [])
+        let thresholds = Array(Set(levels
             .filter { $0 > background && $0 > 0 && $0 <= 250 })).sorted(by: >)
         // Thin cloud attenuates the solar core. Keep both an absolute floor and
         // local scene contrast, instead of demanding nearly clipped white.
-        let minimumCore = daylight ? max(180, min(240, background + 25)) : 0
+        let minimumCore = daylight ? max(110, background + 12) : 0
         var result: [CameraLightPoint] = []
         for threshold in thresholds {
             // Distance to the dark boundary separates round bright lobes even when
@@ -326,7 +328,7 @@ nonisolated enum CameraStarDetector {
                 // A filled rectangular window must never be split into a solar core.
                 if queue.count >= 16, fill > 0.95 { continue }
                 let compact = queue.count < w * h / 12 && minX > 0 && minY > 0 && maxX < w - 1 && maxY < h - 1
-                    && Double(max(bw, bh)) / Double(min(bw, bh)) < 1.65 && fill > 0.55
+                    && Double(max(bw, bh)) / Double(min(bw, bh)) < (daylight ? 2.2 : 1.65) && fill > (daylight ? 0.45 : 0.55)
                 if !compact {
                     // Local inscribed circles survive a connection to a bright cloud.
                     // Most of their circumference must still have a darker exterior.

@@ -23,6 +23,7 @@ struct GardenSkyView: View {
     var onDemoEnded: () -> Void = {}
     /// Onboarding tour hook into the live camera mode.
     var cameraLink: LiveCameraLink?
+    var onTourNoteCompleted: () -> Void
 
     @State private var viewModel: GardenViewModel
     @State private var failed = false
@@ -35,9 +36,10 @@ struct GardenSkyView: View {
         resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
         sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {},
-        cameraLink: LiveCameraLink? = nil
+        cameraLink: LiveCameraLink? = nil, onTourNoteCompleted: @escaping () -> Void = {}
     ) {
         self.cameraLink = cameraLink
+        self.onTourNoteCompleted = onTourNoteCompleted
         self.handover = handover
         self.sheetRequest = sheetRequest
         self.onDemoEnded = onDemoEnded
@@ -58,7 +60,8 @@ struct GardenSkyView: View {
                     placed: viewModel.placed, selectedID: viewModel.selected?.id,
                     connections: shownConnections, zodiacFigures: shownZodiacFigures,
                     equatorial: viewModel.equatorial, isActive: refreshesSkyPositions,
-                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose }
+                    onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
+                    link: cameraLink
                 ) { viewModel.selected = $0 }
                 .opacity(showsCaptureSequence ? 0 : 1)
                 .allowsHitTesting(!showsCaptureSequence)
@@ -127,11 +130,14 @@ struct GardenSkyView: View {
                     capturedPhoto: request.photo, startsWithNoteEntry: true,
                     onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                     onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
+                    tourGuide: request.isTour && cameraLink != nil,
+                    onNoteCompleted: { if request.isTour { onTourNoteCompleted() } },
                     onDelete: { model.deleteCollected(id: item.id); albumRequest = nil })
                     .id(request.id)
             } else if let demo = request.demoItem {
                 CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
-                    startsWithNoteEntry: true, tourGuide: request.isTour, onDelete: { albumRequest = nil })
+                    startsWithNoteEntry: true, tourGuide: request.isTour && cameraLink != nil,
+                    onNoteCompleted: { if request.isTour { onTourNoteCompleted() } }, onDelete: { albumRequest = nil })
                     .id(request.id)
             }
         }

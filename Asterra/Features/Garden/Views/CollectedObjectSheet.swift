@@ -11,9 +11,11 @@ struct CollectedObjectSheet: View {
     var onSavePlace: ((String) -> Void)? = nil
     /// Onboarding tour: guide lines in the sheet, a glowing close button and no Delete.
     var tourGuide = false
+    var onNoteCompleted: (() -> Void)? = nil
     let onDelete: () -> Void
 
     @FocusState private var noteFocused: Bool
+    @State private var showsTourCompletion = false
     @State private var confirmsDelete = false
     @State private var showsShare = false
     @State private var placeName: String?
@@ -32,8 +34,9 @@ struct CollectedObjectSheet: View {
     init(item: GardenCollectionItem, direction: SIMD3<Double>?, collection: HomeViewModel? = nil,
          capturedPhoto: UIImage? = nil, startsWithNoteEntry: Bool = false,
          onSaveNote: ((String) -> Void)? = nil, onSavePlace: ((String) -> Void)? = nil,
-         tourGuide: Bool = false, onDelete: @escaping () -> Void) {
+         tourGuide: Bool = false, onNoteCompleted: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
         self.tourGuide = tourGuide
+        self.onNoteCompleted = onNoteCompleted
         self.item = item; self.direction = direction; self.collection = collection
         self.capturedPhoto = capturedPhoto; self.startsWithNoteEntry = startsWithNoteEntry
         self.onSaveNote = onSaveNote; self.onSavePlace = onSavePlace; self.onDelete = onDelete
@@ -61,8 +64,8 @@ struct CollectedObjectSheet: View {
                 VStack(spacing: 12) {
                     if tourGuide {
                         OnboardingGuidePill(text: editingNote
-                            ? "Every star keeps a note. Write what this moment feels like, then tap Done."
-                            : "This is your star's card: your note, photo, place and time. Tap ✕ to go back to the sky.")
+                            ? OnboardingCopy.noteEntryGuide
+                            : OnboardingCopy.starCardGuide)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .animation(.smooth(duration: 0.4), value: editingNote)
                     }
@@ -114,6 +117,20 @@ struct CollectedObjectSheet: View {
             finishNote()
         })
         .overlay(alignment: .topTrailing) { closeButton.padding(.top, 32).padding(.trailing, 20) }
+        .accessibilityHidden(showsTourCompletion)
+        .overlay {
+            if showsTourCompletion {
+                ZStack {
+                    Color.black.opacity(0.65).ignoresSafeArea()
+                    OnboardingCompletionCard { dismiss() }
+                        .padding(20)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityAddTraits(.isModal)
+            }
+        }
+        .interactiveDismissDisabled(showsTourCompletion)
+        .sensoryFeedback(.success, trigger: showsTourCompletion)
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.never)
         .foregroundStyle(.primary)
@@ -289,6 +306,8 @@ struct CollectedObjectSheet: View {
             compactNoteEntry = false
             detent = .large
         }
+        if tourGuide { showsTourCompletion = true }
+        onNoteCompleted?()
     }
 }
 

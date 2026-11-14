@@ -70,6 +70,7 @@ struct OnboardingOverlay: View {
                 guard inCircle, !flow.isLocked else { isLocking = false; return }
                 isLocking = true
                 do { try await Task.sleep(for: .seconds(reduceMotion ? 0.25 : 0.6)) } catch { return }
+                guard flow.step == .find, flow.star != nil, !Task.isCancelled else { return }
                 isLocking = false
                 withAnimation(.smooth(duration: 0.35)) { flow.isLocked = true }
             }
@@ -86,8 +87,8 @@ struct OnboardingOverlay: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if flow.step < .ready && flow.step != .wormhole && !chromeVisible && !topBarVisible {
-                Button("Skip Tour") { flow.finish() }
+            if flow.step < .done && flow.step != .wormhole && !chromeVisible && !topBarVisible {
+                Button(OnboardingCopy.skipTour) { flow.skip() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.glass)
                     .tint(.white)
@@ -144,11 +145,11 @@ private struct OnboardingCard: View {
                     Text(card.title).font(.title3.weight(.semibold))
                     Spacer(minLength: 8)
                     if let index = flow.progressIndex {
-                        Text("\(index + 1) of \(OnboardingFlow.Step.counted.count)")
+                        Text(OnboardingCopy.progress(current: index + 1, total: OnboardingFlow.Step.counted.count))
                             .font(.footnote.weight(.medium)).monospacedDigit()
                             .foregroundStyle(CelyxColor.secondaryLabel)
                             .contentTransition(.numericText())
-                            .accessibilityLabel("Step \(index + 1) of \(OnboardingFlow.Step.counted.count)")
+                            .accessibilityLabel(OnboardingCopy.progressAccessibilityLabel(current: index + 1, total: OnboardingFlow.Step.counted.count))
                     }
                 }
                 Text(card.body).font(.body).foregroundStyle(CelyxColor.secondaryLabel)
@@ -162,6 +163,12 @@ private struct OnboardingCard: View {
                     .tint(.white)
                     .animation(.smooth(duration: 0.3), value: flow.lookProgress)
                     .padding(.top, 18)
+            }
+            if let secondary = card.secondary {
+                Button(secondary) { flow.secondary() }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .padding(.top, 12)
             }
             if let primary = card.primary {
                 Button { flow.primary() } label: {

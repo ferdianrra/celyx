@@ -19,6 +19,10 @@ nonisolated private final class TestCaptureDriver: SkyCaptureDriving, @unchecked
     func stop() { lock.withLock { stops += 1 } }
     func releaseFrame() { lock.withLock { releases += 1 } }
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {}
+    func fail(_ error: Error, run: Int) {
+        let callback = lock.withLock { callbacks[run] }
+        callback(.failure(error))
+    }
     func emit(_ frame: SkyCaptureFrame, run: Int) {
         let callback = lock.withLock { callbacks[run] }
         callback(.success(frame))
@@ -33,14 +37,80 @@ nonisolated private final class TestCaptureDriver: SkyCaptureDriving, @unchecked
 }
 
 @MainActor struct SkyCaptureLifecycleTests {
-    private func frame(at time: Double) throws -> SkyCaptureFrame {
+    private func frame(at time: Double, tracking: SkyCaptureCamera.TrackingState = .normal) throws -> SkyCaptureFrame {
         var image: CVPixelBuffer?
         CVPixelBufferCreate(kCFAllocatorDefault, 32, 32, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, nil, &image)
         return SkyCaptureFrame(capturedImage: try #require(image), timestamp: time,
             camera: SkyCaptureCamera(transform: matrix_identity_float4x4, intrinsics: matrix_identity_float3x3,
-                imageResolution: CGSize(width: 32, height: 32), trackingState: .normal))
+                imageResolution: CGSize(width: 32, height: 32), trackingState: tracking))
     }
     private func drain() async { try? await Task.sleep(for: .milliseconds(20)) }
+
+    @Test func tutorialCameraIsReadyWithMotionLimitedFramesBeforeAPoseOrViewportExists() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let link = LiveCameraLink()
+        link.connect(to: session)
+        session.run()
+        driver.emit(try frame(at: 1, tracking: .limited(.excessiveMotion)), run: 0)
+        await drain()
+        #expect(link.state == .streaming, "A visible camera must not time out while motion alignment settles")
+        #expect(link.pose == nil, "Readiness must not depend on a layout or TimelineView callback")
+        let flow = OnboardingFlow()
+        flow.jump(to: "camera")
+        flow.liveCameraReady(link.pose)
+        #expect(flow.succeeded && !flow.cameraStarting)
+        #expect(flow.startCollectingPressed())
+        #expect(flow.step == .visibility)
+        link.viewport = CGSize(width: 402, height: 874)
+        driver.emit(try frame(at: 2, tracking: .limited(.excessiveMotion)), run: 0)
+        await drain()
+        #expect(link.pose != nil)
+    }
+
+    @Test func nativePreviewCanBecomeReadyBeforeCalibratedFramesAndDoesNotHideAFailure() {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let link = LiveCameraLink()
+        link.connect(to: session)
+        link.previewChanged(true, from: session)
+        #expect(link.state == .streaming && link.pose == nil)
+        link.session(session, didFailWithError: NSError(domain: "SkyCapture", code: 8,
+            userInfo: [NSLocalizedDescriptionKey: "Motion unavailable"]))
+        link.previewChanged(true, from: session)
+        #expect(link.state == .failed("Motion unavailable"))
+        link.disconnect(from: session)
+        link.previewChanged(true, from: session)
+        #expect(link.state == .idle, "A disappearing preview cannot mark the next opening ready")
+    }
+
+    @Test func tutorialReportsSensorFailureAndClearsReadinessAcrossReopening() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let link = LiveCameraLink()
+        link.connect(to: session)
+        session.run()
+        driver.fail(NSError(domain: "SkyCapture", code: 8,
+            userInfo: [NSLocalizedDescriptionKey: "Motion data is unavailable."]), run: 0)
+        await drain()
+        #expect(link.state == .failed("Motion data is unavailable."))
+        link.disconnect(from: session)
+        #expect(link.state == .idle && link.pose == nil)
+        link.connect(to: session)
+        #expect(link.state == .starting)
+        session.run()
+        driver.emit(try frame(at: 3), run: 0) // Old generation cannot make a new opening ready.
+        await drain()
+        #expect(link.state == .starting)
+        driver.emit(try frame(at: 4), run: 1)
+        await drain()
+        #expect(link.state == .streaming)
+        link.sessionWasInterrupted(session)
+        #expect(link.state == .starting && link.pose == nil)
+        driver.emit(try frame(at: 5), run: 1)
+        await drain()
+        #expect(link.state == .streaming)
+    }
 
     @Test func pauseAndResumeAcceptNewFramesAndDiscardOldRunCallbacksWithoutWedgingDelivery() async throws {
         let driver = TestCaptureDriver()

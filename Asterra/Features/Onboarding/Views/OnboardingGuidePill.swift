@@ -5,6 +5,7 @@ import SwiftUI
 struct OnboardingGuidePill: View {
     let text: String
     var symbol = "sparkles"
+    var onDismiss: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -13,6 +14,12 @@ struct OnboardingGuidePill: View {
                 .symbolEffect(.pulse, options: .repeat(.periodic(delay: 1.2)))
             Text(text).font(.subheadline.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
+            if let onDismiss {
+                Button("Dismiss tip", systemImage: "xmark", action: onDismiss)
+                    .labelStyle(.iconOnly)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(.plain)
+            }
         }
         .foregroundStyle(CelyxColor.primaryLabel)
         .padding(.horizontal, 18).padding(.vertical, 12)
@@ -20,7 +27,7 @@ struct OnboardingGuidePill: View {
         .environment(\.colorScheme, .dark)
         .id(text)
         .transition(.blurReplace.combined(with: .offset(y: 6)))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: onDismiss == nil ? .combine : .contain)
     }
 }
 
@@ -117,6 +124,6 @@ struct OnboardingHighlight: View {
 }
 
 #Preview {
-    OnboardingGuidePill(text: "Write what you see, then tap Done.")
+    OnboardingGuidePill(text: OnboardingCopy.noteEntryGuide)
         .padding().background(CelyxColor.night)
 }
