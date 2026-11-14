@@ -10,7 +10,7 @@ final class SkyEventStore {
 
     init() {
         reminders = Set(
-            defaults.stringArray(forKey: "skyEventReminders") ?? ["mars-jupiter", "leonids"])
+            defaults.stringArray(forKey: "skyEventReminders") ?? [])
         collected = Set(defaults.stringArray(forKey: "collectedSkyEvents") ?? [])
     }
     func toggleReminder(_ event: SkyEvent) {

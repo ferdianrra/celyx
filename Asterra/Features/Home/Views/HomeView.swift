@@ -84,6 +84,8 @@ struct HomeView: View {
             }
         }
         .preferredColorScheme(.dark)
+        // Sky events are computed for wherever the user is.
+        .onChange(of:model.location,initial:true) { _,location in SkyEventCatalog.shared.update(location:location) }
         .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
             CollectionSheet(counts:counts,onSelect:{ category in
                 pendingCollectionCategory = category

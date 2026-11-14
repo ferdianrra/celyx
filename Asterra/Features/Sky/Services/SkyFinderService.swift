@@ -552,8 +552,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         return WormholeFreeze.make(image:image,size:viewport,view:frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle),
                                    projection:screenProjection(frame),alignment:alignment.rotation)
     }
-    #if DEBUG
-    /// Project a real horizon position, including below the horizon for demo collection.
+    /// Project a real horizon position, including below the horizon (demo collection, sky event guide).
     func demoProjection(horizon direction: SIMD3<Double>) -> SkyFinderProjection? {
         guard running, hasLocationFix, status == .tracking,
             let frame = session.currentFrame, viewport.width > 0, viewport.height > 0
@@ -562,7 +561,6 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
             projection: screenProjection(frame), size: viewport)
     }
-    #endif
 
     func clearAlignment() { resetTrackingForCalibration() }
     func resetTrackingForCalibration() {
