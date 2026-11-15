@@ -14,8 +14,12 @@ final class OnboardingFlow {
         case visibility
         /// Collect a real object, or a virtual star only after choosing the fallback.
         case find
-        /// Shutter → wormhole → landing → note sheet (Home's real handover runs it).
+        /// Shutter → wormhole → landing (Home's real handover runs it).
         case wormhole
+        /// Explain the garden while the first capture is still framed in the sky.
+        case garden
+        case note
+        case completion
         case done
         static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
         /// Steps counted in the progress dots.
@@ -28,6 +32,7 @@ final class OnboardingFlow {
         /// Start the real capture + wormhole for the practice star at this screen point.
         var collect: (_ star: PracticeStar, _ point: CGPoint) -> Void = { _, _ in }
         var findRealObject: () -> Void = {}
+        var showNote: () -> Void = {}
         var cancel: () -> Void = {}
         var finish: () -> Void = {}
     }
@@ -46,6 +51,8 @@ final class OnboardingFlow {
 
     private(set) var step: Step = .welcome
     private(set) var star: PracticeStar?
+    private(set) var gardenDirection: SIMD3<Double>?
+    private(set) var gardenCamera: NightSeaCamera?
     private(set) var isDaytime = true
     var isFindingRealObject: Bool { step == .find && star == nil }
 
@@ -131,6 +138,10 @@ final class OnboardingFlow {
                 actions.setCamera(true)
             }
         case .visibility: answerVisibility(canSeeObject: true)
+        case .garden:
+            advance(to: .note)
+            actions.showNote()
+        case .completion: finish()
         default: break
         }
     }
@@ -157,6 +168,8 @@ final class OnboardingFlow {
         isLocked = false
         cameraStarting = false
         star = nil
+        gardenDirection = nil
+        gardenCamera = nil
         step = .done
         actions.finish()
     }
@@ -181,6 +194,7 @@ final class OnboardingFlow {
             case .camera: if cameraUnavailable { primary() } else if !cameraStarting { actions.setCamera(true) }
             case .visibility: answerVisibility(canSeeObject: false)
             case .find: if isLocked { collect(at: aimPoint) }
+            case .garden, .completion: primary()
             default: break
             }
         }
@@ -262,14 +276,18 @@ final class OnboardingFlow {
         }
     }
 
-    /// Finishing the note is the end of the tour; closing its album also exits cleanly.
-    func noteCompleted() {
+    /// Explain the garden at the end of the original capture animation, before asking for a note.
+    func gardenPresented(direction: SIMD3<Double>, camera: NightSeaCamera) {
         guard step == .wormhole else { return }
-        star = nil
-        finish()
+        gardenDirection = direction
+        gardenCamera = camera
+        advance(to: .garden)
     }
 
-    func wormholeEnded() { noteCompleted() }
+    func noteCompleted() {
+        guard step == .note else { return }
+        advance(to: .completion)
+    }
 
     private func succeed(then next: Step) {
         guard step != .done, !succeeded else { return }
@@ -335,7 +353,7 @@ final class OnboardingFlow {
         if succeeded { return successCard }
         switch step {
         case .welcome:
-            return Card(symbol: "sparkles", title: OnboardingCopy.welcomeTitle, body: OnboardingCopy.welcomeBody,
+            return Card(symbol: "star", title: OnboardingCopy.welcomeTitle, body: OnboardingCopy.welcomeBody,
                 primary: OnboardingCopy.startTour)
         case .look:
             return Card(symbol: "move.3d", title: OnboardingCopy.lookTitle, body: OnboardingCopy.lookBody)
@@ -367,7 +385,12 @@ final class OnboardingFlow {
                 return Card(symbol: "hand.tap", title: OnboardingCopy.starLockedTitle, body: OnboardingCopy.starLockedBody)
             }
             return Card(symbol: "scope", title: OnboardingCopy.findStarTitle, body: OnboardingCopy.findStarBody)
-        case .wormhole: return nil
+        case .wormhole, .note: return nil
+        case .garden:
+            return Card(symbol: "star", title: OnboardingCopy.gardenTitle,
+                body: star == nil ? OnboardingCopy.gardenBody : OnboardingCopy.practiceGardenBody,
+                primary: OnboardingCopy.continueTour)
+        case .completion: return nil
         case .done: return nil
         }
     }

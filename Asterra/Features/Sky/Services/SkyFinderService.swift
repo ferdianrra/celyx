@@ -1070,7 +1070,14 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             annotations = []
             unidentifiedLights = []
             candidateHistory = [:]
-            opticalTracks = []
+            switch reason {
+            case .excessiveMotion, .insufficientFeatures:
+                // A short blur does not create a different solar source. Retain only
+                // recent disc history; never count the blurred frame as a new sighting.
+                opticalTracks.removeAll { !$0.isDisc || frame.timestamp - $0.time > CameraTrackingPolicy.trackGap }
+            default:
+                opticalTracks = []
+            }
             let message: String
             switch reason {
             case .initializing: message = "Waiting for motion sensors…"
@@ -1335,9 +1342,21 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
                 var previous = opticalTracks.filter { !usedTracks.contains($0.id) && $0.isDisc == light.2 && result.time > $0.time && result.time - $0.time <= CameraTrackingPolicy.trackGap }
                     .compactMap { track -> (CameraOpticalTrack, Double)? in
                         guard let point = projectLight(track.direction) else { return nil }
-                        return (track, hypot(point.x - light.0.x, point.y - light.0.y))
-                    }.filter { $0.1 < min(22, max(12, 10 * sqrt(cameraZoom))) }.min { $0.1 < $1.1 }?.0
-                if previous == nil, singleSource {
+                        let distance: Double
+                        if light.2 {
+                            guard let discDistance = CameraSolarDiscPolicy.associationDistance(track: track,
+                                direction: light.3, size: light.1, point: light.0, projectedPrevious: point) else { return nil }
+                            distance = discDistance
+                        } else {
+                            let pointDistance = hypot(point.x - light.0.x, point.y - light.0.y)
+                            guard pointDistance < min(22, max(12, 10 * sqrt(cameraZoom))) else { return nil }
+                            distance = Double(pointDistance)
+                        }
+                        return (track, distance)
+                    }.min { $0.1 < $1.1 }?.0
+                // Discs must pass the bounded world-space/size match above. The
+                // screen-only point fallback could otherwise join unrelated bright discs.
+                if previous == nil, singleSource, !light.2 {
                     let recent = opticalTracks.filter {
                         !usedTracks.contains($0.id) && $0.isDisc == light.2 && $0.hits >= 1 && result.time - $0.time <= CameraTrackingPolicy.trackGap
                     }
@@ -1388,9 +1407,11 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             let centralDisc = permitsPoints ? nil : CameraSolarDiscPolicy.preferredCore(
                 from: observed.filter { track in
                     guard let point = projectLight(track.direction) else { return false }
-                    return CameraTargetSelection.canAcquireInReticle(at: point, center: center)
-                }, center: center, project: projectLight)
-            let solar = CameraSolarDiscPolicy.preferredCore(from: matchedDiscs, center: center, project: projectLight)
+                    let continuesDisc = pinnedLight?.isDisc == true && pinnedLight?.opticalID == track.id
+                        && CameraTrackingPolicy.isNearAim(point, center: center, holding: true)
+                    return continuesDisc || CameraTargetSelection.canAcquireInReticle(at: point, center: center)
+                }, center: center, pinned: pinnedLight, project: projectLight)
+            let solar = CameraSolarDiscPolicy.preferredCore(from: matchedDiscs, center: center, pinned: pinnedLight, project: projectLight)
             var fresh = observed.filter { !$0.isDisc } + matchedDiscs
             if let centralDisc, !fresh.contains(where: { $0.id == centralDisc.id }) { fresh.append(centralDisc) }
             if let selected = solar ?? centralDisc ?? CameraTrackingPolicy.select(fresh: fresh, pinned: pinnedLight, now: time,

@@ -1,17 +1,58 @@
 import SwiftUI
 
+/// Camera instructions and their fallback share a single panel below the navigation controls.
+struct OnboardingCameraGuide: View {
+    let isDaytime: Bool
+    let onPractice: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "viewfinder")
+                    .font(.title3.weight(.medium)).foregroundStyle(Color(hex: 0xB9C8FF))
+                    .accessibilityHidden(true)
+                Text(isDaytime ? OnboardingCopy.realDayGuide : OnboardingCopy.realNightGuide)
+                    .font(.subheadline.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button(action: onPractice) {
+                HStack(spacing: 10) {
+                    Image(systemName: "star")
+                    Text(OnboardingCopy.cannotSeeObject)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.bold))
+                }
+                .font(.body.weight(.semibold))
+                .padding(.horizontal, 18).padding(.vertical, 15)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(CelyxTintedGlassButtonStyle())
+            .accessibilityIdentifier("tour-camera-try-virtual-star")
+        }
+        .foregroundStyle(.white)
+        .padding(20)
+        .frame(maxWidth: 440)
+        .background(CelyxColor.night.opacity(0.92), in: RoundedRectangle(cornerRadius: 28))
+        .overlay { RoundedRectangle(cornerRadius: 28).strokeBorder(.white.opacity(0.18), lineWidth: 1) }
+        .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tour-camera-guide")
+    }
+}
+
 /// The tour's voice wherever the coach card can't be (over the wormhole, inside sheets, on pushed
-/// screens): one calm Liquid Glass line with the same sparkle, so the user always knows what to do next.
+/// screens): a calm Liquid Glass line with an icon that describes the next action.
 struct OnboardingGuidePill: View {
     let text: String
-    var symbol = "sparkles"
+    var symbol = "info.circle"
     var onDismiss: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: symbol).font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color(hex: 0x9AA2FF))
-                .symbolEffect(.pulse, options: .repeat(.periodic(delay: 1.2)))
+                .accessibilityHidden(true)
             Text(text).font(.subheadline.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
             if let onDismiss {
@@ -124,6 +165,6 @@ struct OnboardingHighlight: View {
 }
 
 #Preview {
-    OnboardingGuidePill(text: OnboardingCopy.noteEntryGuide)
+    OnboardingGuidePill(text: OnboardingCopy.noteEntryGuide, symbol: "pencil")
         .padding().background(CelyxColor.night)
 }

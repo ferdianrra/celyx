@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import simd
 @testable import Asterra
 
 @MainActor struct OnboardingFlowTests {
@@ -34,28 +35,69 @@ import Testing
         var opened = false
         flow.actions.findRealObject = { opened = true }
         flow.answerVisibility(canSeeObject: true)
-        #expect(opened)
-        #expect(flow.isFindingRealObject)
-        #expect(flow.star == nil)
+        #expect(opened && flow.isFindingRealObject && flow.star == nil)
         flow.realObjectCollected()
         #expect(flow.step == .wormhole)
-        flow.wormholeEnded()
-        #expect(flow.step == .done)
+        flow.gardenPresented(direction: SIMD3(0, 1, 0), camera: NightSeaCamera())
+        #expect(flow.step == .garden && flow.star == nil)
     }
 
-    @Test func completingNoteEndsTheTourOnceWithoutMenuSteps() {
+    @Test func firstLandingExplainsGardenThenNoteGoesStraightToCompletion() {
         let flow = visibilityFlow()
         var finishes = 0
+        var notes = 0
         flow.actions.finish = { finishes += 1 }
+        flow.actions.showNote = { notes += 1 }
         flow.answerVisibility(canSeeObject: true)
         flow.realObjectCollected()
         flow.noteCompleted()
-        #expect(flow.step == .done)
-        #expect(flow.card == nil && flow.pointer == nil)
-        #expect(OnboardingFlow.Step.counted.count == 3)
+        #expect(flow.step == .wormhole)
+        let direction = simd_normalize(SIMD3<Double>(0.2, 1, 0.5))
+        let camera = NightSeaCamera()
+        flow.gardenPresented(direction: direction, camera: camera)
+        #expect(flow.step == .garden && flow.gardenDirection == direction)
+        #expect(flow.gardenCamera == camera && flow.card?.title == OnboardingCopy.gardenTitle)
+        #expect(notes == 0 && finishes == 0)
+        flow.primary()
+        #expect(flow.step == .note && notes == 1 && flow.card == nil)
+        flow.gardenPresented(direction: direction, camera: camera)
+        #expect(flow.step == .note)
         flow.noteCompleted()
-        flow.wormholeEnded()
-        #expect(finishes == 1)
+        #expect(flow.step == .completion && finishes == 0)
+        #expect(flow.gardenCamera == camera)
+        flow.noteCompleted()
+        flow.primary()
+        #expect(flow.step == .done && flow.gardenDirection == nil && flow.gardenCamera == nil)
+        #expect(finishes == 1 && notes == 1)
+    }
+
+    @Test func practiceStarStaysThroughGardenNoteAndCompletionThenLeavesOnDone() async throws {
+        let flow = visibilityFlow()
+        flow.answerVisibility(canSeeObject: false)
+        let star = try #require(flow.star)
+        flow.reduceMotion = true
+        flow.isLocked = true
+        flow.collect(at: .zero)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(flow.step == .wormhole)
+        flow.gardenPresented(direction: star.direction, camera: NightSeaCamera())
+        #expect(flow.step == .garden && flow.star == star)
+        flow.primary()
+        #expect(flow.step == .note && flow.star == star)
+        flow.noteCompleted()
+        #expect(flow.step == .completion && flow.star == star)
+        flow.primary()
+        #expect(flow.step == .done && flow.star == nil && flow.gardenDirection == nil)
+    }
+
+    @Test func skippedTourCannotRestartFromALateLandingOrNoteCallback() {
+        let flow = visibilityFlow()
+        flow.answerVisibility(canSeeObject: true)
+        flow.realObjectCollected()
+        flow.skip()
+        flow.gardenPresented(direction: SIMD3(0, 1, 0), camera: NightSeaCamera())
+        flow.noteCompleted()
+        #expect(flow.step == .done && flow.gardenCamera == nil && flow.gardenDirection == nil)
     }
 
     @Test func invisibleObjectAndFailedSearchOfferVirtualPractice() {
@@ -137,7 +179,7 @@ import Testing
         flow.skip()
         try await Task.sleep(for: .milliseconds(600))
         flow.liveCameraReady(nil)
-        flow.wormholeEnded()
+        flow.noteCompleted()
         flow.primary()
         flow.skip()
         #expect(flow.step == .done && flow.card == nil && flow.star == nil)

@@ -74,7 +74,9 @@ struct GardenCameraLayer: View {
                             .position(sprite.labelPosition)
                             .accessibilityLabel("\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
                         }
-                    if let message = statusMessage {
+                    // The tour already presents camera status and aiming guidance in its coach card.
+                    // A second glass pill here would sit underneath that card.
+                    if link == nil, let message = statusMessage {
                         Text(message).font(.system(size:12,weight:.medium)).foregroundStyle(.white.opacity(0.9))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal,14).padding(.vertical,8)

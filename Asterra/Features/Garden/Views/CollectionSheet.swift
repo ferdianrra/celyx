@@ -125,7 +125,7 @@ private struct CollectionTile<Art: View>: View {
 
 #Preview("Collection tile") {
     CollectionTile(title: "Stars", count: 12, action: {}) {
-        Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.white)
+        Image(systemName: "star.fill").font(.largeTitle).foregroundStyle(.white)
     }.frame(width: 180, height: 150).padding().background(.black)
         .preferredColorScheme(.dark)
 }

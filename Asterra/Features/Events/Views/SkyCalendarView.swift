@@ -142,7 +142,7 @@ struct SkyCalendarView: View {
     private var eventList: some View {
         LazyVStack(spacing:16) {
             if monthEvents.isEmpty {
-                ContentUnavailableView("No Sky Events",systemImage:"sparkles",
+                ContentUnavailableView("No Sky Events",systemImage:"calendar",
                                        description:Text("Nothing matches this month. Try another month or category."))
                     .padding(.top,40)
             }

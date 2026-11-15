@@ -15,7 +15,6 @@ struct CollectedObjectSheet: View {
     let onDelete: () -> Void
 
     @FocusState private var noteFocused: Bool
-    @State private var showsTourCompletion = false
     @State private var confirmsDelete = false
     @State private var showsShare = false
     @State private var placeName: String?
@@ -65,7 +64,8 @@ struct CollectedObjectSheet: View {
                     if tourGuide {
                         OnboardingGuidePill(text: editingNote
                             ? OnboardingCopy.noteEntryGuide
-                            : OnboardingCopy.starCardGuide)
+                            : OnboardingCopy.starCardGuide,
+                            symbol: editingNote ? "pencil" : "info.circle")
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .animation(.smooth(duration: 0.4), value: editingNote)
                     }
@@ -117,20 +117,6 @@ struct CollectedObjectSheet: View {
             finishNote()
         })
         .overlay(alignment: .topTrailing) { closeButton.padding(.top, 32).padding(.trailing, 20) }
-        .accessibilityHidden(showsTourCompletion)
-        .overlay {
-            if showsTourCompletion {
-                ZStack {
-                    Color.black.opacity(0.65).ignoresSafeArea()
-                    OnboardingCompletionCard { dismiss() }
-                        .padding(20)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityAddTraits(.isModal)
-            }
-        }
-        .interactiveDismissDisabled(showsTourCompletion)
-        .sensoryFeedback(.success, trigger: showsTourCompletion)
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.never)
         .foregroundStyle(.primary)
@@ -301,12 +287,15 @@ struct CollectedObjectSheet: View {
         noteFocused = false
         note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         onSaveNote?(note)
+        if tourGuide {
+            dismiss()
+            return
+        }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
             editingNote = false
             compactNoteEntry = false
             detent = .large
         }
-        if tourGuide { showsTourCompletion = true }
         onNoteCompleted?()
     }
 }

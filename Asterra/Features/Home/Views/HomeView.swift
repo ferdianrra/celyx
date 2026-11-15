@@ -52,7 +52,9 @@ struct HomeView: View {
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false },
-                              cameraLink:tourCameraLink, onTourNoteCompleted:{ onboarding?.noteCompleted() })
+                              cameraLink:tourCameraLink, tourFocusDirection:onboarding?.gardenDirection,
+                              tourFocusCamera:onboarding?.gardenCamera,
+                              onTourNoteCompleted:{ onboarding?.noteCompleted() })
                     .ignoresSafeArea()
 
                 if let onboarding { tourLayer(onboarding) }
@@ -90,12 +92,14 @@ struct HomeView: View {
                 }
             }
             .onChange(of:handover?.showsSheet == true) { _, shows in
-                if shows, let handover, let id = handover.itemID {
-                    // Demo albums use the same composited frame that was saved with the observation.
-                    let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
-                    if !reduceMotion { WormholeFeedback.shared.playSheet() }
-                    sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo,
-                                                      isTour:onboarding != nil)
+                if shows, let handover, handover.itemID != nil {
+                    if let onboarding, onboarding.step == .wormhole {
+                        gardenUsesCamera = false
+                        onboarding.gardenPresented(direction:handover.starDirection,
+                            camera:handover.camera(handover.revealAt))
+                    } else if onboarding == nil {
+                        presentCapturedNote()
+                    }
                 }
             }
             // Figma "Home Screen" (998:2689): native top toolbar (compass, then a button group with the
@@ -136,17 +140,14 @@ struct HomeView: View {
                 showsStarCamera = false
                 onboarding?.realCameraClosed()
             }
-            .safeAreaInset(edge: .top) {
+            .overlay(alignment: .top) {
                 if let flow = onboarding, flow.isFindingRealObject, handover == nil {
-                    VStack(spacing: 8) {
-                        OnboardingGuidePill(text: flow.isDaytime ? OnboardingCopy.realDayGuide : OnboardingCopy.realNightGuide)
-                        Button(OnboardingCopy.cannotSeeObject) {
-                            showsStarCamera = false
-                            flow.useVirtualStar()
-                        }
-                        .buttonStyle(.glass)
+                    OnboardingCameraGuide(isDaytime: flow.isDaytime) {
+                        showsStarCamera = false
+                        flow.useVirtualStar()
                     }
                     .padding(.horizontal, 16)
+                    .padding(.top, 60)
                 }
             }
         }
@@ -167,7 +168,7 @@ struct HomeView: View {
                 }
                 Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
                 Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
-                Button(OnboardingCopy.replayIntro,systemImage:"sparkles") { startOnboarding() }
+                Button(OnboardingCopy.replayIntro,systemImage:"arrow.counterclockwise") { startOnboarding() }
             } label: {
                 Group {
                     if gardenUsesGyro {
@@ -283,7 +284,6 @@ struct HomeView: View {
                         home.tourCameraModeChanged(true)
                     }
                 }
-                .onChange(of:home.handover == nil) { _, ended in if ended { home.onboarding?.wormholeEnded() } }
         }
     }
 
@@ -357,7 +357,7 @@ struct HomeView: View {
             }
             if let handover, onboarding.step == .wormhole, let caption = tourCaption(handover.phase) {
                 // Below the Dynamic Island / notch on every device.
-                OnboardingGuidePill(text:caption)
+                OnboardingGuidePill(text:caption, symbol:"checkmark.circle")
                     .padding(.top,windowSafeTop + 10)
                     .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top)
                     .padding(.horizontal,24)
@@ -367,7 +367,7 @@ struct HomeView: View {
             }
             if handover == nil || onboarding.step != .wormhole {
                 OnboardingOverlay(flow:onboarding,
-                                  camera:gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera,
+                                  camera:onboarding.gardenCamera ?? (gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera),
                                   chromeVisible:tourShowsChrome && tourShowsBottomBar,
                                   topBarVisible:tourShowsChrome)
                     .transition(.opacity)
@@ -392,6 +392,7 @@ struct HomeView: View {
             setCamera:{ on in setTourCamera(on,flow:flow) },
             collect:{ star, point in collectPractice(star,at:point) },
             findRealObject:{ showsStarCamera = true },
+            showNote:{ presentCapturedNote() },
             cancel:{
                 tourCaptureTask?.cancel()
                 tourCaptureTask = nil
@@ -484,6 +485,7 @@ struct HomeView: View {
                                   color:star.color,kind:.star))
         let transition = WormholeHandover(freeze:freeze,star:point,itemID:star.id,
             scene:GardenSkyView.wormholeScene(model:model,newID:star.id,demo:demo),demo:demo)
+        transition.holdForOnboarding()
         demoShowing = true
         if reduceMotion {
             CrosshairFeedback.shared.play(CrosshairSound.collect)
@@ -523,6 +525,7 @@ struct HomeView: View {
         onboarding?.realObjectCollected()
         switch result {
         case .wormhole(let handover):
+            if onboarding != nil { handover.holdForOnboarding() }
             self.handover = handover
             demoShowing = handover.demo != nil
             handoverTask?.cancel()
@@ -534,10 +537,19 @@ struct HomeView: View {
             let transition = WormholeHandover(freeze: .placeholder(size: screenSize),
                 star: CGPoint(x: screenSize.width / 2, y: screenSize.height / 2), itemID: itemID,
                 scene: GardenSkyView.wormholeScene(model: model, newID: itemID))
+            if onboarding != nil { transition.holdForOnboarding() }
             handoverTask?.cancel()
             handover = transition
             handoverTask = Task { await transition.run(reduceMotion: true) }
         }
+    }
+
+    private func presentCapturedNote() {
+        guard let handover, let id = handover.itemID else { return }
+        let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
+        if !reduceMotion { WormholeFeedback.shared.playSheet() }
+        sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo,
+            isTour:onboarding != nil)
     }
 
     private var counts: CollectionSheet.Counts {

@@ -89,43 +89,77 @@ final class celyxUITests: XCTestCase {
     }
 
     @MainActor
-    func testTourEndsAfterNoteAndMenuTipsAppearOnlyOnFirstVisit() throws {
+    func testTourExplainsFirstLandingBeforeTheNoteWithoutASecondFlight() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=camera",
+        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=visibility",
             "-onboarding-aimed", "-ui-testing-reset-discovery"]
         app.launch()
-        app.buttons["Show real sky through the camera"].tap()
-        #if targetEnvironment(simulator)
-        let practice = app.buttons["Practise with a virtual star"]
-        if practice.waitForExistence(timeout: 5) { practice.tap() }
-        else {
-            let continueTour = app.buttons["Continue"]
-            XCTAssertTrue(continueTour.waitForExistence(timeout: 10))
-            continueTour.tap()
-        }
-        #else
-        XCTAssertTrue(app.staticTexts["That's the real sky"].waitForExistence(timeout: 15))
-        app.buttons["start-collecting"].tap()
-        app.buttons["Nothing visible — use a virtual star"].tap()
-        #endif
-        XCTAssertTrue(app.staticTexts["It's in your circle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Try a virtual star"].waitForExistence(timeout: 10))
+        app.buttons["Try a virtual star"].tap()
+        XCTAssertTrue(app.staticTexts["There you go! Target locked."].waitForExistence(timeout: 10))
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         let editor = app.descendants(matching: .any)["collection-note-editor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["This is your virtual garden"].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["You're all set!"].exists)
+        XCTAssertFalse(editor.exists)
+        XCTAssertTrue(app.staticTexts["Your practice star"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["tour-garden-star-highlight"].exists)
+        let garden = XCTAttachment(screenshot: app.screenshot())
+        garden.name = "First landing — garden explained before the note"
+        garden.lifetime = .keepAlways
+        add(garden)
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         editor.tap()
         editor.typeText("My first sky memory.\n")
-        XCTAssertTrue(app.staticTexts["Tutorial complete!"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["You're all set!"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["This is your virtual garden"].exists)
+        XCTAssertFalse(app.staticTexts["Your practice star"].exists)
         let achievement = XCTAttachment(screenshot: app.screenshot())
-        achievement.name = "Tutorial completed — Sky Explorer achievement"
+        achievement.name = "Tour finished — personal completion message"
         achievement.lifetime = .keepAlways
         add(achievement)
         app.buttons["finish-tour-celebration"].tap()
         let collection = app.buttons["Your Collection"]
         XCTAssertTrue(collection.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Practice Star, collected")).firstMatch.exists)
         XCTAssertFalse(app.staticTexts["Back in your Night Sea"].exists)
         XCTAssertFalse(app.buttons["Skip Tour"].exists)
+        XCTAssertFalse(app.staticTexts["Your practice star"].exists)
+    }
+
+    @MainActor
+    func testRealCameraGuideHasAFullWidthPracticeButton() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=visibility", "-onboarding-aimed"]
+        app.launch()
+        let camera = app.buttons["Yes, try the camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 10))
+        camera.tap()
+        let practice = app.buttons["tour-camera-try-virtual-star"]
+        XCTAssertTrue(practice.waitForExistence(timeout: 15))
+        XCTAssertTrue(practice.isHittable)
+        XCTAssertGreaterThanOrEqual(practice.frame.height, 50)
+        XCTAssertGreaterThan(practice.frame.width, app.frame.width * 0.7)
+        let panel = XCTAttachment(screenshot: app.screenshot())
+        panel.name = "Camera guide — full width practice button below navigation"
+        panel.lifetime = .keepAlways
+        add(panel)
+        practice.tap()
+        XCTAssertTrue(app.staticTexts["There you go! Target locked."].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testMenuTipsAppearOnlyOnFirstVisit() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-reset-discovery"]
+        app.launch()
+        let collection = app.buttons["Your Collection"]
+        XCTAssertTrue(collection.waitForExistence(timeout: 10))
         collection.tap()
         let collectionTip = app.descendants(matching: .any)["collection-discovery-tip"].firstMatch
         XCTAssertTrue(collectionTip.waitForExistence(timeout: 5))
@@ -193,7 +227,7 @@ final class celyxUITests: XCTestCase {
         add(ready)
         app.buttons["start-collecting"].tap()
         XCTAssertTrue(app.buttons["Yes, try the camera"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Nothing visible — use a virtual star"].exists)
+        XCTAssertTrue(app.buttons["Try a virtual star"].exists)
         #endif
     }
 

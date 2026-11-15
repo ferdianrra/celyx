@@ -30,7 +30,8 @@ struct DiscoveryTooltip: View {
 
 /// Celebrates the completed capture-and-note lesson without adding another tour step.
 struct OnboardingCompletionCard: View {
-    let onExplore: () -> Void
+    var isPractice = false
+    let onDone: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
@@ -42,7 +43,7 @@ struct OnboardingCompletionCard: View {
                 Circle().stroke(.white.opacity(0.15), lineWidth: 1).frame(width: 112, height: 112)
                 ForEach(0..<8) { index in
                     let angle = Double(index) * .pi / 4
-                    Image(systemName: index.isMultiple(of: 2) ? "sparkle" : "circle.fill")
+                    Image(systemName: index.isMultiple(of: 2) ? "star.fill" : "circle.fill")
                         .font(.system(size: index.isMultiple(of: 2) ? 13 : 4))
                         .foregroundStyle(Color(red: 0.9, green: 0.82, blue: 1))
                         .offset(x: cos(angle) * 67, y: sin(angle) * 67)
@@ -59,16 +60,16 @@ struct OnboardingCompletionCard: View {
             .frame(height: 150)
             .accessibilityHidden(true)
             VStack(spacing: 9) {
-                Text("SKY EXPLORER").font(.caption.weight(.bold)).tracking(3)
-                    .foregroundStyle(Color(red: 0.84, green: 0.77, blue: 1))
-                Text("Tutorial complete!").font(.title.weight(.bold))
-                Text("You know how to collect a sky object and add a note. Now the sky is yours to explore.")
+                Text("You're all set!").font(.title.weight(.bold))
+                Text(isPractice
+                    ? "This practice star will leave when you tap Done. The real stars you collect will stay in your garden."
+                    : "Your discovery has a home here now. Come back anytime to see the stars you've collected.")
                     .font(.body).foregroundStyle(.white.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .multilineTextAlignment(.center)
-            Button(action: onExplore) {
-                Label("Explore the sky", systemImage: "sparkles")
+            Button(action: onDone) {
+                Text("Done")
                     .font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 52)
             }
             .buttonStyle(CelyxTintedGlassButtonStyle())

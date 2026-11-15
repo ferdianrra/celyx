@@ -56,6 +56,24 @@ struct OnboardingOverlay: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
 
+                if flow.step == .garden, let direction = flow.gardenDirection,
+                    let point = camera.project(direction, in: size) {
+                    VStack(spacing: 10) {
+                        Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1.5)
+                            .frame(width: 54, height: 54)
+                            .background { OnboardingHighlight(size: CGSize(width: 38, height: 38), haptics: false) }
+                        Text(flow.star == nil ? "Your discovery" : "Your practice star")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(CelyxColor.night.opacity(0.85), in: Capsule())
+                    }
+                    // The ring is centered on the actual rendered star, above the coach card.
+                    .position(x: point.x, y: point.y + 23)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("tour-garden-star-highlight")
+                }
+
 
                 // Tap anywhere to collect, only while the star is locked so swipes still reach the sky.
                 Color.clear.contentShape(Rectangle())
@@ -79,21 +97,32 @@ struct OnboardingOverlay: View {
         .overlay(alignment: .bottom) {
             if let card = flow.card {
                 OnboardingCard(card: card, flow: flow)
+                    .id(flow.step)
                     .padding(.horizontal, 16)
                     .padding(.bottom, chromeVisible ? 67 : 12)
-                    .transition(reduceMotion ? .opacity
+                    .transition(reduceMotion || flow.step == .garden ? .opacity
                         : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                       removal: .opacity.combined(with: .scale(scale: 0.96))))
             }
         }
         .overlay(alignment: .topTrailing) {
-            if flow.step < .done && flow.step != .wormhole && !chromeVisible && !topBarVisible {
+            if flow.step < .wormhole && !chromeVisible && !topBarVisible {
                 Button(OnboardingCopy.skipTour) { flow.skip() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.glass)
                     .tint(.white)
                     .padding(.trailing, 16).padding(.top, 4)
                     .transition(.opacity)
+            }
+        }
+        .overlay {
+            if flow.step == .completion {
+                ZStack {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                    OnboardingCompletionCard(isPractice: flow.star != nil) { flow.finish() }
+                        .padding(20)
+                }
+                .accessibilityAddTraits(.isModal)
             }
         }
         .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.5, bounce: 0.12), value: flow.step)
@@ -165,10 +194,17 @@ private struct OnboardingCard: View {
                     .padding(.top, 18)
             }
             if let secondary = card.secondary {
-                Button(secondary) { flow.secondary() }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .padding(.top, 12)
+                Button { flow.secondary() } label: {
+                    Text(secondary)
+                        .font(.body.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(OnboardingSecondaryButtonStyle())
+                .padding(.top, 20)
             }
             if let primary = card.primary {
                 Button { flow.primary() } label: {
@@ -190,6 +226,15 @@ private struct OnboardingCard: View {
     }
 }
 
+/// A quiet, clearly bounded alternative inside the glass coach card.
+private struct OnboardingSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(CelyxColor.primaryLabel)
+            .background(.white.opacity(configuration.isPressed ? 0.2 : 0.09), in: Capsule())
+            .overlay { Capsule().strokeBorder(.white.opacity(0.3), lineWidth: 1) }
+    }
+}
 
 // MARK: - Pieces
 

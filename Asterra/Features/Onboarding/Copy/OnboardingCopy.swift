@@ -1,7 +1,3 @@
-/// Pusat copywriting untuk tur onboarding.
-/// Edit nilai teks di sini; urutan dan interaksi tetap di OnboardingFlow.
-/// Bagian di bawah mengikuti alur tur, termasuk halaman yang dibuka di tengah tur.
-/// Prompt izin iOS diatur lewat Info.plist / pengaturan proyek.
 enum OnboardingCopy {
 
     static let continueTour = "Continue"
@@ -9,18 +5,18 @@ enum OnboardingCopy {
     static let replayIntro = "Replay intro"
     static let startCollecting = "Start Collecting"
 
-    static let welcomeTitle = "Welcome to Asterra"
-    static let welcomeBody = "Let's take a one-minute walk through the sky together. You'll try everything yourself."
+    static let welcomeTitle = "Welcome to Asterra!"
+    static let welcomeBody = "Ready to explore the sky? Let's take a quick tour and discover how to find and collect objects above you."
     static let startTour = "Start the Tour"
 
     static let lookTitle = "This is your Night Sea"
-    static let lookBody = "Every star you collect will shine here. Turn around slowly and explore it: up, down and all the way round."
+    static let lookBody = "Every star you collect will shine here. Take a look around! Move your phone in different directions and explore the sky all around you."
 
-    static let lookSuccessTitle = "Nice, you're looking around"
-    static let lookSuccessBody = "The Night Sea follows your phone, wherever you point it."
+    static let lookSuccessTitle = "Look at you go!"
+    static let lookSuccessBody = "Your Night Sea moves wherever you point your phone. Now, are you ready to see the real sky?"
 
-    static let cameraTitle = "See the real sky"
-    static let cameraBody = "Your stars live in the real sky too. Tap the camera button in the corner to see it."
+    static let cameraTitle = "Let's explore the real sky!"
+    static let cameraBody = "Ready to see what's above you? Tap the AR button to switch to your camera."
 
     static let cameraStartingTitle = "Opening your camera…"
     static let cameraStartingBody = "Hold your phone up toward the sky and keep it steady for a moment."
@@ -34,27 +30,30 @@ enum OnboardingCopy {
     static let retryCamera = "Retry Camera"
     static let practiceWithoutCamera = "Practise with a virtual star"
 
-    static let cameraSuccessTitle = "That's the real sky"
-    static let cameraSuccessBody = "Let’s see what’s visible in your sky. Tap Start Collecting to try your first object."
-    static let dayVisibilityTitle = "Can you see the Sun?"
-    static let dayVisibilityBody = "It’s daytime where you are. If the Sun is visible, aim your camera toward it using the screen. Avoid looking directly at the Sun. If clouds hide it, we can try a virtual star."
-    static let nightVisibilityTitle = "Can you see the Moon or a star?"
-    static let nightVisibilityBody = "It’s dark where you are. Look for the Moon or a star, then aim your camera at the one you can see. If nothing is visible, we can try a virtual star."
+    static let cameraSuccessTitle = "Welcome to the real sky!"
+    static let cameraSuccessBody = "Let's see what's visible in your sky. Tap Start Collecting to find your first object."
+    static let dayVisibilityTitle = "Can you spot the Sun?"
+    static let dayVisibilityBody = "Take a look at the sky around you. See the Sun? Point your camera towards it. Be sure to keep your eyes on the screen, not the Sun. Can't see it right now? No worries, let's try a virtual star."
+    static let nightVisibilityTitle = "Can you spot the Moon or a star?"
+    static let nightVisibilityBody = "Take a look at the sky around you. See something? Point your camera towards it! Can't see anything right now? No worries, let's try a virtual star."
     static let canSeeObject = "Yes, try the camera"
-    static let cannotSeeObject = "Nothing visible — use a virtual star"
-    static let realDayGuide = "Aim at the Sun using your screen, then hold steady until the circle locks."
-    static let realNightGuide = "Aim at the Moon or a star you can see, then hold steady until the circle locks."
-    static let findStarTitle = "Let’s try a virtual star"
-    static let findStarBody = "This is a virtual practice star. Follow the glowing arrow, then move your phone until the star sits inside the circle."
-    static let starLockedTitle = "It's in your circle"
-    static let starLockedBody = "Now tap anywhere on the screen to collect it."
+    static let cannotSeeObject = "Try a virtual star"
+    static let realDayGuide = "Point your camera at the Sun and hold steady until it locks. Keep your eyes on the screen."
+    static let realNightGuide = "Point your camera at the Moon or a visible star, then hold steady until the circle locks."
+    static let findStarTitle = "Let’s try a virtual star!"
+    static let findStarBody = "Follow the glowing arrow and move your phone to bring the star inside the circle."
+    static let starLockedTitle = "There you go! Target locked."
+    static let starLockedBody = "You've got your star in sight! Tap anywhere on the screen to collect it."
     static let collectingTitle = "Collecting…"
     static let collectingBody = "Hold steady."
     static let practiceStarName = "Practice Star"
     static let practiceStarIdentificationNote = "Practice star from the Asterra tour. Not saved to your collection."
     static let wormholeCaption = "Collected! Watch it fly into your Night Sea."
-    static let noteEntryGuide = "Every star keeps a note. Write what this moment feels like, then tap Done."
+    static let noteEntryGuide = "Every discovery has a story. Write down yours below, then tap Done."
     static let starCardGuide = "This is your star's card: your note, photo, place and time. Tap ✕ to go back to the sky."
+    static let gardenTitle = "This is your virtual garden"
+    static let practiceGardenBody = "The stars you collect gather here. That one above is the practice star you just caught, now in your garden."
+    static let gardenBody = "The stars you collect gather here. That one above is your latest discovery, now in your garden."
 
     static let landedTitle = "That's collecting"
     static let landedBody = "Every real star you collect stays in your Night Sea. Tap the same button to go back there."
