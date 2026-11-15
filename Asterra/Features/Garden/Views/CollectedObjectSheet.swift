@@ -243,7 +243,14 @@ struct CollectedObjectSheet: View {
         VStack(spacing: 12) {
             information("Location", value: displayedItem.albumLocation, symbol: "location")
             Divider()
-            information("Light Pollution", value: content.lightPollution, symbol: "light.max")
+            VStack(alignment: .leading, spacing: 4) {
+                information("Light Pollution", value: content.lightPollutionDetail, symbol: "light.max")
+
+                if content.hasLightPollution {
+                    Link("Estimate by DarkSkySites.com", destination: URL(string: "https://darkskysites.com")!)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Divider()
             information("Date", value: content.date, symbol: "calendar")
             Divider()

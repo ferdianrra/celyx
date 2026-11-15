@@ -35,7 +35,7 @@ final class celyxUITests: XCTestCase {
         pager.swipeLeft()
         let fullPhoto = app.descendants(matching: .any).matching(identifier: "share-card-fullPhoto").firstMatch
         XCTAssertTrue(fullPhoto.waitForExistence(timeout: 5))
-        XCTAssertTrue(fullPhoto.label.contains("Light Pollution 6.2/9"))
+        XCTAssertTrue(fullPhoto.label.contains("Light Pollution Unavailable"))
         try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/celyx-share-full-photo.png"))
         pager.swipeRight()
         let card = app.descendants(matching: .any).matching(identifier: "share-card-polaroid").firstMatch

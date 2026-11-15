@@ -39,7 +39,7 @@ struct StarShareCard: View {
             VStack(spacing: 24) {
                 HStack(spacing: 13) {
                     if let number = content.collectionNumber { ShareCollectionBadge(number: number) }
-                    metadata("Light Pollution", value: content.lightPollution)
+                    lightPollutionMetadata
                 }
                 wordmark
             }
@@ -150,7 +150,7 @@ struct StarShareCard: View {
                 HStack(alignment: .top) {
                     metadata("Location", value: content.item.albumLocation)
                     Spacer(minLength: 0)
-                    metadata("Light Pollution", value: content.lightPollution)
+                    lightPollutionMetadata
                         .frame(width: 120.394, alignment: .leading)
                 }.frame(height: 40.502)
                 HStack(alignment: .top) {
@@ -170,7 +170,20 @@ struct StarShareCard: View {
                 .frame(width: Self.size.width, height: Self.size.height, alignment: .bottom)
         }
     }
+    
+    private var lightPollutionMetadata: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            metadata("Light Pollution", value: content.lightPollution)
 
+            if content.hasLightPollution {
+                Text("Est. · DarkSkySites.com")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .lineLimit(1)
+            }
+        }
+    }
+    
     private func metadata(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 3.771) {
             Text(label).font(.system(size: 11.314)).foregroundStyle(.white.opacity(0.5))
