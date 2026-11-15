@@ -164,6 +164,8 @@ struct HomeView: View {
     private func openStarCamera() { showsStarCamera = true }
 
     private func collected(_ result: StarCollectCameraView.CollectResult) {
+        // Both capture transitions land in the virtual garden before presenting the note.
+        gardenUsesCamera = false
         switch result {
         case .wormhole(let handover):
             self.handover = handover
