@@ -38,6 +38,7 @@
       "build-settings": {
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+        "ASTERRA_LIGHT_POLLUTION_URL": "https://asterra-light-pollution.ahzaki95.workers.dev/light-pollution",
         "ASTERRA_META_APP_ID": "",
         "CODE_SIGN_IDENTITY": "Apple Development",
         "CODE_SIGN_STYLE": "Automatic",

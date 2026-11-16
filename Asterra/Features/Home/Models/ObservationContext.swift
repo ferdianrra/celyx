@@ -73,6 +73,7 @@ struct CollectedStar: Codable, Identifiable {
     var note: String? = nil
     var identificationNote: String? = nil
     var placeName: String? = nil
+    var lightPollution: LightPollutionEstimate? = nil
 }
 
 nonisolated struct VisibilityFilters: Equatable, Sendable {
