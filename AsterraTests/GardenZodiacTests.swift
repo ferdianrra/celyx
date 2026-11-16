@@ -17,6 +17,8 @@ struct GardenZodiacTests {
         for item in figures {
             #expect(!item.requiredStarIDs.isEmpty)
             #expect(item.requiredStarIDs.isSubset(of: catalogue))
+            #expect(Set(item.alignmentStarIDs).count == 3)
+            #expect(item.alignmentStarIDs.allSatisfy(item.requiredStarIDs.contains))
             #expect(UIImage(named: item.assetName) != nil)
         }
         #expect(figures.first { $0.id == "Ari" }?.requiredStarIDs.count == 4)
@@ -24,10 +26,10 @@ struct GardenZodiacTests {
     }
 
     @Test func customDrawingsResolveFromTheCatalogAndRemainCached() async throws {
-        let expected = ["Cap": "capricon-figure", "Psc": "pisces-figure", "Sco": "scorpio-figure"]
+        let expected = ["Cap": "Capriconous", "Psc": "Pisces", "Sco": "Scorpius"]
         for (code, name) in expected {
             let item = try #require(GardenZodiacFigure.load().first { $0.id == code })
-            #expect(item.assetName == "constellation-figures/\(name)")
+            #expect(item.assetName == "constellation-figures-rafi-aligned/\(name)")
             let first = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: item.assetName))
             let second = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: item.assetName))
             #expect(first.image === second.image)
@@ -36,7 +38,7 @@ struct GardenZodiacTests {
             try #require(UIImage(cgImage: first.image).pngData()).write(to:
                 URL(fileURLWithPath: "/private/tmp/asterra-source-\(code).png"))
         }
-        #expect(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/missing") == nil)
+        #expect(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures-rafi-aligned/missing") == nil)
     }
 
     @Test func everyRequiredStarMustBeCollectedBeforeArtworkUnlocks() throws {
@@ -52,6 +54,41 @@ struct GardenZodiacTests {
         let all = figures.reduce(into: Set<Int>()) { $0.formUnion($1.requiredStarIDs) }
         #expect(GardenZodiacFigure.unlocked(figures, collected: all).count == 12)
     }
+
+    #if DEBUG
+    @Test func demoFillsAllTwelvePatternsWithoutSavingObservations() throws {
+        let figures = GardenZodiacFigure.load()
+        let ids = figures
+            .reduce(into: Set<Int>()) { $0.formUnion($1.requiredStarIDs) }
+        let existingIDs = try #require(figures.first { $0.id == "Lib" }).requiredStarIDs
+        let suite = "asterra.zodiac.preview.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let existing = existingIDs.map {
+            CollectedStar(id: $0, date: AppPreviewData.date, latitude: -6.2, longitude: 106.85)
+        }
+        let original = try JSONEncoder().encode(existing)
+        defaults.set(original, forKey: "collectedStars")
+        let home = HomeViewModel(location: AppPreviewData.location, defaults: defaults)
+        let garden = GardenViewModel(model: home)
+        let camera = garden.camera
+
+        garden.setDemoConstellations(true)
+        #expect(Set(garden.placed.map(\.id)) == ids)
+        #expect(garden.placed.count == ids.count)
+        #expect(Set(garden.placed.filter(\.isPreview).map(\.id)) == ids.subtracting(existingIDs))
+        #expect(Set(garden.completedZodiacFigures.map(\.id)) == GardenZodiacFigure.codes)
+        #expect(Set(garden.constellationConnections.flatMap { [$0.startID, $0.endID] }) == ids)
+        #expect(garden.camera == camera)
+        #expect(Set(home.collectionItems.map(\.id)) == existingIDs)
+        #expect(defaults.data(forKey: "collectedStars") == original)
+
+        garden.setDemoConstellations(false)
+        #expect(Set(garden.placed.map(\.id)) == existingIDs)
+        #expect(garden.completedZodiacFigures.map(\.id) == ["Lib"])
+        #expect(defaults.data(forKey: "collectedStars") == original)
+    }
+    #endif
 
     @Test func completingAndDeletingAStarUpdatesTheGardenFigure() throws {
         let libra = try #require(GardenZodiacFigure.load().first { $0.id == "Lib" })
@@ -97,7 +134,7 @@ struct GardenZodiacTests {
     }
 
     @Test func artworkStaysOnItsAnchorsAcrossZoomAndGyroRoll() throws {
-        for item in GardenZodiacFigure.load().filter({ ["Lib", "Ari", "Cap"].contains($0.id) }) {
+        for item in GardenZodiacFigure.load() {
             let (sky, original) = try scene(for: item)
             let size = CGSize(width: 402, height: 650)
             for gyro in [false, true] {
@@ -136,9 +173,32 @@ struct GardenZodiacTests {
         }
 
         #expect(project(at: 0).first?.opacity == 0.64)
-        let edge = try #require(project(at: 37).first)
+        let edge = try #require([15.0, 20, 25, 30, 37].compactMap { project(at: $0).first }
+            .first { $0.opacity < 0.64 })
         #expect(edge.opacity > 0 && edge.opacity < 0.64)
         #expect(project(at: 65).isEmpty)
+    }
+
+    @Test func artworkFadesForUnevenStretchButNotForZoomOrRoll() throws {
+        let item = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        let (sky, camera) = try scene(for: item)
+        let size = CGSize(width: 650, height: 650)
+        let center = camera.center(in: size)
+
+        func opacity(stretch: CGFloat, zoom: CGFloat = 1, roll: CGFloat = 0) -> Double? {
+            let transform = CGAffineTransform(scaleX: zoom * stretch, y: zoom).rotated(by: roll)
+            return GardenZodiacFigure.project([item], basis: sky.basis, size: size, forward: camera.forward) { direction in
+                camera.project(direction, in: size).map { point in
+                    let offset = CGPoint(x: point.x - center.x, y: point.y - center.y).applying(transform)
+                    return CGPoint(x: center.x + offset.x, y: center.y + offset.y)
+                }
+            }.first?.opacity
+        }
+
+        #expect(opacity(stretch: 1, zoom: 1.5, roll: 0.4) == 0.64)
+        let faded = try #require(opacity(stretch: 1.19))
+        #expect(faded > 0 && faded < 0.64)
+        #expect(opacity(stretch: 1.30) == nil)
     }
 
     @Test func horizonClipExcludesTheSeaAndFollowsPhoneRoll() {
@@ -189,8 +249,8 @@ struct GardenZodiacTests {
     }
 
     @Test func artworkAndGlowAreDecodedOnceAndReused() async throws {
-        let first = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/libra-figure"))
-        let second = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/libra-figure"))
+        let first = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures-rafi-aligned/Libra"))
+        let second = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures-rafi-aligned/Libra"))
         #expect(first.image === second.image)
         #expect(first.glow === second.glow)
         #expect(first.glow != nil)
@@ -198,13 +258,13 @@ struct GardenZodiacTests {
 
     @Test func motionUpdatesReuseImageLayersWithoutRestartingTheReveal() async throws {
         let libra = try #require(GardenZodiacFigure.load().first { $0.id == "Lib" })
-        let decoded = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures/libra-figure"))
+        let decoded = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures-rafi-aligned/Libra"))
         let view = GardenZodiacFigureLayerView()
         view.frame = CGRect(x: 0, y: 0, width: 402, height: 650)
         let clip = [CGPoint.zero, CGPoint(x: 402, y: 0), CGPoint(x: 402, y: 650), CGPoint(x: 0, y: 650)]
-        func update(_ step: Int, active: Bool = true, reduceMotion: Bool = false) {
+        func update(_ step: Int, active: Bool = true, reduceMotion: Bool = false, opacity: Double = 0.64) {
             let drawing = ProjectedConstellationFigure(figure: libra.figure,
-                transform: CGAffineTransform(translationX: Double(step % 100), y: 20), opacity: 0.64)
+                transform: CGAffineTransform(translationX: Double(step % 100), y: 20), opacity: opacity)
             view.update(unlockedIDs: ["Lib"], projected: [drawing], skyClip: clip,
                 artwork: ["Lib": decoded], animatedIDs: ["Lib"], isActive: active, reduceMotion: reduceMotion)
         }
@@ -219,6 +279,8 @@ struct GardenZodiacTests {
         #expect(view.layer.sublayers?.first === container)
         let current = try #require(image.contents) as AnyObject
         #expect(current === original)
+        update(1, opacity: 0.25)
+        #expect(container.opacity == 0.25)
         #expect(image.animation(forKey: "zodiac-reveal")?.beginTime == startedAt)
         update(1, reduceMotion: true)
         #expect(image.animationKeys()?.isEmpty ?? true)

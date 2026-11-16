@@ -18,6 +18,9 @@ struct HomeView: View {
     @State private var sheetRequest: GardenSheetRequest?
     /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
     @State private var demoShowing = false
+    #if DEBUG
+    @State private var demoConstellationsEnabled = false
+    #endif
     @State private var screenSize = CGSize(width: 402, height: 874)
     @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
@@ -33,10 +36,11 @@ struct HomeView: View {
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
-                              handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
+                              handover:handover,sheetRequest:sheetRequest,
+                              showsDemoConstellations:showsDemoConstellations,onDemoEnded:{ demoShowing = false })
                     .ignoresSafeArea()
 
-                if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing {
+                if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing && !showsDemoConstellations {
                     VStack(spacing:6) {
                         Text("Your sky is still empty").font(.system(size:15,weight:.semibold))
                         Text("Collect your first star and it will shine here.").font(.system(size:13)).opacity(0.7)
@@ -117,6 +121,9 @@ struct HomeView: View {
                 }
                 Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
                 Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
+                #if DEBUG
+                Toggle("Demo constellations", isOn: $demoConstellationsEnabled)
+                #endif
             } label: {
                 Group {
                     if gardenUsesGyro {
@@ -131,6 +138,9 @@ struct HomeView: View {
             .frame(width:44,height:44)
             .glassEffect(.regular.interactive(),in:Circle())
             .accessibilityLabel("Direction options")
+            #if DEBUG
+            .accessibilityValue(demoConstellationsEnabled ? "Demo constellations on" : "Demo constellations off")
+            #endif
         }
         .sharedBackgroundVisibility(.hidden)
         ToolbarItemGroup(placement:.topBarTrailing) {
@@ -150,6 +160,14 @@ struct HomeView: View {
                    systemImage:gardenUsesCamera ? "moon.stars.fill" : "arkit") { gardenUsesCamera.toggle() }
                 .contentTransition(.symbolEffect(.replace))
         }
+    }
+
+    private var showsDemoConstellations: Bool {
+        #if DEBUG
+        demoConstellationsEnabled && !showsStarCamera && handover == nil
+        #else
+        false
+        #endif
     }
 
     /// Keep controls out of the presentation until the reveal and live-camera return finish.

@@ -57,8 +57,10 @@ struct GardenCameraLayer: View {
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .disabled(sprite.entry.isPreview)
                             .position(x:sprite.point.x,y:sprite.point.y+sprite.entry.object.radius*(sprite.entry.object.kind == .star ? 7/1.3 : 1)*0.45+16)
-                            .accessibilityLabel("\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
+                            .accessibilityLabel(sprite.entry.isPreview ? "\(sprite.entry.item.star.title), preview star" :
+                                "\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
                         }
                     if let message = statusMessage {
                         Text(message).font(.system(size:12,weight:.medium)).foregroundStyle(.white.opacity(0.9))
@@ -87,7 +89,9 @@ struct GardenCameraLayer: View {
                 let size = viewport == .zero ? geometry.size : viewport
                 let hits = project(in:size).map { ($0,hypot($0.point.x-value.location.x,$0.point.y-value.location.y)) }
                     .filter { $0.1 <= max(36,$0.0.entry.object.radius*($0.0.entry.object.kind == .star ? 7/1.3 : 1)*0.6) }
-                if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.item) }
+                if let hit = hits.min(by:{ $0.1 < $1.1 }), !hit.0.entry.isPreview {
+                    onSelect(hit.0.entry.item)
+                }
             })
         }
         .background(Color.black)
