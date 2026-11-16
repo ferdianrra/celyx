@@ -11,7 +11,7 @@ struct EventCameraGuide: Equatable {
     var azimuth: Double
     var altitude: Double
 
-    /// Close enough to the centre circle to collect.
+    /// Close enough to the centre to collect.
     var isAimed: Bool { separation <= 8 && altitude > 0 }
 
     /// Screen direction from `center` toward the event: straight at it when visible, else the shortest turn.
@@ -22,110 +22,96 @@ struct EventCameraGuide: Equatable {
         return length < 1 ? arrow : CGVector(dx: dx / length, dy: dy / length)
     }
 
-    var compass: String {
-        let names = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
-        return names[Int(((azimuth.truncatingRemainder(dividingBy: 360) + 360 + 22.5) / 45)) % 8]
+    /// Short Find My–style wording under the angle.
+    var relation: String {
+        if isAimed { return "ahead" }
+        if altitude <= 0 { return "below the horizon" }
+        if abs(arrow.dx) >= abs(arrow.dy) { return arrow.dx > 0 ? "to your right" : "to your left" }
+        return arrow.dy > 0 ? "lower" : "higher"
     }
 }
 
-/// Top banner: the event and the only time it can be collected (the same window as its card).
-struct EventWindowBanner: View {
-    let event: SkyEvent
-    let now: Date
-
-    private var status: (text: String, color: Color) {
-        if event.isOpen(at: now) {
-            return ("Open now · until " + event.end.formatted(date: .omitted, time: .shortened), .green)
-        }
-        if event.hasEnded(at: now) { return ("This event has ended", .red) }
-        let remaining = event.start.timeIntervalSince(now)
-        let text =
-            remaining < 86400
-            ? "Opens in " + Duration.seconds(remaining).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-            : event.opensLabel
-        return (text, .orange)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                SkyEventKindLabel(kind: event.kind, size: 12, opacity: 0.7)
-                Spacer(minLength: 8)
-                HStack(spacing: 5) {
-                    Circle().fill(status.color).frame(width: 7, height: 7)
-                    Text(status.text).font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-            }
-            Text(event.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                .lineLimit(1).minimumScaleFactor(0.8)
-            Label {
-                Text("Can only be collected \(event.collectWindow)")
-            } icon: {
-                Image(systemName: "clock")
-            }
-            .font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(.black.opacity(0.25)), in: .rect(cornerRadius: 22))
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Ring drawn on the sky where the event is.
-struct EventGuideMarker: View {
-    let title: String
-    let isAimed: Bool
-    var body: some View {
-        VStack(spacing: 6) {
-            Circle()
-                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: isAimed ? [] : [6, 5]))
-                .foregroundStyle(isAimed ? Color.green : .white)
-                .frame(width: 92, height: 92)
-                .shadow(color: .black.opacity(0.4), radius: 2)
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .glassEffect(.regular, in: .capsule)
-        }
-        .offset(y: 20)
-        .animation(.snappy, value: isAimed)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Big arrow orbiting the centre circle, pointing toward the event as the phone moves.
-struct EventDirectionArrow: View {
-    let arrow: CGVector
+/// Apple "Nearby" (Precision Finding) style guide: one big arrow that turns toward the event, the angle
+/// left to turn, and a green screen once the camera faces it. No cards over the sky.
+struct EventNearbyFinder: View {
+    let guide: EventCameraGuide?
     let size: CGSize
+    /// Unwrapped arrow angle, so it turns the short way instead of spinning around at ±180°.
+    @State private var angle: Double = 0
     @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var center: CGPoint { CGPoint(x: size.width / 2, y: size.height / 2 + 10) }
+    private var aimed: Bool { guide?.isAimed == true }
+    private var targetAngle: Double? {
+        guard let guide else { return nil }
+        let v = guide.pointing(from: center)
+        return atan2(v.dy, v.dx) + .pi / 2  // the arrow symbol points up
+    }
+
     var body: some View {
-        let orbit: CGFloat = 96
-        let center = CGPoint(x: size.width / 2, y: size.height / 2 + 10)
-        let angle = atan2(arrow.dy, arrow.dx)
-        Image(systemName: "location.north.fill")
-            .font(.system(size: 46, weight: .bold))
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.5), radius: 4)
-            // The symbol points up; rotate it onto the arrow's screen angle.
-            .rotationEffect(.radians(angle + .pi / 2))
-            .offset(x: cos(angle) * (pulse ? 10 : 0), y: sin(angle) * (pulse ? 10 : 0))
-            .position(x: center.x + cos(angle) * orbit, y: center.y + sin(angle) * orbit)
-            .animation(.smooth(duration: 0.25), value: angle)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { pulse = true }
+        ZStack {
+            // The whole screen washes green when the event is straight ahead, like Find My.
+            Color.green.opacity(aimed ? 0.32 : 0).ignoresSafeArea()
+
+            Group {
+                if aimed {
+                    Circle().fill(.white)
+                        .frame(width: 128, height: 128)
+                        .scaleEffect(pulse ? 1.06 : 0.94)
+                        .transition(.scale.combined(with: .opacity))
+                } else if guide != nil {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 150, weight: .bold))
+                        .foregroundStyle(.white)
+                        .rotationEffect(.radians(angle))
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            .shadow(color: .black.opacity(0.35), radius: 6)
+            .position(center)
+
+            if let guide {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(aimed ? "Here" : "\(Int(guide.separation.rounded()))°")
+                        .font(.system(size: 64, weight: .semibold, design: .rounded))
+                        .contentTransition(.numericText())
+                    Text(guide.relation).font(.system(size: 24, weight: .medium))
+                        .opacity(0.8)
+                }
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.4), radius: 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.leading, 28).padding(.bottom, 150)
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: aimed)
+        .animation(.snappy, value: Int(guide?.separation.rounded() ?? 0))
+        .onChange(of: targetAngle, initial: true) { _, value in
+            guard let value else { return }
+            var delta = (value - angle).truncatingRemainder(dividingBy: 2 * .pi)
+            if delta > .pi { delta -= 2 * .pi } else if delta < -.pi { delta += 2 * .pi }
+            // Updates arrive every frame; a short interactive spring follows them without lag or stutter.
+            withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.15, dampingFraction: 0.9)) {
+                angle += delta
+            }
+        }
+        .onChange(of: aimed, initial: true) { _, value in
+            guard value, !reduceMotion else { pulse = false; return }
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
+        }
+        // A tick every 10° closer, and a success tap once it's straight ahead.
+        .sensoryFeedback(.selection, trigger: Int((guide?.separation ?? 0) / 10))
+        .sensoryFeedback(.success, trigger: aimed) { _, now in now }
+        .allowsHitTesting(false)
+        .accessibilityElement()
+        .accessibilityLabel(
+            guide.map { aimed ? "Facing the event" : "\(Int($0.separation.rounded())) degrees \($0.relation)" }
+                ?? "Finding the event")
     }
 }
 
-/// Bottom guidance and the collect button for an event.
+/// The collect button for an event; it carries the timing so nothing else covers the sky.
 struct EventCollectPanel: View {
     let event: SkyEvent
     let guide: EventCameraGuide?
@@ -133,35 +119,26 @@ struct EventCollectPanel: View {
     let isCollected: Bool
     let onCollect: () -> Void
 
-    private var message: String {
-        if isCollected { return "\(event.title) is in your collection" }
-        guard let guide else { return "Hold your phone up to the sky to find \(event.title)" }
-        if guide.altitude <= 0 {
-            return "It’s below your horizon right now. Face the \(guide.compass) during the viewing time."
-        }
-        if guide.isAimed { return "You’re facing \(event.title)" }
-        return "Follow the arrow"
+    private var opensTitle: String {
+        let start = event.nextNight(after: now)?.start ?? event.start
+        let remaining = start.timeIntervalSince(now)
+        guard remaining < 86400 else { return event.opensLabel }
+        return "Opens in "
+            + Duration.seconds(remaining).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            CameraCollectionPrompt(text: message, ready: guide?.isAimed == true)
-            button
-        }
-    }
-
-    @ViewBuilder private var button: some View {
         if isCollected {
             CelyxPillButton(title: "Collected", systemImage: "checkmark", style: .collected) {}
                 .allowsHitTesting(false)
         } else if event.hasEnded(at: now) {
             CelyxPillButton(title: "This event has ended", style: .disabled) {}
         } else if !event.isOpen(at: now) {
-            CelyxPillButton(title: event.opensLabel, style: .disabled) {}
+            CelyxPillButton(title: opensTitle, systemImage: "lock.fill", style: .disabled) {}
         } else if guide?.isAimed == true {
             CelyxPillButton(title: "Collect this event", action: onCollect)
         } else {
-            CelyxPillButton(title: "Point at the event to collect", style: .disabled) {}
+            CelyxPillButton(title: "Follow the arrow", style: .disabled) {}
         }
     }
 }

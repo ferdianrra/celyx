@@ -6,6 +6,9 @@ struct CollectionListView: View {
     let model: HomeViewModel
     let events: SkyEventStore
     let onSelectEvent: (SkyEvent) -> Void
+    /// Stars, planets and constellation members: the garden flies to the object and opens its sheet.
+    /// Without it (previews) the sheet opens here.
+    var onSelectStar: ((GardenCollectionItem) -> Void)? = nil
     @State private var selected: GardenCollectionItem?
 
     var body: some View {
@@ -72,7 +75,7 @@ struct CollectionListView: View {
                             }
                             ForEach(group.items) { item in
                                 Button {
-                                    selected = item
+                                    select(item)
                                 } label: {
                                     itemRow(item)
                                 }.buttonStyle(.plain)
@@ -91,13 +94,17 @@ struct CollectionListView: View {
             VStack(spacing: 12) {
                 ForEach(items) { item in
                     Button {
-                        selected = item
+                        select(item)
                     } label: {
                         itemRow(item)
                     }.buttonStyle(.plain)
                 }
             }
         }
+    }
+
+    private func select(_ item: GardenCollectionItem) {
+        if let onSelectStar { onSelectStar(item) } else { selected = item }
     }
 
     private func itemRow(_ item: GardenCollectionItem) -> some View {

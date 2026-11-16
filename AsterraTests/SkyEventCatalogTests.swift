@@ -10,13 +10,22 @@ struct SkyEventCatalogTests {
         start: Date(timeIntervalSince1970: 1_793_491_200),  // 2026-11-01 UTC
         duration: 30 * 86400)
 
-    @Test func eventsAreComputedForTheObserverAndAreStable() {
+    @Test func eventsAreComputedForTheObserverAndAreStable() throws {
         let catalog = SkyEventCatalog()
         catalog.update(location: ObserverLocation(latitude: -6.1754, longitude: 106.8272))
         let events = catalog.events(in: november2026)
         #expect(events.contains { $0.kind == .moon && $0.title.contains("Moon") })
         #expect(events.contains { $0.id.hasPrefix("leonids-") })
-        #expect(events.allSatisfy { $0.start < $0.end && $0.end.timeIntervalSince($0.start) < 24 * 3600 })
+        #expect(events.allSatisfy { $0.start < $0.end })
+        // Each viewing window is a single night; multi-night events list one window per night.
+        #expect(events.allSatisfy { event in
+            (event.nights.isEmpty ? [DateInterval(start: event.start, end: event.end)] : event.nights)
+                .allSatisfy { $0.duration < 24 * 3600 }
+        })
+        // Planet pairs stay close for several nights, so the conjunction spans them.
+        let pair = try #require(events.first { $0.id.hasPrefix("mars-jupiter-") })
+        #expect(pair.nights.count > 1)
+        #expect(pair.nights.allSatisfy { pair.isOpen(at: $0.start.addingTimeInterval(60)) })
         #expect(Set(events.map(\.id)).count == events.count)
         // Cached and deterministic.
         #expect(catalog.events(in: november2026).map(\.id) == events.map(\.id))

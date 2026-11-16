@@ -48,19 +48,30 @@ struct SkyEvent: Identifiable, Hashable {
     let tips: String
     let artwork: Artwork
     let target: Target
+    /// Viewing windows on each night the event can be seen (e.g. a conjunction spanning several nights).
+    /// Empty means the single window `start`…`end`.
+    var nights: [DateInterval] = []
     var hero: String { artwork.asset == "celyx-event-mars-jupiter" ? "celyx-event-mars-jupiter-hero" : artwork.asset }
     var cameraThumbnail: String {
         artwork.asset == "celyx-event-mars-jupiter" ? "celyx-mars-jupiter-thumb" : artwork.asset
     }
 
     /// Events can only be collected inside their viewing window (the time shown on the card).
-    func isOpen(at date: Date) -> Bool { date >= start && date <= end }
+    private var windows: [DateInterval] { nights.isEmpty ? [DateInterval(start: start, end: end)] : nights }
+    /// The night window that contains `date`, if any.
+    func night(at date: Date) -> DateInterval? { windows.first { $0.start <= date && date <= $0.end } }
+    /// The next night window that hasn't started yet.
+    func nextNight(after date: Date) -> DateInterval? { windows.first { $0.start > date } }
+    func isOpen(at date: Date) -> Bool { night(at: date) != nil }
     func hasEnded(at date: Date) -> Bool { date > end }
+    /// From the start of the event's first day until its last window ends: the camera can be opened
+    /// to find it, while collecting itself still waits for a viewing window (`isOpen`).
+    func isAvailable(at date: Date) -> Bool { date >= Calendar.current.startOfDay(for: start) && date <= end }
     /// "November 16, 2026 · 12:50 AM – 04:55 AM"
     var collectWindow: String { "\(detailDate) · \(viewingTime)" }
     var opensLabel: String {
         "Opens "
-            + start.formatted(
+            + (nextNight(after: Date())?.start ?? start).formatted(
                 .dateTime.month(.abbreviated).day().hour().minute().locale(Locale(identifier: "en_US")))
     }
 }

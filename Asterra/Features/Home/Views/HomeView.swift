@@ -16,6 +16,7 @@ struct HomeView: View {
     @State private var handoverTask: Task<Void, Never>?
     @State private var handover: WormholeHandover?
     @State private var sheetRequest: GardenSheetRequest?
+    @State private var focusRequest: GardenFocusRequest?
     /// Debug demo star is in the sky / its card is open: keep the empty-state text out of the way.
     @State private var demoShowing = false
     @State private var screenSize = CGSize(width: 402, height: 874)
@@ -33,7 +34,8 @@ struct HomeView: View {
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
-                              handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false })
+                              handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false },
+                              focusRequest:focusRequest)
                     .ignoresSafeArea()
 
                 if model.collectionItems.isEmpty && !showsCollection && handover == nil && !demoShowing {
@@ -79,13 +81,28 @@ struct HomeView: View {
                 case .event(let event):
                     SkyEventDetailView(event:event,store:events) { camera = .event(event) }
                 case .collection(let category):
-                    CollectionListView(category:category,model:model,events:events) { path.append(.event($0)) }
+                    CollectionListView(category:category,model:model,events:events,onSelectEvent:{ path.append(.event($0)) },
+                                       onSelectStar:{ item in
+                        // Back to the garden, fly to the star, then its sheet.
+                        path.removeAll()
+                        focusRequest = GardenFocusRequest(itemID:item.id)
+                    })
                 }
             }
         }
         .preferredColorScheme(.dark)
         // Sky events are computed for wherever the user is.
         .onChange(of:model.location,initial:true) { _,location in SkyEventCatalog.shared.update(location:location) }
+        // Event notifications (30 min before + when a window opens) are rebuilt whenever the app comes back,
+        // the events move with the location, or an event is collected or muted.
+        .onChange(of:notificationKey,initial:true) { _,key in
+            if key.active { SkyEventNotifications.shared.reschedule(store:events) }
+        }
+        .onChange(of:SkyEventNotifications.shared.opened,initial:true) { _,opened in
+            guard let opened else { return }
+            SkyEventNotifications.shared.opened = nil
+            openEvent(id:opened.eventID,moment:opened.moment)
+        }
         .sheet(isPresented:$showsCollection,onDismiss:openSelectedCollection) {
             CollectionSheet(counts:counts,onSelect:{ category in
                 pendingCollectionCategory = category
@@ -105,6 +122,31 @@ struct HomeView: View {
                 camera = nil
                 if finished { path.removeAll() }
             }
+        }
+    }
+
+    private struct NotificationKey: Equatable {
+        let active: Bool
+        let revision: Int
+        let collected: Set<String>
+        let muted: Set<String>
+    }
+    private var notificationKey: NotificationKey {
+        NotificationKey(active:phase == .active,revision:SkyEventCatalog.shared.revision,
+                        collected:events.collected,muted:events.muted)
+    }
+
+    /// A tapped notification: "happening now" goes straight to the event camera, otherwise its details.
+    private func openEvent(id:String,moment:SkyEventNotifications.Moment) {
+        guard let event = SkyEvent.catalogue.first(where:{ $0.id == id }) else { return }
+        showsCollection = false
+        showsCalibration = false
+        showsStarCamera = false
+        path = [.calendar,.event(event)]
+        if moment == .live && event.isAvailable(at:Date()) && !events.collected.contains(event.id) {
+            camera = .event(event)
+        } else {
+            camera = nil
         }
     }
 

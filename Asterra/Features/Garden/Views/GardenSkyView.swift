@@ -21,6 +21,8 @@ struct GardenSkyView: View {
     var sheetRequest: GardenSheetRequest?
     /// Called when the demo object's album closes (debug replay).
     var onDemoEnded: () -> Void = {}
+    /// A star picked from the collection list: fly to it, then open its sheet.
+    var focusRequest: GardenFocusRequest?
 
     @State private var viewModel: GardenViewModel
     @State private var failed = false
@@ -32,8 +34,10 @@ struct GardenSkyView: View {
         model: HomeViewModel, camera: Binding<NightSeaCamera>, isActive: Bool = true,
         resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
-        sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {}
+        sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {},
+        focusRequest: GardenFocusRequest? = nil
     ) {
+        self.focusRequest = focusRequest
         self.handover = handover
         self.sheetRequest = sheetRequest
         self.onDemoEnded = onDemoEnded
@@ -137,7 +141,20 @@ struct GardenSkyView: View {
                 LandingStarFlight(handover: handover).ignoresSafeArea()
             }
         }
-        .sheet(item: $viewModel.selected) { item in
+        .task(id: focusRequest?.id) {
+            guard let request = focusRequest else { return }
+            // Wait for the list to pop back to the garden before flying.
+            while !isActive && !Task.isCancelled { try? await Task.sleep(for: .milliseconds(50)) }
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 350))
+            guard !Task.isCancelled else { return }
+            if usesCamera {
+                // The live camera follows the phone; just open the sheet.
+                viewModel.selected = model.collectionItems.first { $0.id == request.itemID }
+            } else {
+                await viewModel.focus(on: request.itemID)
+            }
+        }
+        .sheet(item: $viewModel.selected, onDismiss: { Task { await viewModel.endFocus() } }) { item in
             CollectedObjectSheet(
                 item: item,
                 direction: viewModel.placed.first(where: { $0.id == item.id })?.object.direction,
@@ -333,6 +350,12 @@ struct GardenSkyView: View {
 }
 
 /// One request to show the collected object's album (a new value every time).
+/// Fly the garden camera to a collected object, then show its sheet (from the collection list).
+struct GardenFocusRequest: Equatable, Identifiable {
+    let id = UUID()
+    let itemID: Int
+}
+
 struct GardenSheetRequest: Equatable, Identifiable {
     let id = UUID()
     let itemID: Int

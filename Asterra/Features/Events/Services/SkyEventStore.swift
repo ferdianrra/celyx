@@ -1,25 +1,26 @@
 import Foundation
 import Observation
 
-/// Local state for reminders and events the user has collected.
+/// Local state for event notifications and events the user has collected.
 @Observable
 final class SkyEventStore {
     private let defaults = UserDefaults.standard
-    private(set) var reminders: Set<String>
+    /// Every event notifies by default; the bell turns it off for the events listed here.
+    private(set) var muted: Set<String>
     private(set) var collected: Set<String>
 
     init() {
-        reminders = Set(
-            defaults.stringArray(forKey: "skyEventReminders") ?? [])
+        muted = Set(defaults.stringArray(forKey: "mutedSkyEvents") ?? [])
         collected = Set(defaults.stringArray(forKey: "collectedSkyEvents") ?? [])
     }
+    func isReminderOn(_ event: SkyEvent) -> Bool { !muted.contains(event.id) }
     func toggleReminder(_ event: SkyEvent) {
-        if reminders.contains(event.id) {
-            reminders.remove(event.id)
+        if muted.contains(event.id) {
+            muted.remove(event.id)
         } else {
-            reminders.insert(event.id)
+            muted.insert(event.id)
         }
-        defaults.set(Array(reminders), forKey: "skyEventReminders")
+        defaults.set(Array(muted), forKey: "mutedSkyEvents")
     }
     func collect(_ event: SkyEvent) {
         collected.insert(event.id)

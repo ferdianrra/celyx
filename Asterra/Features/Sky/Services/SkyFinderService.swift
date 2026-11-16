@@ -562,6 +562,18 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             projection: screenProjection(frame), size: viewport)
     }
 
+    /// Event guide projection: needs only the live motion pose, so it keeps following the phone while it
+    /// turns fast (frames flagged as motion-blurred still carry a valid orientation).
+    func eventProjection(horizon direction: SIMD3<Double>) -> SkyFinderProjection? {
+        guard running, hasLocationFix, let frame = session.currentFrame,
+            viewport.width > 0, viewport.height > 0
+        else { return nil }
+        if case .notAvailable = frame.camera.trackingState { return nil }
+        return SkyFinderProjection.project(direction: alignedDirection(direction),
+            view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
+            projection: screenProjection(frame), size: viewport)
+    }
+
     func clearAlignment() { resetTrackingForCalibration() }
     func resetTrackingForCalibration() {
         clearPinnedLight()

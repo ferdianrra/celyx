@@ -98,7 +98,7 @@ struct SkyCalendarView: View {
             }
             ForEach(monthEvents) { event in
                 Button { onSelect(event) } label: {
-                    SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
+                    SkyEventCard(event:event,isReminderOn:store.isReminderOn(event)) { store.toggleReminder(event) }
                 }
                 .buttonStyle(.plain)
             }

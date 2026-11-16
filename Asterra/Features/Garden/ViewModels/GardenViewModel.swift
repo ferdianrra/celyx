@@ -31,6 +31,10 @@ final class GardenViewModel {
     var zoomStart: Double?
     var selected: GardenCollectionItem?
     var reduceMotion = false
+    /// True while the camera flies to an object picked from the collection list (sensors don't steer).
+    private(set) var isFocusing = false
+    /// Field of view to return to after a focus flight's sheet closes.
+    private var fieldOfViewBeforeFocus: Double?
 
     static let fallbackLocation = ObserverLocation(
         latitude: -6.2, longitude: 106.85, isManual: true)  // Jakarta
@@ -215,7 +219,7 @@ final class GardenViewModel {
         let direction = -attitude.columns.2
         let altitude = asin(min(1, max(-1, direction.z)))
         lastPhoneDirection = direction
-        guard dragStart == nil, zoomStart == nil else {
+        guard dragStart == nil, zoomStart == nil, !isFocusing else {
             // Movement while touching must not count toward automatic reactivation.
             touchReferenceDirection = direction
             raisedSince = nil
@@ -269,6 +273,67 @@ final class GardenViewModel {
         let fov = Double(device.activeFormat.videoFieldOfView)
         return fov > 20 && fov < 130 ? fov : 69
     }()
+
+    // MARK: Focus flight
+
+    /// Turns and zooms the camera onto a collected object, then opens its sheet.
+    func focus(on itemID: Int) async {
+        place()
+        guard let entry = placed.first(where: { $0.id == itemID }) else {
+            selected = model.collectionItems.first { $0.id == itemID }
+            return
+        }
+        isFocusing = true
+        defer { isFocusing = false }
+        setGyroMode(false)
+        preserveTouchView()
+        camera.focalOverride = nil
+        camera.centerYFraction = nil
+        let direction = entry.object.direction
+        let start = (azimuth: camera.azimuth, altitude: camera.altitude, fov: camera.fieldOfView)
+        fieldOfViewBeforeFocus = start.fov
+        // Shortest turn; objects below the horizon are framed just above it so the sea stays in view.
+        let targetAzimuth = atan2(direction.x, direction.y)
+        var turn = (targetAzimuth - start.azimuth).truncatingRemainder(dividingBy: 2 * .pi)
+        if turn > .pi { turn -= 2 * .pi } else if turn < -.pi { turn += 2 * .pi }
+        let targetAltitude = max(asin(min(1, max(-1, direction.z))), 6 * .pi / 180)
+        let targetFOV = min(start.fov, 42)
+        if !reduceMotion {
+            // Duration grows with the turn: quick for a neighbour, ~1.6 s across the sky.
+            let angle = acos(min(1, max(-1, simd_dot(camera.forward, direction))))
+            let duration = 0.7 + 0.9 * angle / .pi
+            let clock = ContinuousClock(), began = clock.now
+            while true {
+                let elapsed = began.duration(to: clock.now)
+                let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+                let t = min(1, seconds / duration)
+                let k = t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2  // ease in-out cubic
+                camera.azimuth = start.azimuth + turn * k
+                camera.altitude = start.altitude + (targetAltitude - start.altitude) * k
+                camera.fieldOfView = start.fov + (targetFOV - start.fov) * k
+                if t >= 1 || Task.isCancelled { break }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+        camera.azimuth = start.azimuth + turn
+        camera.altitude = targetAltitude
+        camera.fieldOfView = targetFOV
+        guard !Task.isCancelled else { return }
+        selected = entry.item
+    }
+
+    /// Eases the zoom back out after the focused object's sheet closes.
+    func endFocus() async {
+        guard let target = fieldOfViewBeforeFocus else { return }
+        fieldOfViewBeforeFocus = nil
+        guard camera.orientation == nil, !reduceMotion else { camera.fieldOfView = target; return }
+        let from = camera.fieldOfView
+        for step in 1...24 {
+            let t = Double(step) / 24, k = 1 - pow(1 - t, 3)
+            camera.fieldOfView = from + (target - from) * k
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
 
     // MARK: Gestures
 

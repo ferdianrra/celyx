@@ -16,7 +16,7 @@ struct SkyEventDetailView: View {
                     infoRow(symbol: "safari", label: "Direction", value: event.direction)
                     aboutBox
                     tipsBox
-                    actionButton(isOpen: event.isOpen(at: context.date))
+                    actionButton(isOpen: event.isAvailable(at: context.date))
                 }
                 .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 49)
             }
@@ -29,8 +29,8 @@ struct SkyEventDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(
-                    store.reminders.contains(event.id) ? "Turn off reminder" : "Remind me",
-                    systemImage: store.reminders.contains(event.id) ? "bell.fill" : "bell"
+                    store.isReminderOn(event) ? "Turn off reminder" : "Remind me",
+                    systemImage: store.isReminderOn(event) ? "bell.fill" : "bell"
                 ) {
                     store.toggleReminder(event)
                 }

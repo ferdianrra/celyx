@@ -38,8 +38,9 @@ final class SkyEventCatalog {
             cache.removeAll()
         }
         // Event instants are grouped by UTC month; pad so windows that spill across a month edge still show.
-        var month = Self.utcMonthStart(interval.start.addingTimeInterval(-3 * 86400))
-        let last = interval.end.addingTimeInterval(3 * 86400)
+        // Multi-night conjunctions can start a few days before their peak instant.
+        var month = Self.utcMonthStart(interval.start.addingTimeInterval(-5 * 86400))
+        let last = interval.end.addingTimeInterval(5 * 86400)
         var result: [SkyEvent] = []
         while month < last {
             let next = Self.utc.date(byAdding: .month, value: 1, to: month) ?? last
@@ -270,11 +271,26 @@ final class SkyEventCatalog {
                         near: peak, target: .pair(aName, bName), minAltitude: 8, sunBelow: -6)
                 else { continue }
                 let isMoon = a == BODY_MOON
+                // Planets close in slowly: show every night they stay paired (within ±3 nights of the peak),
+                // not only the closest one. The Moon moves on within a night.
+                var nights = [window]
+                if !isMoon {
+                    for offset in [-3, -2, -1, 1, 2, 3] {
+                        let anchor = peak.addingTimeInterval(Double(offset) * 86400)
+                        guard Self.separation(a, b, at: anchor) < limit + 1,
+                            let night = sky.window(
+                                near: anchor, target: .pair(aName, bName), minAltitude: 8, sunBelow: -6),
+                            !nights.contains(where: { abs($0.start.timeIntervalSince(night.start)) < 6 * 3600 })
+                        else { continue }
+                        nights.append(night)
+                    }
+                    nights.sort { $0.start < $1.start }
+                }
                 let angle = separation.formatted(.number.precision(.fractionLength(1)))
                 events.append(
                     event(
                         id: "\(aName.lowercased())-\(bName.lowercased())", peak: peak, kind: .event,
-                        title: "\(aName) & \(bName) Conjunction", window: window,
+                        title: "\(aName) & \(bName) Conjunction", window: window, nights: nights,
                         about: isMoon
                             ? "The Moon passes just \(angle)° from \(bName), making the planet easy to find."
                             : "\(aName) and \(bName) appear only \(angle)° apart. Although millions of kilometres apart, the two planets seem to meet from our point of view on Earth.",
@@ -313,16 +329,19 @@ final class SkyEventCatalog {
     // MARK: Building events
 
     private func event(
-        id: String, peak: Date, kind: SkyEvent.Kind, title: String, window: SkySampler.Window, about: String,
-        tips: String, artwork: SkyEvent.Artwork
+        id: String, peak: Date, kind: SkyEvent.Kind, title: String, window: SkySampler.Window,
+        nights: [SkySampler.Window] = [], about: String, tips: String, artwork: SkyEvent.Artwork
     ) -> SkyEvent {
-        let dates = Self.dateText(window.start, window.end)
+        // `window` is the best (peak) night: it sets the viewing time and direction shown on the card.
+        let first = nights.first ?? window, last = nights.last ?? window
+        let dates = Self.dateText(first.start, last.end)
         return SkyEvent(
             id: "\(id)-\(Self.idFormat.string(from: peak))", kind: kind, title: title,
-            start: window.start, end: window.end, headerDate: dates.header, detailDate: dates.detail,
+            start: first.start, end: last.end, headerDate: dates.header, detailDate: dates.detail,
             viewingTime: Self.timeText(window.start) + " – " + Self.timeText(window.end),
             direction: Self.directionText(azimuth: window.azimuth, altitude: window.altitude),
-            about: about, tips: tips, artwork: artwork, target: window.target)
+            about: about, tips: tips, artwork: artwork, target: window.target,
+            nights: nights.count > 1 ? nights.map { DateInterval(start: $0.start, end: $0.end) } : [])
     }
 
     private static func dateText(_ start: Date, _ end: Date) -> (header: String, detail: String) {

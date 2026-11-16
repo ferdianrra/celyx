@@ -168,18 +168,10 @@ struct StarCollectCameraView: View {
                         .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 0.5)
                         .position(x: geometry.size.width / 2, y: geometry.size.height / 2 + 10)
                         .allowsHitTesting(false)
-                        .opacity(crosshair)
-                    if let event, let guide = eventGuide, handover == nil, guide.altitude > 0 {
-                        if let point = guide.point {
-                            EventGuideMarker(title: event.title, isAimed: guide.isAimed).position(point)
-                        }
-                        // A big arrow around the circle always points the way until the event is in it.
-                        if !guide.isAimed {
-                            EventDirectionArrow(
-                                arrow: guide.pointing(from: CGPoint(
-                                    x: geometry.size.width / 2, y: geometry.size.height / 2 + 10)),
-                                size: geometry.size)
-                        }
+                        // Event mode swaps the star crosshair for the Nearby-style arrow.
+                        .opacity(event == nil ? crosshair : 0)
+                    if event != nil, handover == nil {
+                        EventNearbyFinder(guide: eventGuide, size: geometry.size)
                     }
                 }
                 .scaleEffect(shutter.map(CaptureFlash.squeeze) ?? 1)
@@ -190,7 +182,7 @@ struct StarCollectCameraView: View {
             .ignoresSafeArea()
 
             Group {
-                if let target = shownTarget, centerTarget?.id == target.id {
+                if event == nil, let target = shownTarget, centerTarget?.id == target.id {
                     VStack(spacing: 38) {
                         CameraCollectionPrompt(text: model.collected[target.id] != nil ? "Already in your garden"
                             : isChecking ? "Collecting…"
@@ -201,10 +193,10 @@ struct StarCollectCameraView: View {
                     .padding(.horizontal, 20)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if let event {
-                    EventCollectPanel(event: event, guide: service.status == .tracking ? eventGuide : nil,
+                    EventCollectPanel(event: event, guide: eventGuide,
                         now: eventNow, isCollected: eventStore?.collected.contains(event.id) == true,
                         onCollect: collectEvent)
-                        .padding(.horizontal, 20).padding(.bottom, 40)
+                        .padding(.horizontal, 20).padding(.bottom, 24)
                         .transition(.opacity)
                 } else {
                     CameraCollectionPrompt(text: demoOn ? hintText : service.status == .tracking
@@ -225,12 +217,6 @@ struct StarCollectCameraView: View {
             #endif
         }
         .allowsHitTesting(handover == nil && captureStart == nil)
-        .overlay(alignment: .top) {
-            if let event, handover == nil {
-                EventWindowBanner(event: event, now: eventNow)
-                    .padding(.horizontal, 16).padding(.top, 8)
-            }
-        }
         .task(id: event?.id) {
             // Event guide: the event's sky position (refreshed each second) projected through the live camera.
             guard let event else { return }
@@ -248,14 +234,13 @@ struct StarCollectCameraView: View {
                     computed = now
                     eventNow = now
                 }
-                if let direction, let projection = service.demoProjection(horizon: direction) {
+                // Keep the last guide through brief gaps (no spinner, no flicker); refresh at display rate.
+                if let direction, let projection = service.eventProjection(horizon: direction) {
                     let guide = EventCameraGuide(point: projection.point, arrow: projection.arrow,
                         separation: projection.separation, azimuth: position.azimuth, altitude: position.altitude)
                     if guide != eventGuide { eventGuide = guide }
-                } else if eventGuide != nil {
-                    eventGuide = nil
                 }
-                try? await Task.sleep(for: .milliseconds(33))
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
         .overlay(alignment: .trailing) {
@@ -494,7 +479,7 @@ struct StarCollectCameraView: View {
     }
 
     private func handleCameraTap(_ point: CGPoint) {
-        if let target = shownTarget { collect(target) }
+        if event == nil, let target = shownTarget { collect(target) }
         else { _ = service.focus(at: point) }
     }
 
