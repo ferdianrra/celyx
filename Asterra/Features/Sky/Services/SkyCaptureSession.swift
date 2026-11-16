@@ -107,6 +107,13 @@ extension SkyCaptureSessionDelegate {
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {}
 }
 
+/// Only AVFoundation session binding crosses queues; UIView layout stays on the main actor.
+nonisolated final class SkyCapturePreviewAttachment: @unchecked Sendable {
+    private let layer: AVCaptureVideoPreviewLayer
+    init(_ layer: AVCaptureVideoPreviewLayer) { self.layer = layer }
+    func setSession(_ session: AVCaptureSession?) { layer.session = session }
+}
+
 /// Capture operations run off the UI actor. The injectable driver also lets lifecycle
 /// regressions be tested without a physical camera or simulator motion sensors.
 nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
@@ -116,6 +123,13 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
     func stop()
     func releaseFrame()
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void)
+    func setPreview(_ preview: SkyCapturePreviewAttachment, attached: Bool)
+}
+
+extension SkyCaptureDriving {
+    nonisolated func setPreview(_ preview: SkyCapturePreviewAttachment, attached: Bool) {
+        preview.setSession(attached ? captureSession : nil)
+    }
 }
 
 /// UI-facing owner. All capture configuration/start/stop work runs on the worker queue.
@@ -125,6 +139,9 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
     private let worker: any SkyCaptureDriving
     private(set) var isRunning = false
     private var generation = 0
+    private var interrupted = false
+    private var lastDelivery: TimeInterval = 0
+    private let clock: () -> TimeInterval
     private var observers: [NSObjectProtocol] = []
     private let notificationCenter: NotificationCenter
     var captureSession: AVCaptureSession { worker.captureSession }
@@ -133,7 +150,9 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil }
 
     init(driver: (any SkyCaptureDriving)? = nil, notifications: NotificationCenter = .default,
-         usesContinuousAutoFocus: Bool = false) {
+         usesContinuousAutoFocus: Bool = false,
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.clock = clock
         worker = driver ?? SkyCaptureWorker(usesContinuousAutoFocus: usesContinuousAutoFocus)
         notificationCenter = notifications
         let center = notifications
@@ -144,6 +163,7 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
             object: worker.captureSession, queue: nil) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.isRunning else { return }
+                    self.interrupted = true
                     self.currentFrame = nil
                     self.delegate?.sessionWasInterrupted(self)
                 }
@@ -152,7 +172,7 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
             object: worker.captureSession, queue: nil) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.isRunning else { return }
-                    self.delegate?.sessionInterruptionEnded(self)
+                    self.restart()
                 }
             })
         observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification,
@@ -161,14 +181,21 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
                     ?? NSError(domain: "SkyCapture", code: 1)
                 Task { @MainActor [weak self] in
                     guard let self, self.isRunning else { return }
-                    self.pause()
-                    self.delegate?.session(self, didFailWithError: error)
+                    if error.domain == AVFoundationErrorDomain && error.code == AVError.mediaServicesWereReset.rawValue {
+                        self.restart()
+                    } else {
+                        self.pause()
+                        self.delegate?.session(self, didFailWithError: error)
+                    }
                 }
             })
     }
     deinit { observers.forEach(notificationCenter.removeObserver); worker.stop() }
     func run() {
+        guard !isRunning else { return }
         isRunning = true
+        interrupted = false
+        lastDelivery = clock()
         generation += 1
         let token = generation
         worker.start { [weak self, weak worker] result in
@@ -181,13 +208,37 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
     private func receive(_ result: Result<SkyCaptureFrame, Error>, token: Int) {
         guard generation == token else { return }
         switch result {
-        case .success(let frame): currentFrame = frame; delegate?.session(self, didUpdate: frame)
+        case .success(let frame):
+            lastDelivery = clock()
+            interrupted = false
+            currentFrame = frame
+            delegate?.session(self, didUpdate: frame)
         case .failure(let error): pause(); delegate?.session(self, didFailWithError: error)
         }
     }
-    func pause() { isRunning = false; generation += 1; currentFrame = nil; worker.stop() }
+    /// Restart both camera and motion, even if AVFoundation still reports a running preview.
+    func restart() {
+        pause()
+        delegate?.sessionInterruptionEnded(self)
+        run()
+    }
+    func recoverIfStalled() {
+        guard isRunning, !interrupted, clock() - lastDelivery >= 3 else { return }
+        delegate?.sessionWasInterrupted(self)
+        restart()
+    }
+    func pause() {
+        isRunning = false
+        interrupted = false
+        generation += 1
+        currentFrame = nil
+        worker.stop()
+    }
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {
         worker.configureDevice(update)
+    }
+    func setPreview(_ layer: AVCaptureVideoPreviewLayer, attached: Bool) {
+        worker.setPreview(SkyCapturePreviewAttachment(layer), attached: attached)
     }
 }
 
@@ -268,8 +319,14 @@ nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOu
     }
     func stop() { queue.async { [self] in
         deliver = nil; motion.stopDeviceMotionUpdates(); history.removeAll()
+        releaseFrame()
         if captureSession.isRunning { captureSession.stopRunning() }
     } }
+    func setPreview(_ preview: SkyCapturePreviewAttachment, attached: Bool) {
+        queue.async { [self] in
+            preview.setSession(attached ? captureSession : nil)
+        }
+    }
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {
         queue.async { [self] in
             guard let device else { return }

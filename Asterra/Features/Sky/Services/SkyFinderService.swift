@@ -586,6 +586,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         // Only recover if the native session actually stopped.
         guard running, !session.isRunning else { return }
         hasStartedSession = false
+        runSession()
         authorizeLocation()
     }
     var targetMarker: CameraSkyPrediction? {
@@ -683,8 +684,14 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             return
         }
         if running {
+            guard SkyCaptureSession.isSupported,
+                AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
             // A paused native session must not be hidden behind a stale service flag.
-            if !session.isRunning { hasStartedSession = false; authorizeLocation() }
+            if !session.isRunning {
+                hasStartedSession = false
+                runSession()
+                authorizeLocation()
+            }
             return
         }
         running = true
@@ -704,6 +711,8 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             status = .denied("Allow camera access in Settings to explore the sky.")
             return
         }
+        // Showing the authorized camera does not require a GPS fix. Identification still does.
+        runSession()
         authorizeLocation()
     }
 
@@ -721,6 +730,9 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             if !hasLocationFix { status = .limited("Finding your spot under the sky…") }
             locationManager.startUpdatingLocation()
+            if let cached = locationManager.location {
+                self.locationManager(locationManager, didUpdateLocations: [cached])
+            }
             if CLLocationManager.headingAvailable() {
                 locationManager.headingFilter = kCLHeadingFilterNone
                 locationManager.startUpdatingHeading()
@@ -735,8 +747,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         guard running, AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
         if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
-            alignment.pause(reason: "Location access changed. Restart and align the sky again.")
-            hasStartedSession = false
+            alignment.invalidate(reason: "Location access changed. Align the sky again once location is available.")
             hasLocationFix = false
             lastLocationFixDate = nil
             projection = nil
@@ -763,8 +774,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         guard running else { return }
         if (error as? CLError)?.code == .locationUnknown { return }
-        alignment.pause(reason: "Location tracking stopped. Restart and align the sky again.")
-        hasStartedSession = false
+        alignment.invalidate(reason: "Location tracking stopped. Align the sky again once location is available.")
         hasLocationFix = false
         lastLocationFixDate = nil
         projection = nil
@@ -1086,7 +1096,14 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             annotations = []
             unidentifiedLights = []
             candidateHistory = [:]
-            opticalTracks = []
+            switch reason {
+            case .excessiveMotion, .insufficientFeatures:
+                // A short blur does not create a different solar source. Retain only
+                // recent disc history; never count the blurred frame as a new sighting.
+                opticalTracks.removeAll { !$0.isDisc || frame.timestamp - $0.time > CameraTrackingPolicy.trackGap }
+            default:
+                opticalTracks = []
+            }
             let message: String
             switch reason {
             case .initializing: message = "Waiting for motion sensors…"
@@ -1352,9 +1369,21 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
                 var previous = opticalTracks.filter { !usedTracks.contains($0.id) && $0.isDisc == light.2 && result.time > $0.time && result.time - $0.time <= CameraTrackingPolicy.trackGap }
                     .compactMap { track -> (CameraOpticalTrack, Double)? in
                         guard let point = projectLight(track.direction) else { return nil }
-                        return (track, hypot(point.x - light.0.x, point.y - light.0.y))
-                    }.filter { $0.1 < min(22, max(12, 10 * sqrt(cameraZoom))) }.min { $0.1 < $1.1 }?.0
-                if previous == nil, singleSource {
+                        let distance: Double
+                        if light.2 {
+                            guard let discDistance = CameraSolarDiscPolicy.associationDistance(track: track,
+                                direction: light.3, size: light.1, point: light.0, projectedPrevious: point) else { return nil }
+                            distance = discDistance
+                        } else {
+                            let pointDistance = hypot(point.x - light.0.x, point.y - light.0.y)
+                            guard pointDistance < min(22, max(12, 10 * sqrt(cameraZoom))) else { return nil }
+                            distance = Double(pointDistance)
+                        }
+                        return (track, distance)
+                    }.min { $0.1 < $1.1 }?.0
+                // Discs must pass the bounded world-space/size match above. The
+                // screen-only point fallback could otherwise join unrelated bright discs.
+                if previous == nil, singleSource, !light.2 {
                     let recent = opticalTracks.filter {
                         !usedTracks.contains($0.id) && $0.isDisc == light.2 && $0.hits >= 1 && result.time - $0.time <= CameraTrackingPolicy.trackGap
                     }
@@ -1405,9 +1434,11 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             let centralDisc = permitsPoints ? nil : CameraSolarDiscPolicy.preferredCore(
                 from: observed.filter { track in
                     guard let point = projectLight(track.direction) else { return false }
-                    return CameraTargetSelection.canAcquireInReticle(at: point, center: center)
-                }, center: center, project: projectLight)
-            let solar = CameraSolarDiscPolicy.preferredCore(from: matchedDiscs, center: center, project: projectLight)
+                    let continuesDisc = pinnedLight?.isDisc == true && pinnedLight?.opticalID == track.id
+                        && CameraTrackingPolicy.isNearAim(point, center: center, holding: true)
+                    return continuesDisc || CameraTargetSelection.canAcquireInReticle(at: point, center: center)
+                }, center: center, pinned: pinnedLight, project: projectLight)
+            let solar = CameraSolarDiscPolicy.preferredCore(from: matchedDiscs, center: center, pinned: pinnedLight, project: projectLight)
             var fresh = observed.filter { !$0.isDisc } + matchedDiscs
             if let centralDisc, !fresh.contains(where: { $0.id == centralDisc.id }) { fresh.append(centralDisc) }
             if let selected = solar ?? centralDisc ?? CameraTrackingPolicy.select(fresh: fresh, pinned: pinnedLight, now: time,
@@ -1830,6 +1861,9 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
 
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {
         hasStartedSession = false
-        if running { authorizeLocation() }
+        if running {
+            runSession()
+            authorizeLocation()
+        }
     }
 }

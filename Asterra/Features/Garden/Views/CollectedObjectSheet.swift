@@ -9,6 +9,9 @@ struct CollectedObjectSheet: View {
     var startsWithNoteEntry = false
     var onSaveNote: ((String) -> Void)? = nil
     var onSavePlace: ((String) -> Void)? = nil
+    /// Onboarding tour: guide lines in the sheet, a glowing close button and no Delete.
+    var tourGuide = false
+    var onNoteCompleted: (() -> Void)? = nil
     let onDelete: () -> Void
 
     @FocusState private var noteFocused: Bool
@@ -30,7 +33,9 @@ struct CollectedObjectSheet: View {
     init(item: GardenCollectionItem, direction: SIMD3<Double>?, collection: HomeViewModel? = nil,
          capturedPhoto: UIImage? = nil, startsWithNoteEntry: Bool = false,
          onSaveNote: ((String) -> Void)? = nil, onSavePlace: ((String) -> Void)? = nil,
-         onDelete: @escaping () -> Void) {
+         tourGuide: Bool = false, onNoteCompleted: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
+        self.tourGuide = tourGuide
+        self.onNoteCompleted = onNoteCompleted
         self.item = item; self.direction = direction; self.collection = collection
         self.capturedPhoto = capturedPhoto; self.startsWithNoteEntry = startsWithNoteEntry
         self.onSaveNote = onSaveNote; self.onSavePlace = onSavePlace; self.onDelete = onDelete
@@ -56,6 +61,14 @@ struct CollectedObjectSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 header.padding(.horizontal, 20).padding(.top, 32)
                 VStack(spacing: 12) {
+                    if tourGuide {
+                        OnboardingGuidePill(text: editingNote
+                            ? OnboardingCopy.noteEntryGuide
+                            : OnboardingCopy.starCardGuide,
+                            symbol: editingNote ? "pencil" : "info.circle")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .animation(.smooth(duration: 0.4), value: editingNote)
+                    }
                     notes
                     if !compactNoteEntry {
                         capturePhoto
@@ -67,12 +80,14 @@ struct CollectedObjectSheet: View {
                             }
                                 .buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.large)
                                 .accessibilityIdentifier("share-collected-star")
+                            if !tourGuide {
                             Button(role: .destructive) { confirmsDelete = true } label: {
                                 Label("Delete", systemImage: "trash")
                                     .font(.body).frame(maxWidth: .infinity, minHeight: 44)
                             }
                                 .buttonStyle(.borderless).foregroundStyle(.red)
                                 .accessibilityIdentifier("delete-collected-star")
+                            }
                         }.padding(.top, 12)
                     }
                 }
@@ -144,6 +159,12 @@ struct CollectedObjectSheet: View {
             onSaveNote?(note.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss()
         }
         .labelStyle(.iconOnly).buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+        .background {
+            // Tour: once the card is shown, the way back breathes softly.
+            if tourGuide && !editingNote {
+                OnboardingHighlight(size: CGSize(width: 48, height: 48)).transition(.opacity)
+            }
+        }
         .accessibilityIdentifier("close-collected-star")
     }
 
@@ -187,7 +208,7 @@ struct CollectedObjectSheet: View {
                 .padding(.bottom, 4)
             }
             if editingNote {
-                TextField("Write a note…", text: $note, axis: .vertical)
+                TextField(tourGuide ? "e.g. My very first star" : "Write a note…", text: $note, axis: .vertical)
                     .font(.body).textFieldStyle(.plain)
                     .lineLimit(4...4)
                     .focused($noteFocused)
@@ -273,11 +294,16 @@ struct CollectedObjectSheet: View {
         noteFocused = false
         note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         onSaveNote?(note)
+        if tourGuide {
+            dismiss()
+            return
+        }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
             editingNote = false
             compactNoteEntry = false
             detent = .large
         }
+        onNoteCompleted?()
     }
 }
 

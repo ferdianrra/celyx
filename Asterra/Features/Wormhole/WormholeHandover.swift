@@ -93,6 +93,8 @@ final class WormholeHandover: Identifiable {
     private(set) var phase: Phase = .wormhole
     /// Set when the sheet should spring in.
     private(set) var showsSheet = false
+    /// Onboarding explains the first landing before opening its note sheet.
+    private(set) var holdsForOnboarding = false
     /// Beginning of the smooth return to the live camera.
     private var releaseAt: Double?
     @ObservationIgnored private var focusPose: NightSeaCamera?
@@ -149,6 +151,11 @@ final class WormholeHandover: Identifiable {
             if !reduceMotion { try await wait(revealAt) }
             phase = .revealing
             try await wait(reduceMotion ? tt() + 700 : returnAt)
+            if holdsForOnboarding {
+                phase = .presenting
+                showsSheet = true
+                return
+            }
             beginRelease()
             if !reduceMotion { try await wait(releaseAt! + Self.returnDuration) }
             phase = .presenting
@@ -163,6 +170,11 @@ final class WormholeHandover: Identifiable {
     }
 
     func finish() { showsSheet = false; phase = .done }
+
+    func holdForOnboarding() {
+        holdsForOnboarding = true
+        configureFocus(directions: [starDirection], revealsConstellation: false)
+    }
 
     /// Fit collected neighbors (or the completed pattern) inside a comfortable screen margin.
     func configureFocus(directions: [SIMD3<Double>], revealsConstellation: Bool) {
@@ -184,6 +196,11 @@ final class WormholeHandover: Identifiable {
         var camera = NightSeaCamera()
         camera.orientation = WormholeFreeze.orientation(forward: forward, right: right, up: up)
         camera.focalOverride = max(self.focal(forFieldOfView: 110), focal)
+        if holdsForOnboarding {
+            camera.orientation = starView
+            camera.focalOverride = self.focal(forFieldOfView: 72)
+            camera.centerYFraction = 0.36
+        }
         focusPose = camera
     }
 
@@ -242,6 +259,7 @@ final class WormholeHandover: Identifiable {
             let focus = ease(WormholeTimeline.seg(tt, focusStart, revealAt))
             result.orientation = simd_slerp(result.orientation, Self.orientation(of: focusPose), focus)
             result.focal = exp(WormholeTimeline.mix(log(result.focal), log(focusPose.focalLength(in: freeze.size)), focus))
+            result.centerY = WormholeTimeline.mix(centerY, focusPose.centerYFraction ?? 0.5, focus)
         }
         guard let releaseAt, let goal = target else { return result }
         let r = ease(WormholeTimeline.seg(tt,releaseAt,releaseAt+Self.returnDuration))

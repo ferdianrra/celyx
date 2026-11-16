@@ -6,6 +6,7 @@ struct SkyEventCard: View {
     let event: SkyEvent
     let isReminderOn: Bool
     let toggleReminder: () -> Void
+    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 144
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius:20,style:.continuous)
@@ -20,8 +21,8 @@ struct SkyEventCard: View {
                         .clipShape(RoundedRectangle(cornerRadius:24,style:.continuous))
                         .offset(x:event.artwork.x,y:event.artwork.y)
                 }
-                .frame(width:133).clipped()
-                // The 133pt art frame meets the text column with a soft edge instead of a hard cut.
+                .frame(width:90).clipped()
+                // Keep artwork in its own column, away from the category and title.
                 .mask(LinearGradient(stops:[.init(color:.black,location:0.72),.init(color:.clear,location:1)],
                                      startPoint:.leading,endPoint:.trailing))
                 .blendMode(.plusLighter)
@@ -29,25 +30,24 @@ struct SkyEventCard: View {
             HStack(spacing:10) {
                 VStack(alignment:.leading,spacing:8) {
                     SkyEventKindLabel(kind:event.kind,size:12,opacity:0.64)
-                    VStack(alignment:.leading,spacing:4) {
-                        Text(event.title).font(.system(size:15,weight:.semibold)).foregroundStyle(.white)
-                            .lineLimit(2).fixedSize(horizontal:false,vertical:true)
-                        HStack(spacing:4) {
-                            Text(dayText).opacity(0.8)
-                            Text("·").opacity(0.5)
-                            Text(timeText).opacity(0.5)
-                        }
-                        .font(.system(size:11)).foregroundStyle(.white).lineLimit(1)
+                    Text(event.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        .lineLimit(2).fixedSize(horizontal:false,vertical:true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(dayText).foregroundStyle(.white.opacity(0.85))
+                        Text(timeText).foregroundStyle(.white.opacity(0.65))
                     }
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth:.infinity,alignment:.leading)
                 ReminderBell(isOn:isReminderOn,action:toggleReminder)
             }
-            .padding(.leading,101).padding(.trailing,16).padding(.vertical,16)
+            .padding(.leading,106).padding(.trailing,16).padding(.vertical,16)
         }
-        .frame(height:109)
+        .frame(height:cardHeight)
         .clipShape(shape)
         .contentShape(shape)
+        .accessibilityIdentifier("sky-event-card-\(event.id)")
         .accessibilityElement(children:.combine)
         .accessibilityLabel("\(event.title), \(event.headerDate), \(event.viewingTime)")
     }

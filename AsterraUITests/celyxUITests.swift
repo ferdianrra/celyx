@@ -9,27 +9,277 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
-    func testDemoConstellationsToggleStaysInTheGarden() {
+    func testSkipExitsTheTourAndStaysFinishedAfterRelaunch() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-onboarding"]
+        app.launch()
+        let skip = app.buttons["Skip Tour"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 10))
+        skip.tap()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 5))
+        XCTAssertFalse(skip.exists)
+        app.terminate()
         app.launchArguments = ["-ui-testing"]
         app.launch()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Skip Tour"].exists)
+        XCTAssertFalse(app.staticTexts["Welcome to Asterra"].exists)
+    }
 
-        let direction = app.buttons["Direction options"]
-        XCTAssertTrue(direction.waitForExistence(timeout: 20))
-        XCTAssertEqual(direction.value as? String, "Demo constellations off")
+    @MainActor
+    func testDiscoveryTooltipsPointToTheRealControls() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-reset-discovery", "-hasCompletedTour", "YES", "-gardenUsesCamera", "NO"]
+        app.launch()
+        let collection = app.buttons["Your Collection"]
+        XCTAssertTrue(collection.waitForExistence(timeout: 15))
+        collection.tap()
+        let collectionToast = app.descendants(matching: .any)["collection-discovery-tip"].firstMatch
+        XCTAssertTrue(collectionToast.waitForExistence(timeout: 5))
+        XCTAssertLessThan(collectionToast.frame.height, app.frame.height * 0.2)
+        let collectionShot = XCTAttachment(screenshot: app.screenshot())
+        collectionShot.name = "Popover pointing at Stars"
+        collectionShot.lifetime = .keepAlways
+        add(collectionShot)
+        XCTAssertFalse(app.buttons["View stars"].exists)
+        app.buttons["Dismiss tip"].tap()
+        app.buttons["collection-stars-tile"].tap()
+        XCTAssertTrue(app.navigationBars["Stars"].waitForExistence(timeout: 5))
+        app.buttons["Back"].firstMatch.tap()
+        collection.tap()
+        XCTAssertFalse(collectionToast.exists)
+        app.buttons["Close"].tap()
+        app.buttons["Sky Calendar"].tap()
+        let calendarToast = app.descendants(matching: .any)["calendar-discovery-tip"].firstMatch
+        XCTAssertTrue(calendarToast.waitForExistence(timeout: 5))
+        XCTAssertLessThan(calendarToast.frame.height, app.frame.height * 0.2)
+        XCTAssertLessThan(calendarToast.frame.maxY, app.frame.midY)
+        let calendarShot = XCTAttachment(screenshot: app.screenshot())
+        calendarShot.name = "Popover pointing at Calendar"
+        calendarShot.lifetime = .keepAlways
+        add(calendarShot)
+        XCTAssertFalse(app.buttons["Try Calendar"].exists)
+        app.buttons["Dismiss tip"].tap()
+        let eventTip = app.descendants(matching: .any)["event-card-discovery-tip"].firstMatch
+        XCTAssertTrue(eventTip.waitForExistence(timeout: 5), "The event hint follows Calendar without leaving this screen")
+        XCTAssertTrue(app.navigationBars["Sky Events"].exists)
+        let eventHelp = XCTAttachment(screenshot: app.screenshot())
+        eventHelp.name = "Event card help points at the card"
+        eventHelp.lifetime = .keepAlways
+        add(eventHelp)
+        app.buttons["Dismiss tip"].tap()
+        app.buttons["About sky events"].tap()
+        XCTAssertTrue(eventTip.waitForExistence(timeout: 5))
+        app.buttons["Dismiss tip"].tap()
+        app.buttons["Calendar"].tap()
+        XCTAssertTrue(app.staticTexts["Tap a marked date to view its events."].waitForExistence(timeout: 5))
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["Sky Calendar"].tap()
+        XCTAssertFalse(calendarToast.exists)
+        XCTAssertFalse(eventTip.exists)
+        let firstCard = app.descendants(matching: .any)["sky-event-card-mars-jupiter"].firstMatch
+        XCTAssertTrue(firstCard.waitForExistence(timeout: 5))
+        XCTAssertLessThan(firstCard.frame.height, app.frame.height * 0.3)
+        let events = XCTAttachment(screenshot: app.screenshot())
+        events.name = "Event cards — separate artwork, title, date and time"
+        events.lifetime = .keepAlways
+        add(events)
+    }
 
-        direction.tap()
-        let toggle = app.buttons["Demo constellations"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        toggle.tap()
-        XCTAssertEqual(direction.value as? String, "Demo constellations on")
-        XCTAssertTrue(app.buttons["Start Collecting"].exists)
+    @MainActor
+    func testTourExplainsFirstLandingBeforeTheNoteWithoutASecondFlight() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=visibility",
+            "-onboarding-aimed", "-ui-testing-reset-discovery"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Try a virtual star"].waitForExistence(timeout: 10))
+        app.buttons["Try a virtual star"].tap()
+        XCTAssertTrue(app.staticTexts["There you go! Target locked."].waitForExistence(timeout: 10))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        let editor = app.descendants(matching: .any)["collection-note-editor"]
+        XCTAssertTrue(app.staticTexts["This is your virtual garden"].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["You're all set!"].exists)
+        XCTAssertFalse(editor.exists)
+        XCTAssertTrue(app.staticTexts["Your practice star"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["tour-garden-star-highlight"].exists)
+        let garden = XCTAttachment(screenshot: app.screenshot())
+        garden.name = "First landing — garden explained before the note"
+        garden.lifetime = .keepAlways
+        add(garden)
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        editor.tap()
+        editor.typeText("My first sky memory.\n")
+        XCTAssertTrue(app.staticTexts["You're all set!"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["This is your virtual garden"].exists)
+        XCTAssertFalse(app.staticTexts["Your practice star"].exists)
+        let achievement = XCTAttachment(screenshot: app.screenshot())
+        achievement.name = "Tour finished — personal completion message"
+        achievement.lifetime = .keepAlways
+        add(achievement)
+        app.buttons["finish-tour-celebration"].tap()
+        let collection = app.buttons["Your Collection"]
+        XCTAssertTrue(collection.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Practice Star, collected")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Back in your Night Sea"].exists)
+        XCTAssertFalse(app.buttons["Skip Tour"].exists)
+        XCTAssertFalse(app.staticTexts["Your practice star"].exists)
+    }
 
-        direction.tap()
-        toggle.tap()
-        XCTAssertEqual(direction.value as? String, "Demo constellations off")
-        XCTAssertTrue(app.buttons["Start Collecting"].exists)
+    @MainActor
+    func testDaytimeGuideCollectsSunAndKeepsItAfterTheTour() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-daytime", "-onboarding",
+            "-onboarding-step=visibility", "-onboarding-aimed"]
+        app.launch()
+        let guide = app.buttons["Find the Sun with a guide"]
+        XCTAssertTrue(guide.waitForExistence(timeout: 10))
+        guide.tap()
+        XCTAssertTrue(app.staticTexts["There you go! Target locked."].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Practice Star"].exists)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.staticTexts["This is your virtual garden"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Your Sun"].exists)
+        XCTAssertFalse(app.staticTexts["Collected! Watch it fly into your Night Sea."].exists)
+        let garden = XCTAttachment(screenshot: app.screenshot())
+        garden.name = "Guided Sun in the garden"
+        garden.lifetime = .keepAlways
+        add(garden)
+        app.buttons["Continue"].tap()
+        let editor = app.descendants(matching: .any)["collection-note-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        editor.typeText("My Sun from the tour.")
+        app.keyboards.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["You're all set!"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["This practice star will leave when you tap Done. The real stars you collect will stay in your garden."].exists)
+        app.buttons["finish-tour-celebration"].tap()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 10))
+        app.terminate()
+        app.launchArguments = ["-ui-testing", "-ui-testing-daytime"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 10))
+        app.buttons["Your Collection"].tap()
+        let dismissTip = app.buttons["Dismiss tip"]
+        if dismissTip.waitForExistence(timeout: 3) { dismissTip.tap() }
+        app.buttons["collection-stars-tile"].tap()
+        XCTAssertTrue(app.navigationBars["Stars"].waitForExistence(timeout: 10))
+        let sun = app.staticTexts["Sun"].firstMatch
+        XCTAssertTrue(sun.waitForExistence(timeout: 10))
+        sun.tap()
+        let note = app.staticTexts["collected-star-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
+        XCTAssertTrue(note.label.contains("My Sun from the tour."))
+    }
+
+    @MainActor
+    func testRealCameraGuideStaysCompact() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=visibility", "-onboarding-aimed"]
+        app.launch()
+        let camera = app.buttons["Yes, try the camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 10))
+        camera.tap()
+        let practice = app.buttons["tour-camera-try-virtual-star"]
+        XCTAssertTrue(practice.waitForExistence(timeout: 15))
+        XCTAssertTrue(practice.isHittable)
+        XCTAssertGreaterThanOrEqual(practice.frame.height, 44)
+        let guide = app.descendants(matching: .any)["tour-camera-guide"].firstMatch
+        XCTAssertLessThan(guide.frame.height, 140)
+        XCTAssertGreaterThan(guide.frame.minY, app.frame.height * 0.7)
+        XCTAssertLessThan(guide.frame.maxY, app.frame.height)
+        let panel = XCTAttachment(screenshot: app.screenshot())
+        panel.name = "Camera guide — bottom hint with consistent typography"
+        panel.lifetime = .keepAlways
+        add(panel)
+        practice.tap()
+        XCTAssertTrue(app.staticTexts["There you go! Target locked."].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testMenuTipsAppearOnlyOnFirstVisit() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-reset-discovery"]
+        app.launch()
+        let collection = app.buttons["Your Collection"]
+        XCTAssertTrue(collection.waitForExistence(timeout: 10))
+        collection.tap()
+        let collectionTip = app.descendants(matching: .any)["collection-discovery-tip"].firstMatch
+        XCTAssertTrue(collectionTip.waitForExistence(timeout: 5))
+        let collectionShot = XCTAttachment(screenshot: app.screenshot())
+        collectionShot.name = "First collection visit — contextual tip"
+        collectionShot.lifetime = .keepAlways
+        add(collectionShot)
+        XCTAssertLessThan(collectionTip.frame.height, app.frame.height * 0.2)
+        XCTAssertFalse(app.buttons["View stars"].exists)
+        app.buttons["Dismiss tip"].tap()
+        app.buttons["collection-stars-tile"].tap()
+        XCTAssertTrue(app.navigationBars["Stars"].waitForExistence(timeout: 5))
+        app.buttons["Back"].firstMatch.tap()
+        collection.tap()
+        XCTAssertFalse(collectionTip.exists)
+        app.buttons["Close"].tap()
+        app.buttons["Sky Calendar"].tap()
+        let calendarTip = app.descendants(matching: .any)["calendar-discovery-tip"].firstMatch
+        XCTAssertTrue(calendarTip.waitForExistence(timeout: 5))
+        let calendarShot = XCTAttachment(screenshot: app.screenshot())
+        calendarShot.name = "First calendar visit — contextual tip"
+        calendarShot.lifetime = .keepAlways
+        add(calendarShot)
+        XCTAssertLessThan(calendarTip.frame.height, app.frame.height * 0.2)
+        XCTAssertLessThan(calendarTip.frame.maxY, app.frame.midY)
+        XCTAssertFalse(app.buttons["Try Calendar"].exists)
+        app.buttons["Dismiss tip"].tap()
+        let eventTip = app.descendants(matching: .any)["event-card-discovery-tip"].firstMatch
+        XCTAssertTrue(eventTip.waitForExistence(timeout: 5))
+        app.buttons["Dismiss tip"].tap()
+        app.buttons["Calendar"].tap()
+        XCTAssertTrue(app.staticTexts["Tap a marked date to view its events."].waitForExistence(timeout: 5))
+        app.buttons["Back"].firstMatch.tap()
+        app.buttons["Sky Calendar"].tap()
+        XCTAssertFalse(calendarTip.exists)
+        app.terminate()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 10))
+        app.buttons["Your Collection"].tap()
+        XCTAssertFalse(collectionTip.exists)
+        app.buttons["Close"].tap()
+        app.buttons["Sky Calendar"].tap()
+        XCTAssertFalse(calendarTip.exists)
+    }
+
+    @MainActor
+    func testOnboardingReceivesReadinessFromTheRealGardenCamera() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("This regression needs the physical camera and motion sensors.")
+        #else
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=camera"]
+        app.launch()
+        let camera = app.buttons["Show real sky through the camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 20))
+        camera.tap()
+        XCTAssertTrue(app.staticTexts["That's the real sky"].waitForExistence(timeout: 15),
+            "Home → GardenSkyView → GardenCameraLayer must forward readiness to the tour")
+        XCTAssertFalse(app.staticTexts["Let’s retry the camera"].exists)
+        let ready = XCTAttachment(screenshot: app.screenshot())
+        ready.name = "Onboarding recognizes the real camera"
+        ready.lifetime = .keepAlways
+        add(ready)
+        app.buttons["start-collecting"].tap()
+        XCTAssertTrue(app.buttons["Yes, try the camera"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Try a virtual star"].exists)
+        #endif
     }
 
     @MainActor
@@ -211,13 +461,13 @@ final class celyxUITests: XCTestCase {
         XCTAssertTrue(calendar.waitForExistence(timeout:30))
         calendar.tap()
         XCTAssertTrue(app.navigationBars["Sky Calendar"].waitForExistence(timeout:10))
-        app.segmentedControls.buttons["Calendar"].tap()
+        app.buttons["Calendar"].tap()
         let next = app.buttons["Next month"]
         XCTAssertTrue(next.waitForExistence(timeout:5))
         next.tap()
         app.buttons["Previous month"].tap()
         XCTAssertTrue(app.staticTexts["Tap a marked date to view its events."].exists)
-        app.segmentedControls.buttons["List"].tap()
+        app.buttons["List"].tap()
         XCTAssertTrue(app.buttons["Moon"].exists)
         let screenshot = XCTAttachment(screenshot:app.screenshot())
         screenshot.name = "Calendar after MVVM refactor"

@@ -22,6 +22,7 @@ struct StarCollectCameraView: View {
 
     let model: HomeViewModel
     let onClose: () -> Void
+    let onboardingGuide: OnboardingCameraGuide?
     /// The running handover, if any (fades this screen's UI on its clock).
     var handover: WormholeHandover? = nil
     /// When set, a successful collect hands over to the garden (wormhole) instead of opening the album here.
@@ -44,6 +45,7 @@ struct StarCollectCameraView: View {
     @State private var captureImage: CGImage?
     /// The camera feed shows only once the camera delivers real frames (no skewed first frames).
     @State private var feedReady = false
+    @State private var isClosing = false
     #if DEBUG
     /// Catalog stars at their real current horizon positions; demo bypasses optical detection.
     @State private var didPrepareDemoCollection = false
@@ -71,6 +73,7 @@ struct StarCollectCameraView: View {
     init(
         model: HomeViewModel, handover: WormholeHandover? = nil, onCollect: ((CollectResult) -> Void)? = nil,
         event: SkyEvent? = nil, eventStore: SkyEventStore? = nil, onEventCollected: (() -> Void)? = nil,
+        onboardingGuide: OnboardingCameraGuide? = nil,
         onClose: @escaping () -> Void
     ) {
         self.model = model
@@ -80,6 +83,7 @@ struct StarCollectCameraView: View {
         self.eventStore = eventStore
         self.onEventCollected = onEventCollected
         self.onClose = onClose
+        self.onboardingGuide = onboardingGuide
         _viewModel = State(initialValue: StarCollectViewModel(model: model))
     }
 
@@ -126,6 +130,9 @@ struct StarCollectCameraView: View {
                     if service.isCameraRunning {
                         SkyCameraPreview(
                             session: service.session, onViewport: service.updateViewport,
+                            onPreviewingChanged: { previewing in
+                                if previewing { feedReady = true }
+                            },
                             onTap: handleCameraTap,
                             onExposureDrag: { translation, _, ended in
                                 service.dragExposure(translation: translation, ended: ended)
@@ -206,6 +213,11 @@ struct StarCollectCameraView: View {
                         onCollect: collectEvent)
                         .padding(.horizontal, 20).padding(.bottom, 40)
                         .transition(.opacity)
+                } else if let onboardingGuide {
+                    onboardingGuide
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     CameraCollectionPrompt(text: demoOn ? hintText : service.status == .tracking
                         ? (isAnalyzingLight ? service.automaticMappingMessage : "Find a star or planet in the sky")
@@ -224,7 +236,7 @@ struct StarCollectCameraView: View {
             }
             #endif
         }
-        .allowsHitTesting(handover == nil && captureStart == nil)
+        .allowsHitTesting(!isClosing && handover == nil && captureStart == nil)
         .overlay(alignment: .top) {
             if let event, handover == nil {
                 EventWindowBanner(event: event, now: eventNow)
@@ -275,9 +287,12 @@ struct StarCollectCameraView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Back", systemImage: "chevron.left") {
-                    service.stop()
+                    guard !isClosing else { return }
+                    isClosing = true
+                    viewModel.onSaved = nil
                     onClose()
                 }.labelStyle(.iconOnly)
+                .disabled(isClosing)
             }
 
         }
@@ -294,10 +309,23 @@ struct StarCollectCameraView: View {
             await service.start()
         }
         .task {
-            // Wait for the first real AR frame, plus a couple more so the preview has its orientation.
-            while !Task.isCancelled && service.session.currentFrame == nil { try? await Task.sleep(for: .milliseconds(40)) }
-            try? await Task.sleep(for: .milliseconds(90))
-            feedReady = true
+            // Sensor delivery is a fallback; the native preview can appear before motion/GPS are ready.
+            do {
+                while service.session.currentFrame == nil {
+                    try Task.checkCancellation()
+                    try await Task.sleep(for: .milliseconds(40))
+                }
+                try await Task.sleep(for: .milliseconds(90))
+                feedReady = true
+            } catch { return }
+        }
+        .task(id: phase == .active) {
+            guard phase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard !Task.isCancelled, !isClosing, handover == nil, captureStart == nil else { return }
+                service.session.recoverIfStalled()
+            }
         }
         .task(id: TargetAnimationKey(targetID: shownTarget?.id, reduceMotion: reduceMotion)) {
             guard shownTarget != nil else { targetCrosshairState = .default; return }
@@ -342,6 +370,7 @@ struct StarCollectCameraView: View {
         }
         .onDisappear { service.stop() }
         .onChange(of: phase) { _, value in
+            guard !isClosing else { return }
             if value == .active, viewModel.capturedItem == nil, handover == nil {
                 Task { await service.start() }
             } else if value == .background {

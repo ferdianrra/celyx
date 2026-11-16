@@ -4,6 +4,7 @@ import SwiftUI
 struct SkyCameraPreview: UIViewRepresentable {
     let session: SkyCaptureSession
     let onViewport: (CGSize, UIInterfaceOrientation) -> Void
+    var onPreviewingChanged: ((Bool) -> Void)? = nil
     var onTap: ((CGPoint) -> Void)? = nil
     var onHold: ((CGPoint) -> Void)? = nil
     var onExposureDrag: ((CGFloat, CGPoint, Bool) -> Void)? = nil
@@ -19,7 +20,7 @@ struct SkyCameraPreview: UIViewRepresentable {
         let container = FinderCameraContainer()
         let view = container.cameraView
         view.session = session
-        view.preview.session = session.captureSession
+        session.setPreview(view.preview, attached: true)
         updateUIView(container, context: context)
         view.installCameraGestures()
         return container
@@ -27,6 +28,7 @@ struct SkyCameraPreview: UIViewRepresentable {
     func updateUIView(_ container: FinderCameraContainer, context: Context) {
         container.zoom = zoom
         let view = container.cameraView
+        view.previewingChanged = onPreviewingChanged
         view.viewportChanged = onViewport
         view.tapped = onTap
         view.held = onHold
@@ -39,7 +41,8 @@ struct SkyCameraPreview: UIViewRepresentable {
     }
     static func dismantleUIView(_ view: FinderCameraContainer, coordinator: ()) {
         view.cameraView.stopRendering()
-        view.cameraView.preview.session = nil
+        view.cameraView.session?.setPreview(view.cameraView.preview, attached: false)
+        view.cameraView.session = nil
     }
 }
 
@@ -62,10 +65,11 @@ final class FinderCameraContainer: UIView {
 }
 
 final class FinderCameraView: UIView {
-    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-    var preview: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
-    weak var session: SkyCaptureSession?
+    // A separate layer can finish detaching on the capture queue after its UIView disappears.
+    let preview = AVCaptureVideoPreviewLayer()
+    var session: SkyCaptureSession?
     var viewportChanged: ((CGSize, UIInterfaceOrientation) -> Void)?
+    var previewingChanged: ((Bool) -> Void)?
     var tapped: ((CGPoint) -> Void)?
     var held: ((CGPoint) -> Void)?
     var exposureDragged: ((CGFloat, CGPoint, Bool) -> Void)?
@@ -78,17 +82,19 @@ final class FinderCameraView: UIView {
     private var selectedID: Int?
     private var markerViews: [Int: UILabel] = [:]
     private var displayLink: CADisplayLink?
+    private var appliedRotationAngle: CGFloat?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         preview.videoGravity = .resizeAspectFill
+        layer.insertSublayer(preview, at: 0)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func didMoveToWindow() {
         super.didMoveToWindow()
         stopRendering()
         if window != nil {
-            let link = CADisplayLink(target: self, selector: #selector(renderMarkers))
+            let link = CADisplayLink(target: self, selector: #selector(renderPreview))
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
@@ -102,7 +108,16 @@ final class FinderCameraView: UIView {
         }
         renderMarkers()
     }
-    @objc private func renderMarkers() {
+    @objc private func renderPreview() {
+        // Poll from the display tick so readiness never mutates SwiftUI state during updateUIView.
+        // Native preview readiness does not depend on synchronized motion or camera intrinsics.
+        let previewing = preview.isPreviewing
+        if !previewing { appliedRotationAngle = nil }
+        else if appliedRotationAngle == nil { updateViewport() }
+        previewingChanged?(previewing)
+        renderMarkers()
+    }
+    private func renderMarkers() {
         guard let frame = session?.currentFrame else {
             markerViews.values.forEach { $0.isHidden = true }; return
         }
@@ -184,12 +199,19 @@ final class FinderCameraView: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        preview.frame = bounds
+        CATransaction.commit()
         updateViewport()
     }
     func updateViewport() {
         let orientation = window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
-        if let connection = preview.connection, connection.isVideoRotationAngleSupported(rotationAngle) {
-            connection.videoRotationAngle = rotationAngle
+        let angle = rotationAngle
+        if appliedRotationAngle != angle, let connection = preview.connection,
+           connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+            appliedRotationAngle = angle
         }
         viewportChanged?(bounds.size, orientation)
     }

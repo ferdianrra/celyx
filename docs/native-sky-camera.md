@@ -106,3 +106,11 @@ Disc luminance is now normalized from video range (16–235) into the same scale
 A shape-validated optical disc is exempt from the point-source texture veto, since cloud rims and scattering around the Sun are valid sky. Rectangular-light rejection remains in disc extraction. Every disc still needs above-horizon solar ephemeris agreement, heading/altitude bounds, and independent temporal consensus before collection. A fully hidden Sun does not get a new optical observation from its predicted position.
 
 Validation: 122 selected tests in 16 suites pass. The small reported core is checked across nine sampling-grid positions, two luminance ranges and two transmission levels (36 combinations). Synthetic partial occlusion, flat cloud, isolated hot pixels, rectangular lights, ephemeris mismatch and the earlier sun-beside-cloud regression also pass. Generic iOS Release build succeeds with signing disabled. These checks cover image extraction and policy behavior; the original live camera/compass stream remains unavailable for device validation.
+
+## Merge integration
+
+The camera initializer accepts both the continuous-autofocus option and the recovery clock used by the capture lifecycle. The event collection panel and window guide remain available in the shared collection camera alongside onboarding guidance. Debug demo pattern IDs are decoded once from the bundle rather than reloaded during live camera updates.
+
+## Leaving the collection camera
+
+Back requests dismissal immediately and suppresses duplicate close actions. Analysis cleanup remains in the screen’s disappearance handler. Preview attachment and detachment are serialized with camera configuration/start/stop on the capture worker, rather than assigning the native preview session synchronously during SwiftUI teardown. The preview is a separate sublayer so its detach can complete after the containing UIView leaves the screen; layout and markers stay on the UI actor. Rotation is updated only when needed and reapplied when the preview resumes.

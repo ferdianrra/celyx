@@ -186,6 +186,8 @@ struct CelyxSegmentedControl<Value: Hashable>: View {
                         .frame(maxWidth:.infinity).frame(height:34)
                         .contentShape(Capsule())
                 }
+                .accessibilityLabel(segment.title)
+                .accessibilityAddTraits(isOn ? .isSelected : [])
                 .buttonStyle(.plain)
                 .background {
                     if isOn {
@@ -200,12 +202,8 @@ struct CelyxSegmentedControl<Value: Hashable>: View {
         .padding(2)
         .sensoryFeedback(.selection,trigger:selection)
         .background(Capsule().fill(Color(hex:0x767680,opacity:0.24)))
-        .accessibilityRepresentation {
-            Picker("View",selection:$selection) {
-                ForEach(segments,id:\.value) { Text($0.title).tag($0.value) }
-            }
-            .pickerStyle(.segmented)
-        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("View")
     }
 }
 

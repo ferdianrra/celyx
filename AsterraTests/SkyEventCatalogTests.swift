@@ -50,4 +50,3 @@ struct SkyEventCatalogTests {
         #expect(abs(simd_length(sky.direction) - 1) < 1e-6)
     }
 }
-

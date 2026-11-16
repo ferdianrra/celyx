@@ -170,7 +170,7 @@ struct StarShareCard: View {
                 .frame(width: Self.size.width, height: Self.size.height, alignment: .bottom)
         }
     }
-    
+
     private var lightPollutionMetadata: some View {
         VStack(alignment: .leading, spacing: 2) {
             metadata("Light Pollution", value: content.lightPollution)
@@ -183,7 +183,7 @@ struct StarShareCard: View {
             }
         }
     }
-    
+
     private func metadata(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 3.771) {
             Text(label).font(.system(size: 11.314)).foregroundStyle(.white.opacity(0.5))
