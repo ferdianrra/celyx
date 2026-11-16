@@ -7,7 +7,18 @@ import simd
 /// World coordinates remain east/up/south so astronomical calibration is shared by all screens.
 nonisolated struct SkyCaptureCamera: Sendable {
     enum TrackingReason: Sendable { case initializing, insufficientFeatures, excessiveMotion, relocalizing }
-    enum TrackingState: Sendable { case normal, limited(TrackingReason), notAvailable }
+    enum TrackingState: Sendable {
+        case normal, limited(TrackingReason), notAvailable
+
+        var hasUsablePose: Bool {
+            // Excessive motion flags potential image blur. The timestamp-matched
+            // motion sample and calibrated camera intrinsics are still available.
+            switch self {
+            case .normal, .limited(.excessiveMotion): true
+            case .limited, .notAvailable: false
+            }
+        }
+    }
     let transform: simd_float4x4
     let intrinsics: simd_float3x3
     let imageResolution: CGSize
@@ -116,8 +127,9 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
     static var isSupported: Bool { CMMotionManager().isDeviceMotionAvailable &&
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil }
 
-    init(driver: (any SkyCaptureDriving)? = nil, notifications: NotificationCenter = .default) {
-        worker = driver ?? SkyCaptureWorker()
+    init(driver: (any SkyCaptureDriving)? = nil, notifications: NotificationCenter = .default,
+         usesContinuousAutoFocus: Bool = false) {
+        worker = driver ?? SkyCaptureWorker(usesContinuousAutoFocus: usesContinuousAutoFocus)
         notificationCenter = notifications
         let center = notifications
         // Never dispatch these notifications synchronously to the main queue:
@@ -179,6 +191,7 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
 nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, SkyCaptureDriving, @unchecked Sendable {
     let captureSession = AVCaptureSession()
     let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    private let usesContinuousAutoFocus: Bool
     private let queue = DispatchQueue(label: "celyx.sky.capture", qos: .userInitiated)
     private let motion = CMMotionManager()
     private let motionQueue = OperationQueue()
@@ -198,7 +211,8 @@ nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOu
     }
     private struct MotionSample { let time: Double; let rotation: simd_quatf; let speed: Double }
 
-    override init() {
+    init(usesContinuousAutoFocus: Bool) {
+        self.usesContinuousAutoFocus = usesContinuousAutoFocus
         super.init()
         motionQueue.maxConcurrentOperationCount = 1
         motionQueue.underlyingQueue = queue
@@ -209,6 +223,14 @@ nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOu
             do {
                 if !configured { try configure() }
                 guard !captureSession.isRunning else { return }
+                if usesContinuousAutoFocus, let device, device.isFocusModeSupported(.continuousAutoFocus) {
+                    try device.lockForConfiguration()
+                    if device.isFocusPointOfInterestSupported {
+                        device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    }
+                    device.focusMode = .continuousAutoFocus
+                    device.unlockForConfiguration()
+                }
                 history.removeAll()
                 missingMotionSince = nil
                 missingIntrinsics = 0
@@ -298,7 +320,8 @@ nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOu
                                                       preferredTimescale: 1_000_000)
         }
         if device.isLowLightBoostSupported { device.automaticallyEnablesLowLightBoostWhenAvailable = true }
-        if device.isFocusModeSupported(.locked), device.isLockingFocusWithCustomLensPositionSupported {
+        if !(usesContinuousAutoFocus && device.isFocusModeSupported(.continuousAutoFocus)),
+            device.isFocusModeSupported(.locked), device.isLockingFocusWithCustomLensPositionSupported {
             device.setFocusModeLocked(lensPosition: 1, completionHandler: nil)
         }
         configured = true

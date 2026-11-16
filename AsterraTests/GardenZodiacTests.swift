@@ -107,7 +107,7 @@ struct GardenZodiacTests {
                     camera.orientation = WormholeFreeze.orientation(forward: camera.forward, right: camera.right, up: camera.up)
                         * simd_quatd(angle: 0.25, axis: SIMD3(0, 0, 1))
                 }
-                let projected = GardenZodiacFigure.project([item], basis: sky.basis, size: size,
+                let projected = GardenZodiacFigure.project([item], basis: sky.basis, size: size, forward: camera.forward,
                     point: { camera.project($0, in: size) })
                 let drawing = try #require(projected.first)
                 for anchor in item.figure.definition.anchors {
@@ -117,6 +117,28 @@ struct GardenZodiacTests {
                 }
             }
         }
+    }
+
+    @Test func artworkFadesBeforeGrazingTheCameraPlane() throws {
+        let item = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        let (sky, centered) = try scene(for: item)
+        let size = CGSize(width: 650, height: 650)
+
+        func project(at angle: Double) -> [ProjectedConstellationFigure] {
+            var camera = centered
+            camera.fieldOfView = 110
+            let rotation = simd_quatd(angle: angle * .pi / 180, axis: centered.up)
+            camera.orientation = rotation * WormholeFreeze.orientation(
+                forward: centered.forward, right: centered.right, up: centered.up)
+            return GardenZodiacFigure.project([item], basis: sky.basis, size: size, forward: camera.forward) {
+                camera.project($0, in: size)
+            }
+        }
+
+        #expect(project(at: 0).first?.opacity == 0.64)
+        let edge = try #require(project(at: 37).first)
+        #expect(edge.opacity > 0 && edge.opacity < 0.64)
+        #expect(project(at: 65).isEmpty)
     }
 
     @Test func horizonClipExcludesTheSeaAndFollowsPhoneRoll() {
@@ -133,7 +155,7 @@ struct GardenZodiacTests {
         let libra = try #require(GardenZodiacFigure.load().first { $0.id == code })
         let (sky, camera) = try scene(for: libra)
         let size = CGSize(width: 402, height: 500)
-        let projected = GardenZodiacFigure.project([libra], basis: sky.basis, size: size,
+        let projected = GardenZodiacFigure.project([libra], basis: sky.basis, size: size, forward: camera.forward,
             point: { camera.project($0, in: size) })
         let stars = try SkyAssets.stars().filter { libra.requiredStarIDs.contains($0.id) }
         let positions = Dictionary(uniqueKeysWithValues: stars.compactMap { star -> (Int, CGPoint)? in

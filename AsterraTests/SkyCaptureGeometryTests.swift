@@ -5,6 +5,15 @@ import simd
 @testable import Asterra
 
 struct SkyCaptureGeometryTests {
+    @Test func motionBlurDoesNotInvalidateTheCameraPose() {
+        typealias TrackingState = SkyCaptureCamera.TrackingState
+        #expect(TrackingState.normal.hasUsablePose)
+        #expect(TrackingState.limited(.excessiveMotion).hasUsablePose)
+        #expect(!TrackingState.limited(.initializing).hasUsablePose)
+        #expect(!TrackingState.limited(.relocalizing).hasUsablePose)
+        #expect(!TrackingState.notAvailable.hasUsablePose)
+    }
+
     private let intrinsics = simd_float3x3(columns: (
         SIMD3<Float>(1300, 0, 0), SIMD3(0, 1290, 0), SIMD3(951, 537, 1)))
 
