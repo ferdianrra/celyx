@@ -9,6 +9,8 @@ struct SkyCaptureGeometryTests {
         typealias TrackingState = SkyCaptureCamera.TrackingState
         #expect(TrackingState.normal.hasUsablePose)
         #expect(TrackingState.limited(.excessiveMotion).hasUsablePose)
+        #expect(TrackingState.normal.supportsOpticalAnalysis)
+        #expect(!TrackingState.limited(.excessiveMotion).supportsOpticalAnalysis)
         #expect(!TrackingState.limited(.initializing).hasUsablePose)
         #expect(!TrackingState.limited(.relocalizing).hasUsablePose)
         #expect(!TrackingState.notAvailable.hasUsablePose)

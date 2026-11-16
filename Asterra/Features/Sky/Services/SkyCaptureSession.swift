@@ -10,6 +10,11 @@ nonisolated struct SkyCaptureCamera: Sendable {
     enum TrackingState: Sendable {
         case normal, limited(TrackingReason), notAvailable
 
+        var supportsOpticalAnalysis: Bool {
+            if case .normal = self { return true }
+            return false
+        }
+
         var hasUsablePose: Bool {
             // Excessive motion flags potential image blur. The timestamp-matched
             // motion sample and calibrated camera intrinsics are still available.
