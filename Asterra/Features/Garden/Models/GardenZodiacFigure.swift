@@ -41,19 +41,25 @@ struct GardenZodiacFigure: Identifiable {
     }
 
     /// The garden and AR supply their own projection, including gyro roll and zoom.
-    static func project(_ figures: [Self], basis: simd_double3x3?, size: CGSize,
+    static func project(_ figures: [Self], basis: simd_double3x3?, size: CGSize, forward: SIMD3<Double>,
                         point: (SIMD3<Double>) -> CGPoint?) -> [ProjectedConstellationFigure] {
         guard let basis, size.width > 0, size.height > 0 else { return [] }
         return figures.compactMap { item in
             let figure = item.figure
             guard (basis * figure.center).z > 0 else { return nil }
-            let targets = figure.definition.anchors.compactMap { point(Refraction.apparent(basis * $0.equatorial)) }
+            let directions = figure.definition.anchors.map { Refraction.apparent(basis * $0.equatorial) }
+            // Near the side of the camera, perspective can magnify the farthest anchor
+            // much more than the others. Fade before that anchor distorts the whole figure.
+            let depth = directions.map { simd_dot(forward, $0) }.min() ?? 0
+            guard depth > 0.6 else { return nil }
+            let fade = min(1, (depth - 0.6) / 0.24)
+            let targets = directions.compactMap(point)
             let sources = figure.definition.anchors.map { CGPoint(x: $0.pixel[0], y: $0.pixel[1]) }
             guard let transform = ConstellationFigureProjection.affine(source: sources, target: targets) else { return nil }
             let bounds = CGRect(x: 0, y: 0, width: figure.definition.size[0], height: figure.definition.size[1]).applying(transform)
             guard bounds.intersects(CGRect(origin: .zero, size: size)),
                 bounds.width < size.width * 8, bounds.height < size.height * 8 else { return nil }
-            return ProjectedConstellationFigure(figure: figure, transform: transform, opacity: 0.64)
+            return ProjectedConstellationFigure(figure: figure, transform: transform, opacity: 0.64 * fade * fade * (3 - 2 * fade))
         }
     }
 

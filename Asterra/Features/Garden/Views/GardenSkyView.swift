@@ -227,7 +227,7 @@ struct GardenSkyView: View {
                 }
                 GardenZodiacFigures(unlocked: shownZodiacFigures,
                     projected: GardenZodiacFigure.project(shownZodiacFigures, basis: viewModel.equatorial,
-                        size: geometry.size, point: { shown.project($0, in: geometry.size) }),
+                        size: geometry.size, forward: shown.forward, point: { shown.project($0, in: geometry.size) }),
                     skyClip: GardenZodiacFigure.skyClip(size: geometry.size) { point in
                         let center = shown.center(in: geometry.size)
                         let focal = shown.focalLength(in: geometry.size)

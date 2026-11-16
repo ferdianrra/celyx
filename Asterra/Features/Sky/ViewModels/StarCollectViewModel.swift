@@ -38,7 +38,8 @@ final class StarCollectViewModel {
     init(model: HomeViewModel) {
         self.model = model
         service = SkyFinderService(
-            location: model.location, catalogue: model.stars, alignment: model.cameraAlignment)
+            location: model.location, catalogue: model.stars, alignment: model.cameraAlignment,
+            usesContinuousAutoFocus: true)
     }
 
     private var center: CGPoint { CGPoint(x: viewSize.width / 2, y: viewSize.height / 2) }

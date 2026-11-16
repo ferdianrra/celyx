@@ -18,7 +18,7 @@ struct GardenCameraLayer: View {
     var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
     let onSelect: (GardenCollectionItem) -> Void
 
-    @State private var session = SkyCaptureSession()
+    @State private var session = SkyCaptureSession(usesContinuousAutoFocus: true)
     @State private var viewport: CGSize = .zero
     @State private var denied = false
     @Environment(\.scenePhase) private var phase
@@ -71,7 +71,7 @@ struct GardenCameraLayer: View {
                     }
                     }
                     .onChange(of: timeline.date) { _, _ in
-                        guard let onCameraUpdate, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return }
+                        guard let onCameraUpdate, let frame = projectionFrame else { return }
                         let freeze = WormholeFreeze.make(image: nil, size: size,
                             view: frame.camera.viewMatrix(viewRotationAngle: 90),
                             projection: frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000),
@@ -103,7 +103,7 @@ struct GardenCameraLayer: View {
     private var statusMessage: String? {
         if denied { return "Allow camera access in Settings to see your garden in the real sky." }
         guard let frame = session.currentFrame else { return "Starting the camera…" }
-        if case .normal = frame.camera.trackingState { return nil }
+        if frame.camera.trackingState.hasUsablePose { return nil }
         return "Move your phone slowly to line up the sky…"
     }
 
@@ -127,8 +127,13 @@ struct GardenCameraLayer: View {
 
     // MARK: Projection (identical to the collecting camera)
 
+    private var projectionFrame: SkyCaptureFrame? {
+        guard let frame = session.currentFrame, frame.camera.trackingState.hasUsablePose else { return nil }
+        return frame
+    }
+
     private func project(in size: CGSize) -> [Sprite] {
-        guard size.width > 0, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return [] }
+        guard size.width > 0, let frame = projectionFrame else { return [] }
         let view = frame.camera.viewMatrix(viewRotationAngle:90)
         let projection = frame.camera.projectionMatrix(viewRotationAngle:90,viewportSize:size,zNear:0.01,zFar:2000)
         return placed.compactMap { entry in
@@ -147,11 +152,12 @@ struct GardenCameraLayer: View {
     // MARK: Drawing
 
     private func projectZodiac(in size: CGSize) -> [ProjectedConstellationFigure] {
-        guard size.width > 0, size.height > 0, let frame = session.currentFrame,
-            case .normal = frame.camera.trackingState else { return [] }
+        guard size.width > 0, size.height > 0, let frame = projectionFrame else { return [] }
         let view = frame.camera.viewMatrix(viewRotationAngle: 90)
         let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
-        return GardenZodiacFigure.project(zodiacFigures, basis: equatorial, size: size) { direction in
+        let back = view.transpose.columns.2
+        let forward = SkyFinderProjection.horizonDirection(-SIMD3(back.x, back.y, back.z))
+        return GardenZodiacFigure.project(zodiacFigures, basis: equatorial, size: size, forward: forward) { direction in
             let world = SkyFinderProjection.worldDirection(direction)
             let local = view * SIMD4(world.x, world.y, world.z, 0)
             guard local.z < -0.06 else { return nil }
@@ -163,7 +169,7 @@ struct GardenCameraLayer: View {
     }
 
     private func zodiacSkyClip(in size: CGSize) -> [CGPoint] {
-        guard size.width > 0, size.height > 0, let frame = session.currentFrame else { return [] }
+        guard size.width > 0, size.height > 0, let frame = projectionFrame else { return [] }
         let inverse = simd_inverse(frame.camera.viewMatrix(viewRotationAngle: 90))
         let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
         return GardenZodiacFigure.skyClip(size: size) { point in
