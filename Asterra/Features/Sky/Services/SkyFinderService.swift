@@ -287,6 +287,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     private var focusSearchRegion: CGRect?
     private var focusSearchUntil: TimeInterval = 0
     private var controlsPrepared = false
+    private let usesContinuousAutoFocus: Bool
     @ObservationIgnored private var lastFrameTime: TimeInterval = 0
     private var cameraSettling = CameraControlSettling()
     private var location: ObserverLocation
@@ -458,10 +459,12 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
 
     init(
         star: CatalogStar? = nil, location: ObserverLocation? = nil, catalogue: [CatalogStar] = [],
-        showsPredictions: Bool = false, alignment: CameraSkyAlignment? = nil
+        showsPredictions: Bool = false, alignment: CameraSkyAlignment? = nil,
+        usesContinuousAutoFocus: Bool = false
     ) {
         self.alignment = alignment ?? CameraSkyAlignment()
         self.showsPredictions = showsPredictions
+        self.usesContinuousAutoFocus = usesContinuousAutoFocus
         self.star = star
         self.catalogue = catalogue.sorted { $0.mag < $1.mag }
         self.location = location ?? ObserverLocation(latitude: 0, longitude: 0)
@@ -552,8 +555,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         return WormholeFreeze.make(image:image,size:viewport,view:frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle),
                                    projection:screenProjection(frame),alignment:alignment.rotation)
     }
-    #if DEBUG
-    /// Project a real horizon position, including below the horizon for demo collection.
+    /// Project a real horizon position, including below the horizon (demo collection, sky event guide).
     func demoProjection(horizon direction: SIMD3<Double>) -> SkyFinderProjection? {
         guard running, hasLocationFix, status == .tracking,
             let frame = session.currentFrame, viewport.width > 0, viewport.height > 0
@@ -562,7 +564,6 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
             projection: screenProjection(frame), size: viewport)
     }
-    #endif
 
     func clearAlignment() { resetTrackingForCalibration() }
     func resetTrackingForCalibration() {
@@ -840,12 +841,17 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             if device.isExposureModeSupported(.continuousAutoExposure) {
                 device.exposureMode = .continuousAutoExposure
             }
-            if device.isFocusModeSupported(.locked), device.isLockingFocusWithCustomLensPositionSupported {
-                device.setFocusModeLocked(lensPosition: 1, completionHandler: nil)
-            }
             if device.isAutoFocusRangeRestrictionSupported {
                 originalFocusRange = device.autoFocusRangeRestriction
-                device.autoFocusRangeRestriction = .far
+                device.autoFocusRangeRestriction = usesContinuousAutoFocus ? .none : .far
+            }
+            if usesContinuousAutoFocus, device.isFocusModeSupported(.continuousAutoFocus) {
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                device.focusMode = .continuousAutoFocus
+            } else if device.isFocusModeSupported(.locked), device.isLockingFocusWithCustomLensPositionSupported {
+                device.setFocusModeLocked(lensPosition: 1, completionHandler: nil)
             }
         } catch { cameraControlMessage = "The camera’s still getting ready. Try again in a moment." }
         minimumExposure =
@@ -932,12 +938,18 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
                 if device.isFocusModeSupported(.locked) { device.focusMode = .locked }
                 if device.isExposureModeSupported(.locked) { device.exposureMode = .locked }
             } else {
-                if device.isAutoFocusRangeRestrictionSupported { device.autoFocusRangeRestriction = .far }
+                if device.isAutoFocusRangeRestrictionSupported {
+                    device.autoFocusRangeRestriction = usesContinuousAutoFocus ? .none : .far
+                }
                 if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = capturePoint }
                 if device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = capturePoint
                 }
-                if device.isFocusModeSupported(.autoFocus) { device.focusMode = .autoFocus }
+                if usesContinuousAutoFocus, device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                } else if device.isFocusModeSupported(.autoFocus) {
+                    device.focusMode = .autoFocus
+                }
                 if device.isExposureModeSupported(.continuousAutoExposure) {
                     device.exposureMode = .continuousAutoExposure
                 }

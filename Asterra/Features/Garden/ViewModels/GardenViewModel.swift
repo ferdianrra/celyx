@@ -17,6 +17,11 @@ final class GardenViewModel {
     private(set) var constellationConnections: [GardenConstellationConnection] = []
     private let zodiacFigures = GardenZodiacFigure.load()
     private(set) var completedZodiacFigures: [GardenZodiacFigure] = []
+    #if DEBUG
+    private var showsDemoConstellations = false
+    @ObservationIgnored private lazy var demoConstellationStarIDs = zodiacFigures
+        .reduce(into: Set<Int>()) { $0.formUnion($1.requiredStarIDs) }
+    #endif
     /// Decorative background star field (not tappable, no labels).
     var background: [NightSeaObject] = []
     /// Temporary demo placement stays in the sky until its sheet closes.
@@ -55,13 +60,36 @@ final class GardenViewModel {
 
     // MARK: Placement
 
+    #if DEBUG
+    func setDemoConstellations(_ enabled: Bool) {
+        guard showsDemoConstellations != enabled else { return }
+        showsDemoConstellations = enabled
+        place()
+    }
+    #endif
+
     func place() {
+        let location = location
+        let date = Date()
+        var items = model.collectionItems
+        var previewIDs: Set<Int> = []
+        #if DEBUG
+        if showsDemoConstellations {
+            previewIDs = demoConstellationStarIDs.subtracting(model.collected.keys)
+            if let demo { previewIDs.remove(demo.item.id) }
+            items += model.stars.compactMap { star in
+                guard previewIDs.contains(star.id) else { return nil }
+                return GardenCollectionItem(star: star, record: CollectedStar(
+                    id: star.id, date: date, latitude: location.latitude, longitude: location.longitude))
+            }
+        }
+        #endif
         let scene = Self.placement(
-            items: model.collectionItems, location: location, catalogue: model.stars,
-            excluding: demo.map { [$0.item.id] } ?? [])
+            items: items, location: location, date: date, catalogue: model.stars,
+            excluding: demo.map { [$0.item.id] } ?? [], previewStarIDs: previewIDs)
         background = scene.background
         placed = scene.placed
-        applyPlacement(moon: scene.moon, equatorial: scene.equatorial)
+        applyPlacement(moon: scene.moon, equatorial: scene.equatorial, items: items)
     }
 
     /// Use the exact positions already rendered in the wormhole for the landing.
@@ -75,11 +103,11 @@ final class GardenViewModel {
         placed = model.collectionItems.compactMap { item in
             collectedObjects[item.id].map { GardenPlacedObject(item: item, object: $0) }
         }
-        applyPlacement(moon: scene.moon, equatorial: scene.equatorial)
+        applyPlacement(moon: scene.moon, equatorial: scene.equatorial, items: model.collectionItems)
     }
 
     private func applyPlacement(moon: (direction: SIMD3<Double>, illumination: Double)?,
-                                equatorial: simd_double3x3?) {
+                                equatorial: simd_double3x3?, items: [GardenCollectionItem]) {
         if let demo {
             placed.removeAll { $0.id == demo.item.id }
             placed.append(GardenPlacedObject(item: demo.item, object: demo.object))
@@ -87,15 +115,15 @@ final class GardenViewModel {
         self.moon = moon
         self.equatorial = equatorial
         constellationConnections = GardenConstellationConnection.resolve(
-            figures: constellationFigures, items: model.collectionItems)
-        completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(model.collected.keys))
+            figures: constellationFigures, items: items)
+        completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(items.map(\.id)))
     }
 
     /// Every collected object at its real (refracted) position for this place and time, plus the
     /// decorative background star field.
     static func placement(
         items: [GardenCollectionItem], location: ObserverLocation, date: Date = Date(),
-        catalogue: [CatalogStar] = [], excluding extra: Set<Int> = []
+        catalogue: [CatalogStar] = [], excluding extra: Set<Int> = [], previewStarIDs: Set<Int> = []
     ) -> (
         placed: [GardenPlacedObject], moon: (direction: SIMD3<Double>, illumination: Double)?,
         equatorial: simd_double3x3, background: [NightSeaObject]
@@ -137,7 +165,8 @@ final class GardenViewModel {
                     item: item,
                     object: NightSeaObject(
                         id: star.id, direction: Refraction.apparent(geometric),
-                        radius: radius, color: color, kind: kind)))
+                        radius: radius, color: color, kind: kind),
+                    isPreview: previewStarIDs.contains(star.id)))
         }
         // Decorative star field (the kit's HYG layer to mag 6.2), toned down in the shader so it never reads as a
         // collected star: smaller, dimmer, no spikes, glow only for the very brightest, faint dust beyond mag 5.
@@ -301,7 +330,7 @@ final class GardenViewModel {
             return distance <= max(36, entry.object.radius * 0.6) ? (entry, distance) : nil
         }
         guard let hit = hits.min(by: { $0.1 < $1.1 }) else { return false }
-        selected = hit.0.item
+        if !hit.0.isPreview { selected = hit.0.item }
         return true
     }
 }

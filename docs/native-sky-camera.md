@@ -8,7 +8,7 @@ The physical back wide camera captures native, unrotated 1080p YUV frames. Video
 
 Core Motion provides true-north device orientation at 100 Hz. Video presentation timestamps are converted from the capture synchronization clock to host time, then matched/interpolated against a bounded motion history. World axes are east/up/south, preserving the astronomical calibration convention. Portrait and landscape rotations are applied explicitly. Translation is not estimated: celestial directions do not require room-scale position tracking.
 
-Auto exposure may use 10–30 fps where the active format supports it, with an exposure ceiling bounded by that format and frame duration. Focus starts locked at the far lens position. Low-light boost is enabled where supported. This is a streaming camera configuration, not a promise of the stock Camera app's Night mode processing. The detector pauses during estimated exposure motion blur, without invalidating calibration merely because the phone moved.
+Auto exposure may use 10–30 fps where the active format supports it, with an exposure ceiling bounded by that format and frame duration. On supported devices, the live garden uses continuous autofocus centered on the preview. The collect camera also starts continuous autofocus at the center while scanning. Tapping to focus moves the autofocus point to the selected area. The dedicated calibration flow uses the far-focus setup. Low-light boost is enabled where supported. This is a streaming camera configuration, not a promise of the stock Camera app's Night mode processing. The detector pauses during estimated exposure motion blur. The live garden continues projecting stars, constellation lines and artwork through those frames because the timestamp-matched orientation is still usable. The garden only shows its alignment prompt for frames without a usable pose.
 
 ## Detection and identification
 
@@ -106,3 +106,7 @@ Disc luminance is now normalized from video range (16–235) into the same scale
 A shape-validated optical disc is exempt from the point-source texture veto, since cloud rims and scattering around the Sun are valid sky. Rectangular-light rejection remains in disc extraction. Every disc still needs above-horizon solar ephemeris agreement, heading/altitude bounds, and independent temporal consensus before collection. A fully hidden Sun does not get a new optical observation from its predicted position.
 
 Validation: 122 selected tests in 16 suites pass. The small reported core is checked across nine sampling-grid positions, two luminance ranges and two transmission levels (36 combinations). Synthetic partial occlusion, flat cloud, isolated hot pixels, rectangular lights, ephemeris mismatch and the earlier sun-beside-cloud regression also pass. Generic iOS Release build succeeds with signing disabled. These checks cover image extraction and policy behavior; the original live camera/compass stream remains unavailable for device validation.
+
+## Merge integration
+
+The camera initializer accepts both the continuous-autofocus option and the recovery clock used by the capture lifecycle. The event collection panel and window guide remain available in the shared collection camera alongside onboarding guidance. Debug demo pattern IDs are decoded once from the bundle rather than reloaded during live camera updates.

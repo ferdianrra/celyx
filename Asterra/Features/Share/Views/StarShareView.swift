@@ -85,8 +85,18 @@ struct StarShareView: View {
     }
 
     private var content: StarShareContent {
-        StarShareContent(item: item, collectionNumber: ShareCollectionOrder.number(
-            for: item.id, in: collection?.collectionItems ?? []))
+        var record = item.record
+        if let latest = collection?.collected[item.id],
+           latest.photoFilename == record.photoFilename,
+           latest.date == record.date {
+            record.lightPollution = latest.lightPollution
+        }
+
+        return StarShareContent(
+            item: GardenCollectionItem(star: item.star, record: record),
+            collectionNumber: ShareCollectionOrder.number(
+                for: item.id, in: collection?.collectionItems ?? [])
+        )
     }
 
     private func perform(_ destination: ShareDestination) {

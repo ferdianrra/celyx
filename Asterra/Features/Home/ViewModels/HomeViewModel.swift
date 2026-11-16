@@ -376,11 +376,35 @@ final class HomeViewModel {
             defaults.set(data,forKey:"collectedStars")
             collected = updated
             if let old = previous?.photoFilename { StarPhotoStore.remove(old) }
+            loadLightPollution(
+                id: draft.star.id,
+                photoFilename: filename,
+                location: draft.location
+            )
         } catch {
             StarPhotoStore.remove(filename)
             throw error
         }
     }
+    private func loadLightPollution(id: Int, photoFilename: String, location: ObserverLocation) {
+        Task { [weak self] in
+            guard let estimate = await LightPollutionService.lookup(
+                latitude: location.latitude,
+                longitude: location.longitude
+            ), let self,
+            var record = self.collected[id],
+            record.photoFilename == photoFilename else { return }
+
+            record.lightPollution = estimate
+            var updated = self.collected
+            updated[id] = record
+
+            guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
+            self.defaults.set(data, forKey: "collectedStars")
+            self.collected = updated
+        }
+    }
+
     func updateObservationNote(id: Int,note: String) {
         guard var record = collected[id] else { return }
         record.note = note.trimmingCharacters(in:.whitespacesAndNewlines)

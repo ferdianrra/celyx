@@ -21,14 +21,19 @@ enum DemoSky {
     /// Bunda, Terebellum, Ancha and Aldhanab. Coordinates always come from the catalog.
     static let nearbyStarIDs: Set<Int> = [160, 843, 404, 1115, 1134, 619, 174]
 
-    /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
-    static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
+    // Bundle data is immutable. Decode once instead of doing file I/O during live demo updates.
+    private static let patternStarIDs: Set<Int> = {
         guard let url = try? SkyAssets.url("constellations", extension: "json"),
             let data = try? Data(contentsOf: url),
             let figures = try? JSONDecoder().decode([String: Constellation].self, from: data)
         else { return [] }
-        let ids = Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] }).union(nearbyStarIDs)
-        return catalogue.filter { ids.contains($0.id) }.sorted { $0.id < $1.id }
+        return Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] })
+            .union(nearbyStarIDs)
+    }()
+
+    /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
+    static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
+        catalogue.filter { patternStarIDs.contains($0.id) }.sorted { $0.id < $1.id }
     }
 
     /// Keep one uncollected Capricornus member for the final capture; never erase real observations.
