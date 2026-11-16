@@ -14,6 +14,8 @@ Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting c
 
 ## Verification
 
+Camera Back now requests immediate dismissal; preview attachment/detachment runs on the capture worker alongside session operations. This change was built for the simulator without running unit tests. Physical-device Back latency remains to be checked.
+
 Merge integration repaired the camera autofocus option, restored the Debug constellation toggle and event collection panel alongside the guided Sun tutorial and camera recovery. Debug demo pattern IDs are cached to avoid repeated bundle decoding during live camera updates. The integration repair builds in Debug for the iOS simulator and Release for generic iOS with signing disabled. No unit tests were run for this repair; the test results below predate it. Autofocus, camera interruption recovery and demo smoothness still need physical-device validation.
 
 The latest focused camera run passed 10 simulator tests covering capture geometry and lifecycle. Physical iPhone validation remains open for low-light autofocus, live sky alignment and recognition, and sharing to installed apps.

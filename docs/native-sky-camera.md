@@ -110,3 +110,7 @@ Validation: 122 selected tests in 16 suites pass. The small reported core is che
 ## Merge integration
 
 The camera initializer accepts both the continuous-autofocus option and the recovery clock used by the capture lifecycle. The event collection panel and window guide remain available in the shared collection camera alongside onboarding guidance. Debug demo pattern IDs are decoded once from the bundle rather than reloaded during live camera updates.
+
+## Leaving the collection camera
+
+Back requests dismissal immediately and suppresses duplicate close actions. Analysis cleanup remains in the screen’s disappearance handler. Preview attachment and detachment are serialized with camera configuration/start/stop on the capture worker, rather than assigning the native preview session synchronously during SwiftUI teardown. The preview is a separate sublayer so its detach can complete after the containing UIView leaves the screen; layout and markers stay on the UI actor. Rotation is updated only when needed and reapplied when the preview resumes.

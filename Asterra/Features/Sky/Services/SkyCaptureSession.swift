@@ -102,6 +102,13 @@ extension SkyCaptureSessionDelegate {
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {}
 }
 
+/// Only AVFoundation session binding crosses queues; UIView layout stays on the main actor.
+nonisolated final class SkyCapturePreviewAttachment: @unchecked Sendable {
+    private let layer: AVCaptureVideoPreviewLayer
+    init(_ layer: AVCaptureVideoPreviewLayer) { self.layer = layer }
+    func setSession(_ session: AVCaptureSession?) { layer.session = session }
+}
+
 /// Capture operations run off the UI actor. The injectable driver also lets lifecycle
 /// regressions be tested without a physical camera or simulator motion sensors.
 nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
@@ -111,6 +118,13 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
     func stop()
     func releaseFrame()
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void)
+    func setPreview(_ preview: SkyCapturePreviewAttachment, attached: Bool)
+}
+
+extension SkyCaptureDriving {
+    nonisolated func setPreview(_ preview: SkyCapturePreviewAttachment, attached: Bool) {
+        preview.setSession(attached ? captureSession : nil)
+    }
 }
 
 /// UI-facing owner. All capture configuration/start/stop work runs on the worker queue.
@@ -218,6 +232,9 @@ nonisolated protocol SkyCaptureDriving: AnyObject, Sendable {
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {
         worker.configureDevice(update)
     }
+    func setPreview(_ layer: AVCaptureVideoPreviewLayer, attached: Bool) {
+        worker.setPreview(SkyCapturePreviewAttachment(layer), attached: attached)
+    }
 }
 
 /// Both motion history and camera callbacks are serialized on one queue. Intrinsics
@@ -300,6 +317,11 @@ nonisolated private final class SkyCaptureWorker: NSObject, AVCaptureVideoDataOu
         releaseFrame()
         if captureSession.isRunning { captureSession.stopRunning() }
     } }
+    func setPreview(_ preview: SkyCapturePreviewAttachment, attached: Bool) {
+        queue.async { [self] in
+            preview.setSession(attached ? captureSession : nil)
+        }
+    }
     func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {
         queue.async { [self] in
             guard let device else { return }

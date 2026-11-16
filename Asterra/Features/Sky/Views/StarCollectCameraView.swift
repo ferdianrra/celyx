@@ -45,6 +45,7 @@ struct StarCollectCameraView: View {
     @State private var captureImage: CGImage?
     /// The camera feed shows only once the camera delivers real frames (no skewed first frames).
     @State private var feedReady = false
+    @State private var isClosing = false
     #if DEBUG
     /// Catalog stars at their real current horizon positions; demo bypasses optical detection.
     @State private var didPrepareDemoCollection = false
@@ -235,7 +236,7 @@ struct StarCollectCameraView: View {
             }
             #endif
         }
-        .allowsHitTesting(handover == nil && captureStart == nil)
+        .allowsHitTesting(!isClosing && handover == nil && captureStart == nil)
         .overlay(alignment: .top) {
             if let event, handover == nil {
                 EventWindowBanner(event: event, now: eventNow)
@@ -286,9 +287,12 @@ struct StarCollectCameraView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Back", systemImage: "chevron.left") {
-                    service.stop()
+                    guard !isClosing else { return }
+                    isClosing = true
+                    viewModel.onSaved = nil
                     onClose()
                 }.labelStyle(.iconOnly)
+                .disabled(isClosing)
             }
 
         }
@@ -319,7 +323,7 @@ struct StarCollectCameraView: View {
             guard phase == .active else { return }
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                guard !Task.isCancelled, handover == nil, captureStart == nil else { return }
+                guard !Task.isCancelled, !isClosing, handover == nil, captureStart == nil else { return }
                 service.session.recoverIfStalled()
             }
         }
@@ -366,6 +370,7 @@ struct StarCollectCameraView: View {
         }
         .onDisappear { service.stop() }
         .onChange(of: phase) { _, value in
+            guard !isClosing else { return }
             if value == .active, viewModel.capturedItem == nil, handover == nil {
                 Task { await service.start() }
             } else if value == .background {
