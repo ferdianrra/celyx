@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "Aquarius.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

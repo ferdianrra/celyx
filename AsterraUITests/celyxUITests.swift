@@ -9,6 +9,30 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testDemoConstellationsToggleStaysInTheGarden() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing"]
+        app.launch()
+
+        let direction = app.buttons["Direction options"]
+        XCTAssertTrue(direction.waitForExistence(timeout: 20))
+        XCTAssertEqual(direction.value as? String, "Demo constellations off")
+
+        direction.tap()
+        let toggle = app.buttons["Demo constellations"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.tap()
+        XCTAssertEqual(direction.value as? String, "Demo constellations on")
+        XCTAssertTrue(app.buttons["Start Collecting"].exists)
+
+        direction.tap()
+        toggle.tap()
+        XCTAssertEqual(direction.value as? String, "Demo constellations off")
+        XCTAssertTrue(app.buttons["Start Collecting"].exists)
+    }
+
+    @MainActor
     func testCollectedStarOpensSharePageAndSwitchesLayouts() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

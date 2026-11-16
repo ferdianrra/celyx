@@ -51,7 +51,7 @@ private struct GardenZodiacFigureLayers: UIViewRepresentable {
     }
 }
 
-/// Image contents stay on the compositor; sensor frames update only affine transforms and the horizon mask.
+/// Image contents stay on the compositor; sensor frames update transforms, visibility and the horizon mask.
 final class GardenZodiacFigureLayerView: UIView {
     private let horizonMask = CAShapeLayer()
     private var figures: [String: CALayer] = [:]
@@ -102,6 +102,7 @@ final class GardenZodiacFigureLayerView: UIView {
                 container.name = drawing.id
                 container.anchorPoint = .zero
                 container.position = .zero
+                container.allowsGroupOpacity = false
                 container.bounds = CGRect(x: 0, y: 0, width: drawing.figure.definition.size[0],
                                            height: drawing.figure.definition.size[1])
                 let image = CALayer(); image.name = "artwork"
@@ -114,8 +115,9 @@ final class GardenZodiacFigureLayerView: UIView {
             }
             container.isHidden = !isActive
             container.setAffineTransform(drawing.transform)
+            // Keep the camera fade live while the image and glow animate on the sublayers.
+            container.opacity = Float(drawing.opacity)
             guard let image = container.sublayers?.first, let glow = container.sublayers?.last else { continue }
-            image.opacity = Float(drawing.opacity)
             if reduceMotion || !isActive {
                 image.removeAllAnimations(); glow.removeAllAnimations(); glow.opacity = 0
             }
@@ -124,12 +126,12 @@ final class GardenZodiacFigureLayerView: UIView {
             guard animatedIDs.contains(drawing.id), !reduceMotion else { continue }
             let start = CACurrentMediaTime()
             let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0; fade.toValue = drawing.opacity
+            fade.fromValue = 0; fade.toValue = 1
             fade.duration = 1.8; fade.beginTime = start
             fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             image.add(fade, forKey: "zodiac-reveal")
             let bloom = CAKeyframeAnimation(keyPath: "opacity")
-            bloom.values = [0, 0.24, 0]; bloom.keyTimes = [0, 0.45, 1]
+            bloom.values = [0, 0.375, 0]; bloom.keyTimes = [0, 0.45, 1]
             bloom.duration = 1.8; bloom.beginTime = start
             glow.add(bloom, forKey: "zodiac-glow")
         }
