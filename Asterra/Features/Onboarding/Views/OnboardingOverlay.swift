@@ -4,6 +4,35 @@ import simd
 /// The guided tour drawn over Home. Native Liquid Glass coach cards set the pace; the practice star is
 /// projected through whichever camera the user is looking through (the Night Sea's or the live AR camera),
 /// so it moves exactly like collected stars do. The real crosshair (motion, sound, haptics) does the aiming.
+/// Keep high-frequency camera observations inside this small layer, outside Home's body.
+struct OnboardingCameraOverlay: View {
+    let flow: OnboardingFlow
+    let camera: NightSeaCamera
+    let liveCamera: LiveCameraLink?
+    var chromeVisible = false
+    var topBarVisible = false
+
+    var body: some View {
+        OnboardingOverlay(flow: flow, camera: shownCamera,
+            chromeVisible: chromeVisible, topBarVisible: topBarVisible)
+    }
+    private var shownCamera: NightSeaCamera {
+        if let camera = flow.gardenCamera { return camera }
+        #if DEBUG
+        // Aim the simulator camera at the calculated Sun, without moving the Sun itself.
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing"),
+           ProcessInfo.processInfo.arguments.contains("-onboarding-aimed"),
+           let star = flow.star, star.isSun {
+            var aimed = NightSeaCamera()
+            aimed.azimuth = atan2(star.direction.x, star.direction.y)
+            aimed.altitude = asin(star.direction.z)
+            return aimed
+        }
+        #endif
+        return liveCamera?.pose ?? camera
+    }
+}
+
 struct OnboardingOverlay: View {
     let flow: OnboardingFlow
     /// The camera the user is looking through right now.
@@ -40,6 +69,7 @@ struct OnboardingOverlay: View {
                 if hunting, let star = flow.star {
                     if let point {
                         PracticeStarView(star: star, isLocked: flow.isLocked).position(point)
+                            .transaction { $0.animation = nil }
                             .transition(.scale(scale: 0.2).combined(with: .opacity))
                     }
                     if !flow.isLocked, let hint = edgeHint(for: star, point: point, size: size) {
@@ -62,7 +92,7 @@ struct OnboardingOverlay: View {
                         Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1.5)
                             .frame(width: 54, height: 54)
                             .background { OnboardingHighlight(size: CGSize(width: 38, height: 38), haptics: false) }
-                        Text(flow.star == nil ? "Your discovery" : "Your practice star")
+                        Text(flow.star?.isSun == true ? "Your Sun" : flow.isTemporaryPractice ? "Your practice star" : "Your discovery")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 7)
@@ -119,7 +149,7 @@ struct OnboardingOverlay: View {
             if flow.step == .completion {
                 ZStack {
                     Color.black.opacity(0.55).ignoresSafeArea()
-                    OnboardingCompletionCard(isPractice: flow.star != nil) { flow.finish() }
+                    OnboardingCompletionCard(isPractice: flow.isTemporaryPractice) { flow.finish() }
                         .padding(20)
                 }
                 .accessibilityAddTraits(.isModal)
@@ -253,7 +283,14 @@ private struct PracticeStarView: View {
                         ring.scaleEffect(grown ? 2.8 : 0.8).opacity(grown ? 0 : 0.9)
                     } animation: { grown in grown ? .easeOut(duration: 1.6) : .linear(duration: 0.01).delay(0.5) }
             }
-            DemoStarView(color: star.color).scaleEffect(isLocked ? 1.3 : 1.15)
+            if star.isSun {
+                Circle().fill(Color(red: 1, green: 0.82, blue: 0.52).opacity(0.3))
+                    .frame(width: 50, height: 50).blur(radius: 9)
+                Circle().fill(Color(red: 1, green: 0.92, blue: 0.7))
+                    .frame(width: 20, height: 20)
+            } else {
+                DemoStarView(color: star.color).scaleEffect(isLocked ? 1.3 : 1.15)
+            }
         }
         .animation(.spring(duration: 0.5, bounce: 0.25), value: isLocked)
         .allowsHitTesting(false)

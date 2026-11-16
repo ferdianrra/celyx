@@ -147,7 +147,8 @@ final class GardenViewModel {
             .compactMap { star -> NightSeaObject? in
                 let direction = Refraction.apparent(sky.direction(ra: star.ra_deg, dec: star.dec_deg))
                 guard direction.z > -0.01 else { return nil }
-                return NightSeaObject(id: -star.id - 1, direction: direction, radius: star.mag, color: star.rgb, kind: .background)
+                // Keep decoration IDs separate from the Sun, Moon and planets' negative IDs.
+                return NightSeaObject(id: -1_000_000 - star.id, direction: direction, radius: star.mag, color: star.rgb, kind: .background)
             }
         return (result, moonState, sky.basis, Array(background))
     }

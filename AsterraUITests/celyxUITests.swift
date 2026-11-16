@@ -131,7 +131,55 @@ final class celyxUITests: XCTestCase {
     }
 
     @MainActor
-    func testRealCameraGuideHasAFullWidthPracticeButton() throws {
+    func testDaytimeGuideCollectsSunAndKeepsItAfterTheTour() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-testing-daytime", "-onboarding",
+            "-onboarding-step=visibility", "-onboarding-aimed"]
+        app.launch()
+        let guide = app.buttons["Find the Sun with a guide"]
+        XCTAssertTrue(guide.waitForExistence(timeout: 10))
+        guide.tap()
+        XCTAssertTrue(app.staticTexts["There you go! Target locked."].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Practice Star"].exists)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.staticTexts["This is your virtual garden"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Your Sun"].exists)
+        XCTAssertFalse(app.staticTexts["Collected! Watch it fly into your Night Sea."].exists)
+        let garden = XCTAttachment(screenshot: app.screenshot())
+        garden.name = "Guided Sun in the garden"
+        garden.lifetime = .keepAlways
+        add(garden)
+        app.buttons["Continue"].tap()
+        let editor = app.descendants(matching: .any)["collection-note-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        editor.typeText("My Sun from the tour.")
+        app.keyboards.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["You're all set!"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["This practice star will leave when you tap Done. The real stars you collect will stay in your garden."].exists)
+        app.buttons["finish-tour-celebration"].tap()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 10))
+        app.terminate()
+        app.launchArguments = ["-ui-testing", "-ui-testing-daytime"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 10))
+        app.buttons["Your Collection"].tap()
+        let dismissTip = app.buttons["Dismiss tip"]
+        if dismissTip.waitForExistence(timeout: 3) { dismissTip.tap() }
+        app.buttons["collection-stars-tile"].tap()
+        XCTAssertTrue(app.navigationBars["Stars"].waitForExistence(timeout: 10))
+        let sun = app.staticTexts["Sun"].firstMatch
+        XCTAssertTrue(sun.waitForExistence(timeout: 10))
+        sun.tap()
+        let note = app.staticTexts["collected-star-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
+        XCTAssertTrue(note.label.contains("My Sun from the tour."))
+    }
+
+    @MainActor
+    func testRealCameraGuideStaysCompact() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=visibility", "-onboarding-aimed"]
@@ -142,10 +190,13 @@ final class celyxUITests: XCTestCase {
         let practice = app.buttons["tour-camera-try-virtual-star"]
         XCTAssertTrue(practice.waitForExistence(timeout: 15))
         XCTAssertTrue(practice.isHittable)
-        XCTAssertGreaterThanOrEqual(practice.frame.height, 50)
-        XCTAssertGreaterThan(practice.frame.width, app.frame.width * 0.7)
+        XCTAssertGreaterThanOrEqual(practice.frame.height, 44)
+        let guide = app.descendants(matching: .any)["tour-camera-guide"].firstMatch
+        XCTAssertLessThan(guide.frame.height, 140)
+        XCTAssertGreaterThan(guide.frame.minY, app.frame.height * 0.7)
+        XCTAssertLessThan(guide.frame.maxY, app.frame.height)
         let panel = XCTAttachment(screenshot: app.screenshot())
-        panel.name = "Camera guide — full width practice button below navigation"
+        panel.name = "Camera guide — bottom hint with consistent typography"
         panel.lifetime = .keepAlways
         add(panel)
         practice.tap()

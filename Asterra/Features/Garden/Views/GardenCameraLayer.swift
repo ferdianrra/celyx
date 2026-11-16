@@ -113,8 +113,16 @@ struct GardenCameraLayer: View {
             else { session.pause(); link?.sessionWasInterrupted(session) }
         }
         .onChange(of:phase) { _, value in
-            if value == .active && isActive { run() }
+            if value == .active && isActive { run(restarting: true) }
             else if value == .background { session.pause(); link?.sessionWasInterrupted(session) }
+        }
+        .task(id: isActive && phase == .active) {
+            guard isActive, phase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard !Task.isCancelled else { return }
+                session.recoverIfStalled()
+            }
         }
         .onDisappear { session.pause(); link?.disconnect(from: session) }
     }
@@ -144,9 +152,10 @@ struct GardenCameraLayer: View {
         }
         if isActive { run() }
     }
-    private func run() {
-        guard !denied, SkyCaptureSession.isSupported else { return }
-        session.run()
+    private func run(restarting: Bool = false) {
+        guard !denied, SkyCaptureSession.isSupported, phase != .background else { return }
+        if restarting { session.restart() }
+        else { session.run() }
     }
 
     // MARK: Projection (identical to the collecting camera)

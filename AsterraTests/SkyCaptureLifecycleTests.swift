@@ -13,6 +13,7 @@ nonisolated private final class TestCaptureDriver: SkyCaptureDriving, @unchecked
     private var callbacks: [@Sendable (Result<SkyCaptureFrame, Error>) -> Void] = []
     private var stops = 0
     private var releases = 0
+    var startCount: Int { lock.withLock { callbacks.count } }
     var stopCount: Int { lock.withLock { stops } }
     var releaseCount: Int { lock.withLock { releases } }
     func start(deliver: @escaping @Sendable (Result<SkyCaptureFrame, Error>) -> Void) { lock.withLock { callbacks.append(deliver) } }
@@ -148,6 +149,81 @@ nonisolated private final class TestCaptureDriver: SkyCaptureDriving, @unchecked
         notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         #expect(!session.isRunning && alignment.requiresCalibration)
         #expect(driver.stopCount == 1)
+    }
+
+    @Test func overlappingForegroundCallbacksDoNotInvalidateTheLiveRun() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let recorder = CaptureRecorder()
+        session.delegate = recorder
+        session.run()
+        session.run()
+        session.run()
+        driver.emit(try frame(at: 1), run: 0)
+        await drain()
+        #expect(driver.startCount == 1 && recorder.times == [1])
+    }
+
+    @Test func interruptionEndRestartsSensorsAndAcceptsOnlyFreshFrames() async throws {
+        let driver = TestCaptureDriver()
+        let notifications = NotificationCenter()
+        let session = SkyCaptureSession(driver: driver, notifications: notifications)
+        let link = LiveCameraLink()
+        link.viewport = CGSize(width: 402, height: 874)
+        link.connect(to: session)
+        session.run()
+        driver.emit(try frame(at: 1), run: 0)
+        await drain()
+        notifications.post(name: AVCaptureSession.wasInterruptedNotification, object: driver.captureSession)
+        await drain()
+        #expect(link.state == .starting && session.currentFrame == nil)
+        notifications.post(name: AVCaptureSession.interruptionEndedNotification, object: driver.captureSession)
+        await drain()
+        #expect(driver.startCount == 2 && driver.stopCount == 1)
+        driver.emit(try frame(at: 2), run: 0)
+        await drain()
+        #expect(link.state == .starting && session.currentFrame == nil)
+        driver.emit(try frame(at: 3), run: 1)
+        await drain()
+        #expect(link.state == .streaming && session.currentFrame?.timestamp == 3)
+    }
+
+    @Test func aFrozenRunningSessionRecoversWithoutReopeningTheCamera() async throws {
+        let driver = TestCaptureDriver()
+        var now: TimeInterval = 0
+        let session = SkyCaptureSession(driver: driver, clock: { now })
+        session.run()
+        driver.emit(try frame(at: 1), run: 0)
+        await drain()
+        now = 1
+        session.recoverIfStalled()
+        #expect(driver.startCount == 1)
+        now = 4
+        session.recoverIfStalled()
+        #expect(driver.startCount == 2 && driver.stopCount == 1)
+        driver.emit(try frame(at: 5), run: 1)
+        await drain()
+        #expect(session.currentFrame?.timestamp == 5)
+        session.pause()
+        now = 10
+        session.recoverIfStalled()
+        #expect(driver.startCount == 2, "A hidden camera must stay stopped")
+    }
+
+    @Test func mediaServicesResetRecoversOnlyWhileTheCameraIsWanted() async {
+        let driver = TestCaptureDriver()
+        let notifications = NotificationCenter()
+        let session = SkyCaptureSession(driver: driver, notifications: notifications)
+        session.run()
+        let error = NSError(domain: AVFoundationErrorDomain, code: AVError.mediaServicesWereReset.rawValue)
+        notifications.post(name: AVCaptureSession.runtimeErrorNotification, object: driver.captureSession,
+            userInfo: [AVCaptureSessionErrorKey: error])
+        await drain()
+        #expect(session.isRunning && driver.startCount == 2)
+        session.pause()
+        notifications.post(name: AVCaptureSession.interruptionEndedNotification, object: driver.captureSession)
+        await drain()
+        #expect(!session.isRunning && driver.startCount == 2)
     }
 
     private func postInterruptionOffMain(_ notifications: NotificationCenter, driver: TestCaptureDriver) -> Bool {

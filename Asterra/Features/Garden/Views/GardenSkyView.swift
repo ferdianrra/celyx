@@ -13,6 +13,7 @@ struct GardenSkyView: View {
     var resetRequest = 0
     /// Live camera behind the collected objects instead of the virtual Night Sea.
     var usesCamera = false
+    var showsCameraCollection = true
     var usesGyro = true
     var onModeChange: ((Bool) -> Void)?
     /// Wormhole handover from the collect camera: drives the view during landing + reframe.
@@ -38,11 +39,12 @@ struct GardenSkyView: View {
         resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
         sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {},
-        cameraLink: LiveCameraLink? = nil, tourFocusDirection: SIMD3<Double>? = nil,
+        cameraLink: LiveCameraLink? = nil, showsCameraCollection: Bool = true, tourFocusDirection: SIMD3<Double>? = nil,
         tourFocusCamera: NightSeaCamera? = nil,
         onTourNoteCompleted: @escaping () -> Void = {}
     ) {
         self.cameraLink = cameraLink
+        self.showsCameraCollection = showsCameraCollection
         self.tourFocusDirection = tourFocusDirection
         self.tourFocusCamera = tourFocusCamera
         self.onTourNoteCompleted = onTourNoteCompleted
@@ -63,8 +65,9 @@ struct GardenSkyView: View {
         ZStack {
             if usesCamera {
                 GardenCameraLayer(
-                    placed: viewModel.placed, selectedID: viewModel.selected?.id,
-                    connections: shownConnections, zodiacFigures: shownZodiacFigures,
+                    placed: showsCameraCollection ? viewModel.placed : [], selectedID: viewModel.selected?.id,
+                    connections: showsCameraCollection ? shownConnections : [],
+                    zodiacFigures: showsCameraCollection ? shownZodiacFigures : [],
                     equatorial: viewModel.equatorial, isActive: refreshesSkyPositions,
                     onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
                     link: cameraLink

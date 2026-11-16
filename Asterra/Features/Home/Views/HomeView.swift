@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreLocation
 import SwiftUI
 
 /// Figma "Home Screen" (830:5105) + "Collection About" (886:6050).
@@ -47,12 +48,13 @@ struct HomeView: View {
         NavigationStack(path:$path) {
             ZStack(alignment:.bottom) {
                 GardenSkyView(model:model,camera:$gardenCamera,
-                              isActive:phase == .active && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
+                              isActive:phase != .background && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
                               resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,onDemoEnded:{ demoShowing = false },
-                              cameraLink:tourCameraLink, tourFocusDirection:onboarding?.gardenDirection,
+                              cameraLink:tourCameraLink, showsCameraCollection:onboarding?.step != .find,
+                              tourFocusDirection:onboarding?.gardenDirection,
                               tourFocusCamera:onboarding?.gardenCamera,
                               onTourNoteCompleted:{ onboarding?.noteCompleted() })
                     .ignoresSafeArea()
@@ -136,26 +138,25 @@ struct HomeView: View {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
         }
         .fullScreenCover(isPresented:$showsStarCamera) {
-            StarCollectCameraView(model:model,handover:handover,onCollect:collected) {
+            StarCollectCameraView(model:model,handover:handover,onCollect:collected, onboardingGuide:realCameraGuide) {
                 showsStarCamera = false
                 onboarding?.realCameraClosed()
             }
-            .overlay(alignment: .top) {
-                if let flow = onboarding, flow.isFindingRealObject, handover == nil {
-                    OnboardingCameraGuide(isDaytime: flow.isDaytime) {
-                        showsStarCamera = false
-                        flow.useVirtualStar()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 60)
-                }
-            }
+
         }
         .fullScreenCover(item:$camera) { mode in
             CollectCameraView(mode:mode,model:model,events:events) { finished in
                 camera = nil
                 if finished { path.removeAll() }
             }
+        }
+    }
+
+    private var realCameraGuide: OnboardingCameraGuide? {
+        guard let flow = onboarding, flow.isFindingRealObject, handover == nil else { return nil }
+        return OnboardingCameraGuide(isDaytime: flow.isDaytime, offersGuidedSun: flow.offersGuidedSun) {
+            showsStarCamera = false
+            flow.useVirtualStar()
         }
     }
 
@@ -255,14 +256,15 @@ struct HomeView: View {
                     }
                     #endif
                     if home.shouldStartOnboarding && !home.didAutoStartTour { home.didAutoStartTour = true; home.startOnboarding() } }
-                .onChange(of:home.model.snapshot?.sunAltitude, initial:true) { _, altitude in
-                    home.onboarding?.updateSky(sunAltitude:altitude)
+                .onChange(of:home.model.snapshot?.sunDirection, initial:true) { _, _ in
+                    home.updateTourSky()
+                }
+                .onChange(of:home.model.location) { _, _ in home.updateTourSky() }
+                .onChange(of:home.model.locationNeedsSettings) { _, needsSettings in
+                    home.onboarding?.updateLocationAccess(needsSettings: needsSettings)
                 }
                 .onChange(of:home.gardenUsesCamera) { _, on in home.tourCameraModeChanged(on) }
                 .onChange(of:home.gardenCamera,initial:true) { _, camera in home.onboarding?.cameraChanged(camera) }
-                .onChange(of:home.cameraLink.pose) { _, pose in
-                    if let pose { home.onboarding?.cameraChanged(pose) }
-                }
                 .onChange(of:home.cameraLink.state) { _, state in
                     guard home.gardenUsesCamera, let flow = home.onboarding else { return }
                     switch state {
@@ -319,10 +321,6 @@ struct HomeView: View {
         }
     }
 
-    private var windowSafeTop: CGFloat {
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.safeAreaInsets.top ?? 0
-    }
-
     private var tourCameraLink: LiveCameraLink? { onboarding == nil ? nil : cameraLink }
 
     /// The toolbars come back once the tour points at them.
@@ -355,43 +353,39 @@ struct HomeView: View {
             if let handover, handover.phase < .reframe, !reduceMotion {
                 WormholeHandoverView(handover:handover)
             }
-            if let handover, onboarding.step == .wormhole, let caption = tourCaption(handover.phase) {
-                // Below the Dynamic Island / notch on every device.
-                OnboardingGuidePill(text:caption, symbol:"checkmark.circle")
-                    .padding(.top,windowSafeTop + 10)
-                    .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.top)
-                    .padding(.horizontal,24)
-                    .ignoresSafeArea()
-                    .animation(.smooth(duration:0.5),value:caption)
-                    .allowsHitTesting(false)
-            }
             if handover == nil || onboarding.step != .wormhole {
-                OnboardingOverlay(flow:onboarding,
-                                  camera:onboarding.gardenCamera ?? (gardenUsesCamera ? (cameraLink.pose ?? gardenCamera) : gardenCamera),
+                OnboardingCameraOverlay(flow:onboarding, camera:gardenCamera,
+                                  liveCamera:gardenUsesCamera ? cameraLink : nil,
                                   chromeVisible:tourShowsChrome && tourShowsBottomBar,
                                   topBarVisible:tourShowsChrome)
                     .transition(.opacity)
             }
     }
 
-    /// What the guide says while the wormhole carries the practice star into the Night Sea.
-    private func tourCaption(_ phase: WormholeHandover.Phase) -> String? {
-        switch phase {
-        // One line for the whole flight: changing captions go by too fast to read.
-        case .wormhole, .landed, .reframe, .focusing, .revealing, .releasing:
-            return OnboardingCopy.wormholeCaption
-        case .presenting, .done: return nil
-        }
+    private func updateTourSky() {
+        onboarding?.updateSky(sunAltitude: model.location == nil ? nil : model.snapshot?.sunAltitude,
+            sunDirection: model.location == nil ? nil : model.snapshot?.sunDirection)
     }
 
     private func startOnboarding() {
+        // Start acquiring GPS during the intro, before the user reaches the Sun guide.
+        if model.location == nil { model.requestLocation() }
         let flow = OnboardingFlow()
         flow.reduceMotion = reduceMotion
-        flow.updateSky(sunAltitude:model.snapshot?.sunAltitude)
+        flow.updateLocationAccess(needsSettings: model.locationNeedsSettings)
+        flow.currentCamera = { [weak cameraLink] in cameraLink?.pose }
+        flow.updateSky(sunAltitude:model.location == nil ? nil : model.snapshot?.sunAltitude, sunDirection:model.location == nil ? nil : model.snapshot?.sunDirection)
         flow.actions = .init(
             setCamera:{ on in setTourCamera(on,flow:flow) },
             collect:{ star, point in collectPractice(star,at:point) },
             findRealObject:{ showsStarCamera = true },
+            requestLocation:{ model.requestLocation() },
+            enableLocation:{
+                let status = CLLocationManager().authorizationStatus
+                if status == .denied || status == .restricted || !CLLocationManager.locationServicesEnabled() {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                } else { model.requestLocation() }
+            },
             showNote:{ presentCapturedNote() },
             cancel:{
                 tourCaptureTask?.cancel()
@@ -466,8 +460,7 @@ struct HomeView: View {
         }
     }
 
-    /// The practice star's capture: cekrek on the frozen frame, then the real wormhole into the Night Sea
-    /// and the note sheet. A WormholeDemo shows it there without saving anything to the collection.
+    /// One capture flight into the garden. The guided Sun is saved; nighttime practice stays temporary.
     private func collectPractice(_ star: OnboardingFlow.PracticeStar,at point: CGPoint) {
         guard handover == nil, let flow = onboarding, flow.step == .wormhole else { return }
         let size = screenSize
@@ -477,16 +470,26 @@ struct HomeView: View {
             orientation:WormholeFreeze.orientation(forward:view.forward,right:view.right,up:view.up),
             focal:view.focalLength(in:size))
         let location = model.location
+        if star.isSun {
+            guard let location else { flow.collectionFailed(); return }
+            do {
+                try model.saveGuidedSun(image: freeze.image.map { UIImage(cgImage: $0) }, date: Date(), location: location)
+            } catch {
+                model.errorMessage = error.localizedDescription
+                flow.collectionFailed()
+                return
+            }
+        }
         let record = CollectedStar(id:star.id,date:Date(),latitude:location?.latitude ?? 0,longitude:location?.longitude ?? 0,
                                    identificationNote:OnboardingCopy.practiceStarIdentificationNote)
-        let demo = WormholeDemo(item:GardenCollectionItem(star:star.catalogStar,record:record),
+        let demo: WormholeDemo? = star.isSun ? nil : WormholeDemo(item:GardenCollectionItem(star:star.catalogStar,record:record),
             object:NightSeaObject(id:star.id,direction:star.direction,
                                   radius:NightSeaObject.starRadius(magnitude:star.catalogStar.mag)*1.3,
                                   color:star.color,kind:.star))
         let transition = WormholeHandover(freeze:freeze,star:point,itemID:star.id,
             scene:GardenSkyView.wormholeScene(model:model,newID:star.id,demo:demo),demo:demo)
         transition.holdForOnboarding()
-        demoShowing = true
+        demoShowing = demo != nil
         if reduceMotion {
             CrosshairFeedback.shared.play(CrosshairSound.collect)
             CrosshairFeedback.shared.play(CrosshairHaptic.collect)

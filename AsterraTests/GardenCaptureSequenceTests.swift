@@ -5,6 +5,24 @@ import simd
 
 @MainActor
 struct GardenCaptureSequenceTests {
+    @Test func backgroundStarsCannotStealTheSunOrMoonCaptureIdentity() {
+        let items = [CatalogStar.sun, CatalogStar.moon].map { star in
+            GardenCollectionItem(star: star, record: CollectedStar(id: star.id, date: AppPreviewData.date,
+                latitude: AppPreviewData.location.latitude, longitude: AppPreviewData.location.longitude))
+        }
+        let catalogue = [0, 1].map { id in
+            CatalogStar(id: id, ra_deg: 90, dec_deg: 20, mag: 1, bv: 0,
+                name: "Background \(id)", designation: "Background \(id)", distance_ly: nil,
+                con: nil, collectible_candidate: true)
+        }
+        let scene = GardenViewModel.placement(items: items, location: AppPreviewData.location,
+            date: AppPreviewData.date, catalogue: catalogue)
+        let objects = scene.background + scene.placed.map(\.object)
+        #expect(Set(objects.map(\.id)).count == objects.count)
+        #expect(objects.first { $0.id == CatalogStar.sun.id }?.kind == .sun)
+        #expect(objects.first { $0.id == CatalogStar.moon.id }?.kind == .moon)
+    }
+
     @Test func onboardingKeepsTheOriginalLandingFramedUntilTheGardenLessonContinues() async throws {
         let handover = transition()
         handover.holdForOnboarding()

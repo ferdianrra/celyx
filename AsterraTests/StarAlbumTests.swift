@@ -33,6 +33,23 @@ import Testing
         #expect(StarPhotoStore.load(restored.collected[AppPreviewData.star.id]?.photoFilename) != nil)
     }
 
+    @Test func guidedSunPersistsWithoutACameraPhotoAndReplayPreservesItsNote() throws {
+        let name = "celyx.tests.guided-sun"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defaults.removePersistentDomain(forName: name)
+        defer { defaults.removePersistentDomain(forName: name) }
+        let model = HomeViewModel(location: AppPreviewData.location, date: AppPreviewData.date, defaults: defaults)
+        try model.saveGuidedSun(image: nil, date: AppPreviewData.date, location: AppPreviewData.location)
+        #expect(model.collectionItems.contains { $0.star.isSun })
+        model.updateObservationNote(id: CatalogStar.sun.id, note: "My first Sun")
+        try model.saveGuidedSun(image: AppPreviewData.albumPhoto, date: Date(), location: AppPreviewData.location)
+        let restored = HomeViewModel(defaults: defaults)
+        #expect(restored.collected[CatalogStar.sun.id]?.note == "My first Sun")
+        #expect(restored.collected[CatalogStar.sun.id]?.date == AppPreviewData.date)
+        #expect(restored.collected[CatalogStar.sun.id]?.identificationNote == OnboardingCopy.guidedSunIdentificationNote)
+        #expect(restored.collected[990_001] == nil)
+    }
+
     @Test func oldObservationsDecodeWithoutAPlaceName() throws {
         let data = Data(#"{"id":1,"date":0,"latitude":-6.38,"longitude":106.87}"#.utf8)
         let record = try JSONDecoder().decode(CollectedStar.self,from:data)

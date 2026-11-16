@@ -8,6 +8,7 @@ import simd
     private func visibilityFlow() -> OnboardingFlow {
         let flow = OnboardingFlow()
         flow.jump(to: "camera")
+        flow.updateSky(sunAltitude: -20)
         flow.liveCameraReady(NightSeaCamera())
         #expect(flow.star == nil)
         #expect(flow.startCollectingPressed())
@@ -28,6 +29,94 @@ import simd
         #expect(flow.isDaytime)
         flow.updateSky(sunAltitude: .nan, date: noon.addingTimeInterval(12 * 3600), calendar: calendar)
         #expect(!flow.isDaytime)
+    }
+
+    @Test func daytimeGuideTargetsTheActualSunAndUsesPermanentCollectionCopy() async throws {
+        let flow = visibilityFlow()
+        let direction = simd_normalize(SIMD3<Double>(0.4, -0.2, 0.8))
+        flow.updateSky(sunAltitude: 60, sunDirection: direction)
+        flow.answerVisibility(canSeeObject: false)
+        let sun = try #require(flow.star)
+        #expect(sun.isSun && sun.id == CatalogStar.sun.id)
+        #expect(sun.catalogStar.isSun && sun.catalogStar.title == CatalogStar.sun.title)
+        #expect(simd_distance(sun.direction, direction) < 0.000001)
+        #expect(!flow.isTemporaryPractice)
+        #expect(flow.card?.title == OnboardingCopy.findSunTitle)
+        flow.reduceMotion = true
+        flow.isLocked = true
+        flow.collect(at: .zero)
+        try await Task.sleep(for: .milliseconds(200))
+        flow.gardenPresented(direction: direction, camera: NightSeaCamera())
+        #expect(flow.card?.body == OnboardingCopy.sunGardenBody)
+        flow.primary()
+        flow.noteCompleted()
+        #expect(flow.step == .completion && !flow.isTemporaryPractice)
+    }
+
+    @Test func daytimeWaitsForLocationThenBecomesTheSunWithoutRestartingTheTour() {
+        let flow = visibilityFlow()
+        flow.updateSky(sunAltitude: 40)
+        var requests = 0
+        flow.actions.requestLocation = { requests += 1 }
+        #expect(flow.offersGuidedSun)
+        flow.answerVisibility(canSeeObject: false)
+        #expect(flow.star == nil && flow.isWaitingForSun && !flow.isFindingRealObject)
+        #expect(flow.step == .find && requests == 1)
+        let direction = simd_normalize(SIMD3<Double>(0.4, 0.2, 0.8))
+        flow.updateSky(sunAltitude: 60, sunDirection: direction)
+        #expect(flow.star?.isSun == true && !flow.isTemporaryPractice)
+        #expect(!flow.isWaitingForSun && flow.step == .find)
+    }
+
+    @Test func acquiringLocationDoesNotAskTheUserToEnableItAgain() {
+        let flow = visibilityFlow()
+        flow.updateSky(sunAltitude: 40)
+        var requests = 0
+        var settings = 0
+        flow.actions.requestLocation = { requests += 1 }
+        flow.actions.enableLocation = { settings += 1 }
+        flow.answerVisibility(canSeeObject: false)
+        #expect(requests == 1 && flow.isWaitingForSun)
+        #expect(flow.card?.primary == nil)
+        flow.primary()
+        #expect(settings == 0)
+        flow.updateLocationAccess(needsSettings: true)
+        #expect(flow.card?.primary == "Open Settings")
+        flow.primary()
+        #expect(settings == 1)
+        flow.updateLocationAccess(needsSettings: false)
+        #expect(flow.card?.primary == nil)
+    }
+
+    @Test func gpsDeliveryBuildsTheSunPositionEvenWhenTheLegacySkyScreenIsNotRunning() throws {
+        let name = "celyx.tests.onboarding-gps.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 16, hour: 5)))
+        let model = HomeViewModel(date: date, defaults: defaults)
+        #expect(model.location == nil)
+        model.receiveLocation(AppPreviewData.location)
+        #expect(model.location == AppPreviewData.location)
+        let sky = try #require(model.snapshot)
+        #expect(sky.sunAltitude > 0)
+        let flow = visibilityFlow()
+        flow.updateSky(sunAltitude: 40)
+        flow.answerVisibility(canSeeObject: false)
+        flow.updateSky(sunAltitude: sky.sunAltitude, sunDirection: sky.sunDirection)
+        #expect(flow.star?.isSun == true && !flow.isWaitingForSun)
+    }
+
+    @Test func lateLocationDuringRealCameraSearchStillEnablesTheSunGuide() {
+        let flow = visibilityFlow()
+        flow.updateSky(sunAltitude: 40)
+        flow.answerVisibility(canSeeObject: true)
+        let direction = simd_normalize(SIMD3<Double>(0.4, 0.2, 0.8))
+        flow.updateSky(sunAltitude: 60, sunDirection: direction)
+        flow.useVirtualStar()
+        #expect(flow.star?.isSun == true)
+        #expect(simd_distance(flow.star?.direction ?? .zero, direction) < 0.000001)
     }
 
     @Test func visibleObjectOpensRealCameraWithoutCreatingAVirtualStar() {
@@ -141,6 +230,7 @@ import simd
 
     @Test func captureFailureShowsTheRealReasonAndAllowsExplicitVirtualFallback() {
         let flow = OnboardingFlow()
+        flow.updateSky(sunAltitude: -20)
         flow.jump(to: "camera")
         flow.cameraFailed(.capture("Motion data is unavailable."))
         #expect(flow.card?.body.contains("Motion data is unavailable.") == true)
@@ -189,6 +279,7 @@ import simd
 
     @Test func cameraUnavailableStillAllowsPractice() {
         let flow = OnboardingFlow()
+        flow.updateSky(sunAltitude: -20)
         flow.jump(to: "camera")
         flow.cameraFailed()
         flow.primary()

@@ -583,6 +583,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         // Only recover if the native session actually stopped.
         guard running, !session.isRunning else { return }
         hasStartedSession = false
+        runSession()
         authorizeLocation()
     }
     var targetMarker: CameraSkyPrediction? {
@@ -680,8 +681,14 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             return
         }
         if running {
+            guard SkyCaptureSession.isSupported,
+                AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
             // A paused native session must not be hidden behind a stale service flag.
-            if !session.isRunning { hasStartedSession = false; authorizeLocation() }
+            if !session.isRunning {
+                hasStartedSession = false
+                runSession()
+                authorizeLocation()
+            }
             return
         }
         running = true
@@ -701,6 +708,8 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             status = .denied("Allow camera access in Settings to explore the sky.")
             return
         }
+        // Showing the authorized camera does not require a GPS fix. Identification still does.
+        runSession()
         authorizeLocation()
     }
 
@@ -718,6 +727,9 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             if !hasLocationFix { status = .limited("Finding your spot under the sky…") }
             locationManager.startUpdatingLocation()
+            if let cached = locationManager.location {
+                self.locationManager(locationManager, didUpdateLocations: [cached])
+            }
             if CLLocationManager.headingAvailable() {
                 locationManager.headingFilter = kCLHeadingFilterNone
                 locationManager.startUpdatingHeading()
@@ -732,8 +744,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         guard running, AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
         if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
-            alignment.pause(reason: "Location access changed. Restart and align the sky again.")
-            hasStartedSession = false
+            alignment.invalidate(reason: "Location access changed. Align the sky again once location is available.")
             hasLocationFix = false
             lastLocationFixDate = nil
             projection = nil
@@ -760,8 +771,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         guard running else { return }
         if (error as? CLError)?.code == .locationUnknown { return }
-        alignment.pause(reason: "Location tracking stopped. Restart and align the sky again.")
-        hasStartedSession = false
+        alignment.invalidate(reason: "Location tracking stopped. Align the sky again once location is available.")
         hasLocationFix = false
         lastLocationFixDate = nil
         projection = nil
@@ -1833,6 +1843,9 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
 
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {
         hasStartedSession = false
-        if running { authorizeLocation() }
+        if running {
+            runSession()
+            authorizeLocation()
+        }
     }
 }

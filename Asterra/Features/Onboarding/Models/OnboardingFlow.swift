@@ -32,19 +32,23 @@ final class OnboardingFlow {
         /// Start the real capture + wormhole for the practice star at this screen point.
         var collect: (_ star: PracticeStar, _ point: CGPoint) -> Void = { _, _ in }
         var findRealObject: () -> Void = {}
+        var requestLocation: () -> Void = {}
+        var enableLocation: () -> Void = {}
         var showNote: () -> Void = {}
         var cancel: () -> Void = {}
         var finish: () -> Void = {}
     }
 
     struct PracticeStar: Identifiable, Equatable {
-        /// Well outside the catalogue's IDs (and the Sun/Moon's negative ones).
-        let id = 990_001
+        /// The guided Sun uses its catalogue ID; nighttime practice has a separate temporary ID.
+        var id: Int { isSun ? CatalogStar.sun.id : 990_001 }
+        var isSun = false
         /// Horizon direction [east, north, up].
         let direction: SIMD3<Double>
-        let color = SIMD3(0.80, 0.88, 1.0)
+        var color: SIMD3<Double> { isSun ? SIMD3(1, 0.82, 0.52) : SIMD3(0.80, 0.88, 1.0) }
         var catalogStar: CatalogStar {
-            CatalogStar(id: id, ra_deg: 0, dec_deg: 0, mag: -0.5, bv: 0.0, name: OnboardingCopy.practiceStarName,
+            if isSun { return .sun }
+            return CatalogStar(id: id, ra_deg: 0, dec_deg: 0, mag: -0.5, bv: 0.0, name: OnboardingCopy.practiceStarName,
                         designation: OnboardingCopy.practiceStarName, distance_ly: nil, con: nil, collectible_candidate: true)
         }
     }
@@ -54,16 +58,33 @@ final class OnboardingFlow {
     private(set) var gardenDirection: SIMD3<Double>?
     private(set) var gardenCamera: NightSeaCamera?
     private(set) var isDaytime = true
-    var isFindingRealObject: Bool { step == .find && star == nil }
+    @ObservationIgnored private var sunDirection: SIMD3<Double>?
+    @ObservationIgnored var currentCamera: () -> NightSeaCamera? = { nil }
+    private(set) var isWaitingForSun = false
+    private(set) var locationNeedsSettings = false
+    var offersGuidedSun: Bool { isDaytime }
+    var isTemporaryPractice: Bool { star != nil && star?.isSun != true }
+    var isFindingRealObject: Bool { step == .find && star == nil && !isWaitingForSun }
 
     /// Prefer local solar altitude; use the local clock until location is available.
-    func updateSky(sunAltitude: Double?, date: Date = Date(), calendar: Calendar = .current) {
-        guard step <= .visibility else { return }
+    func updateSky(sunAltitude: Double?, sunDirection: SIMD3<Double>? = nil, date: Date = Date(), calendar: Calendar = .current) {
+        guard step <= .find, star == nil, !isValidating else { return }
+        self.sunDirection = sunDirection.flatMap { direction in
+            direction.x.isFinite && direction.y.isFinite && direction.z.isFinite && simd_length(direction) > 0.9
+                ? simd_normalize(direction) : nil
+        }
         if let sunAltitude, sunAltitude.isFinite {
             isDaytime = sunAltitude >= 0
         } else {
             isDaytime = (6..<18).contains(calendar.component(.hour, from: date))
         }
+        if isWaitingForSun, self.sunDirection != nil {
+            placeStarAhead(of: lastCamera)
+        }
+    }
+
+    func updateLocationAccess(needsSettings: Bool) {
+        locationNeedsSettings = needsSettings
     }
 
     func answerVisibility(canSeeObject: Bool) {
@@ -137,6 +158,7 @@ final class OnboardingFlow {
                 cameraStarting = true
                 actions.setCamera(true)
             }
+        case .find where isWaitingForSun && locationNeedsSettings: actions.enableLocation()
         case .visibility: answerVisibility(canSeeObject: true)
         case .garden:
             advance(to: .note)
@@ -167,6 +189,7 @@ final class OnboardingFlow {
         isValidating = false
         isLocked = false
         cameraStarting = false
+        isWaitingForSun = false
         star = nil
         gardenDirection = nil
         gardenCamera = nil
@@ -247,6 +270,19 @@ final class OnboardingFlow {
 
     /// Lays the practice star up and to the right of the current view, always in the sky.
     private func placeStarAhead(of camera: NightSeaCamera?) {
+        if isDaytime {
+            guard let sunDirection, sunDirection.z >= 0 else {
+                star = nil
+                isWaitingForSun = true
+                actions.requestLocation()
+                return
+            }
+            isWaitingForSun = false
+            star = PracticeStar(isSun: true, direction: sunDirection)
+            return
+        }
+        isWaitingForSun = false
+        let camera = currentCamera() ?? camera
         let forward = simd_normalize(camera?.forward ?? SIMD3(0, 1, 0.3))
         let heading = atan2(forward.x, forward.y)
         let altitude = asin(min(1, max(-1, forward.z)))
@@ -282,6 +318,13 @@ final class OnboardingFlow {
         gardenDirection = direction
         gardenCamera = camera
         advance(to: .garden)
+    }
+
+    func collectionFailed() {
+        guard step == .wormhole else { return }
+        step = .find
+        isValidating = false
+        isLocked = false
     }
 
     func noteCompleted() {
@@ -361,14 +404,15 @@ final class OnboardingFlow {
             if cameraUnavailable {
                 if cameraFailure == .permissionDenied {
                     return Card(symbol: "video.slash", title: OnboardingCopy.cameraUnavailableTitle,
-                        body: OnboardingCopy.cameraUnavailableBody, primary: OnboardingCopy.continueTour)
+                        body: offersGuidedSun ? "You can allow it later in Settings. Let’s find the Sun in your Night Sea."
+                            : OnboardingCopy.cameraUnavailableBody, primary: OnboardingCopy.continueTour)
                 }
                 let body: String
                 if case .capture(let message) = cameraFailure {
                     body = message + " " + OnboardingCopy.cameraRetryBody
                 } else { body = OnboardingCopy.cameraTimeoutBody }
                 return Card(symbol: "camera.badge.ellipsis", title: OnboardingCopy.cameraRetryTitle,
-                    body: body, primary: OnboardingCopy.retryCamera, secondary: OnboardingCopy.practiceWithoutCamera)
+                    body: body, primary: OnboardingCopy.retryCamera, secondary: offersGuidedSun ? OnboardingCopy.tryGuidedSun : OnboardingCopy.practiceWithoutCamera)
             }
             if cameraStarting {
                 return Card(symbol: "camera.viewfinder", title: OnboardingCopy.cameraStartingTitle, body: OnboardingCopy.cameraStartingBody)
@@ -378,17 +422,26 @@ final class OnboardingFlow {
             return Card(symbol: isDaytime ? "sun.max" : "moon.stars",
                 title: isDaytime ? OnboardingCopy.dayVisibilityTitle : OnboardingCopy.nightVisibilityTitle,
                 body: isDaytime ? OnboardingCopy.dayVisibilityBody : OnboardingCopy.nightVisibilityBody,
-                primary: OnboardingCopy.canSeeObject, secondary: OnboardingCopy.cannotSeeObject)
+                primary: OnboardingCopy.canSeeObject, secondary: offersGuidedSun ? OnboardingCopy.tryGuidedSun : OnboardingCopy.cannotSeeObject)
         case .find:
+            if isWaitingForSun {
+                return Card(symbol: "location", title: "Finding the Sun’s position",
+                    body: locationNeedsSettings
+                        ? "Location access is off. Enable it in Settings so we can place the Sun in your sky."
+                        : "Finding your location… The Sun will appear as soon as it’s ready.",
+                    primary: locationNeedsSettings ? "Open Settings" : nil)
+            }
             if isValidating { return Card(symbol: "hand.tap", title: OnboardingCopy.collectingTitle, body: OnboardingCopy.collectingBody) }
             if isLocked {
-                return Card(symbol: "hand.tap", title: OnboardingCopy.starLockedTitle, body: OnboardingCopy.starLockedBody)
+                return Card(symbol: "hand.tap", title: OnboardingCopy.starLockedTitle, body: star?.isSun == true ? OnboardingCopy.sunLockedBody : OnboardingCopy.starLockedBody)
             }
-            return Card(symbol: "scope", title: OnboardingCopy.findStarTitle, body: OnboardingCopy.findStarBody)
+            return Card(symbol: "scope", title: star?.isSun == true ? OnboardingCopy.findSunTitle : OnboardingCopy.findStarTitle,
+                body: star?.isSun == true ? OnboardingCopy.findSunBody : OnboardingCopy.findStarBody)
         case .wormhole, .note: return nil
         case .garden:
             return Card(symbol: "star", title: OnboardingCopy.gardenTitle,
-                body: star == nil ? OnboardingCopy.gardenBody : OnboardingCopy.practiceGardenBody,
+                body: star?.isSun == true ? OnboardingCopy.sunGardenBody
+                    : isTemporaryPractice ? OnboardingCopy.practiceGardenBody : OnboardingCopy.gardenBody,
                 primary: OnboardingCopy.continueTour)
         case .completion: return nil
         case .done: return nil

@@ -47,6 +47,7 @@ final class HomeViewModel {
     var manualLatitude = ""
     var manualLongitude = ""
     private(set) var location: ObserverLocation?
+    private(set) var locationNeedsSettings = false
     private(set) var locationStatus = "Waiting for location access"
     private(set) var observations: [StarObservation] = []
     private(set) var stars: [CatalogStar] = []
@@ -98,15 +99,9 @@ final class HomeViewModel {
             self.location = ObserverLocation(latitude:-6.1754,longitude:106.8272,isManual:true)
         }
         if let p = self.location { locationStatus = p.isManual ? "Custom coordinates" : "Location on" }
-        gps.onLocation = { [weak self] value in
-            guard let self, self.isRunning else { return }
-            let changed = self.location.map { abs($0.latitude-value.latitude)+abs($0.longitude-value.longitude) > 0.01 } ?? true
-            self.location = value; self.locationStatus = "GPS ±\(Int(value.accuracy)) m"
-            if changed { self.atmosphere = Atmosphere() }
-            self.refreshSky()
-            if changed { self.refreshAtmosphere(force:true) }
-        }
+        gps.onLocation = { [weak self] value in self?.receiveLocation(value) }
         gps.onStatus = { [weak self] in self?.locationStatus = $0 }
+        gps.onNeedsSettings = { [weak self] in self?.locationNeedsSettings = $0 }
         motion.onCalibration = { [weak self] ready,progress,message,stage in
             guard let self, self.mode == .motion, !self.showsGarden, !self.showsStarCamera, self.finderTarget == nil, !self.isInspectingStar else { return }
             self.isMotionCalibrating = !ready
@@ -211,6 +206,18 @@ final class HomeViewModel {
             self.atmosphere = value; self.refreshSky()
         }
     }
+    /// Explicit location requests also serve onboarding, where the legacy sky screen is paused.
+    /// LocationService already rejects deliveries after its own stop().
+    func receiveLocation(_ value: ObserverLocation) {
+        let changed = location.map { abs($0.latitude-value.latitude)+abs($0.longitude-value.longitude) > 0.01 } ?? true
+        location = value
+        locationStatus = "GPS ±\(Int(value.accuracy)) m"
+        locationNeedsSettings = false
+        if changed { atmosphere = Atmosphere() }
+        refreshSky()
+        if changed && isRunning { refreshAtmosphere(force: true) }
+    }
+
     func requestLocation() { locationStatus = "Finding your location…"; gps.start() }
     func useManualLocation() {
         guard let lat = Double(manualLatitude.replacingOccurrences(of:",",with:".")),
@@ -336,6 +343,24 @@ final class HomeViewModel {
         collected = updated
     }
     #endif
+
+    /// A guided collection uses ephemeris position; it does not claim an optical identification.
+    /// Replaying the tour preserves an existing Sun observation and its notes/photo.
+    func saveGuidedSun(image: UIImage?, date: Date, location: ObserverLocation) throws {
+        guard collected[CatalogStar.sun.id] == nil else { return }
+        if let image {
+            try saveCameraObservation(.init(star: .sun, image: image, date: date, location: location,
+                identificationNote: OnboardingCopy.guidedSunIdentificationNote), note: "")
+        } else {
+            var updated = collected
+            updated[CatalogStar.sun.id] = CollectedStar(id: CatalogStar.sun.id, date: date,
+                latitude: location.latitude, longitude: location.longitude,
+                identificationNote: OnboardingCopy.guidedSunIdentificationNote)
+            let data = try JSONEncoder().encode(Array(updated.values))
+            defaults.set(data, forKey: "collectedStars")
+            collected = updated
+        }
+    }
 
     func saveCameraObservation(_ draft: CameraObservationDraft,note: String) throws {
         // Seeing a source in the camera is enough to save it. Forecasts never gate this path.
