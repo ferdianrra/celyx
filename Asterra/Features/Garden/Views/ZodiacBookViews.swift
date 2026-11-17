@@ -2,6 +2,14 @@ import SwiftUI
 
 // Constellation book (Figma "PAI - Asterra", section CONSTELLATION 1355:7098).
 
+extension Color {
+    private static let elevatedDark = UITraitCollection(traitsFrom: [
+        UITraitCollection(userInterfaceStyle: .dark), UITraitCollection(userInterfaceLevel: .elevated)])
+    /// System primary / secondary background in their dark, elevated variants (the app is dark-only).
+    static let bookPrimaryElevated = Color(uiColor: .systemBackground.resolvedColor(with: elevatedDark))
+    static let bookSecondaryElevated = Color(uiColor: .secondarySystemBackground.resolvedColor(with: elevatedDark))
+}
+
 /// Rafi's artwork with the pattern stars on top, cropped to the drawing and centred in its frame.
 /// On the detail page the drawing lights up around collected stars.
 struct ZodiacBookArt: View {
@@ -205,21 +213,18 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
 
     var body: some View {
         let collected = Set(model.collected.keys)
-        ScrollView {
-            VStack(spacing: 0) {
-                header(collected)
-                stars(collected)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    header(collected, topInset: proxy.safeAreaInsets.top, width: proxy.size.width)
+                    stars(collected)
+                }
             }
+            .scrollIndicators(.hidden)
+            .ignoresSafeArea(edges: .top)
         }
-        .scrollIndicators(.hidden)
-        .background(alignment: .top) {
-            VStack(spacing: 0) {
-                Image("background/background-constellation-detail").resizable().scaledToFill()
-                    .frame(height: 474).clipped()
-                CelyxColor.screen
-            }
-            .ignoresSafeArea()
-        }
+        // One base colour under everything: the exported glow fades into it, and so does the star panel.
+        .background(Color.bookPrimaryElevated.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let note = ZodiacBookNotes.note(for: entry.code) {
@@ -235,15 +240,21 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
         .sheet(item: $selected) { objectSheet($0) }
     }
 
-    private func header(_ collected: Set<Int>) -> some View {
+    private func header(_ collected: Set<Int>, topInset: CGFloat, width: CGFloat) -> some View {
         VStack(spacing: 8) {
             ZodiacBookArt(entry: entry, collected: collected, revealsAroundStars: true, inset: 8)
-                .frame(height: 250)
+                .frame(height: 230)
             Text(entry.name).font(.title.weight(.bold)).foregroundStyle(.white)
                 .accessibilityAddTraits(.isHeader)
             ZodiacBookProgress(entry: entry, collected: collected).frame(width: 214)
         }
-        .padding(.horizontal, 16).padding(.bottom, 56)
+        .padding(.horizontal, 16).padding(.top, topInset + 8).padding(.bottom, 56)
+        .frame(maxWidth: .infinity)
+        // Figma 402 × 474 glow, pinned to the top of the screen and scrolling with the page.
+        .background(alignment: .top) {
+            Image("background/background-constellation-detail").resizable()
+                .frame(width: width, height: width * 474 / 402)
+        }
     }
 
     private func stars(_ collected: Set<Int>) -> some View {
@@ -264,7 +275,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             UnevenRoundedRectangle(topLeadingRadius: 38, topTrailingRadius: 38, style: .continuous)
-                .fill(CelyxColor.screen)
+                .fill(Color.bookPrimaryElevated)
                 .padding(.bottom, -600)
         }
         .padding(.top, -32)
@@ -284,7 +295,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
                 .overlay(Capsule().strokeBorder(.white.opacity(collected ? 0.25 : 0.12), lineWidth: 0.5))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(CelyxInfoBox(cornerRadius: 20))
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.bookSecondaryElevated))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
