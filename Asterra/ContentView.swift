@@ -13,6 +13,8 @@ struct ContentView: View {
                 CollectionCaptureFlowPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-share-flow") {
                 StarShareFlowPreview()
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-constellation-book") {
+                ZodiacBookPreviewFlow(detailCode: UserDefaults.standard.string(forKey: "constellation-detail"))
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-album") {
                 StarAlbumView(
                     item: AppPreviewData.item, photo: AppPreviewData.albumPhoto, onSaveNote: { _ in })
