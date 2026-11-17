@@ -3,11 +3,11 @@ import SwiftUI
 // Constellation book (Figma "PAI - Asterra", section CONSTELLATION 1355:7098).
 
 extension Color {
-    private static let elevatedDark = UITraitCollection(traitsFrom: [
-        UITraitCollection(userInterfaceStyle: .dark), UITraitCollection(userInterfaceLevel: .elevated)])
-    /// System primary / secondary background in their dark, elevated variants (the app is dark-only).
-    static let bookPrimaryElevated = Color(uiColor: .systemBackground.resolvedColor(with: elevatedDark))
-    static let bookSecondaryElevated = Color(uiColor: .secondarySystemBackground.resolvedColor(with: elevatedDark))
+    private static let baseDark = UITraitCollection(traitsFrom: [
+        UITraitCollection(userInterfaceStyle: .dark), UITraitCollection(userInterfaceLevel: .base)])
+    /// System primary / secondary background in their dark, base-level variants (the app is dark-only).
+    static let bookPrimary = Color(uiColor: .systemBackground.resolvedColor(with: baseDark))
+    static let bookSecondary = Color(uiColor: .secondarySystemBackground.resolvedColor(with: baseDark))
 }
 
 /// Rafi's artwork with the pattern stars on top, cropped to the drawing and centred in its frame.
@@ -224,7 +224,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
             .ignoresSafeArea(edges: .top)
         }
         // One base colour under everything: the exported glow fades into it, and so does the star panel.
-        .background(Color.bookPrimaryElevated.ignoresSafeArea())
+        .background(Color.bookPrimary.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let note = ZodiacBookNotes.note(for: entry.code) {
@@ -275,7 +275,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             UnevenRoundedRectangle(topLeadingRadius: 38, topTrailingRadius: 38, style: .continuous)
-                .fill(Color.bookPrimaryElevated)
+                .fill(Color.bookPrimary)
                 .padding(.bottom, -600)
         }
         .padding(.top, -32)
@@ -295,7 +295,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
                 .overlay(Capsule().strokeBorder(.white.opacity(collected ? 0.25 : 0.12), lineWidth: 0.5))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.bookSecondaryElevated))
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.bookSecondary))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

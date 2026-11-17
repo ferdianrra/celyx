@@ -12,7 +12,8 @@ struct CollectionListView: View {
 
     var body: some View {
         ScrollView {
-            content.padding(.horizontal, category == .constellations ? 16 : 20).padding(.top, 12).padding(.bottom, 40)
+            content.padding(.horizontal, category == .constellations ? 16 : 20)
+                .padding(.top, category == .constellations ? 32 : 12).padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
         .background {
