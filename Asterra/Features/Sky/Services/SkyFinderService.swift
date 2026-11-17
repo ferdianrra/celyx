@@ -337,6 +337,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     }
     var canCaptureReference: Bool {
         guard status == .tracking, !isAdjustingCamera, let pin = pinnedLight,
+            session.currentFrame?.camera.trackingState.supportsOpticalAnalysis == true,
             let point = pinnedLightGuide?.point
         else { return false }
         return pin.canUseAsReference(
@@ -491,7 +492,8 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     }
     func captureAlignmentFrame() -> CameraAlignmentFrame? {
         guard running, status == .tracking, hasLocationFix, !isAdjustingCamera,
-            let frame = session.currentFrame, viewport.width > 0, viewport.height > 0
+            let frame = session.currentFrame, frame.camera.trackingState.supportsOpticalAnalysis,
+            viewport.width > 0, viewport.height > 0
         else { return nil }
         let orientation: CGImagePropertyOrientation =
             switch self.orientation {
@@ -1085,7 +1087,9 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             }
         }
         switch frame.camera.trackingState {
-        case .normal: if status != .tracking { status = .tracking }
+        case .normal, .limited(.excessiveMotion):
+            // Blur affects the pixels, while the synchronized pose still drives the overlays.
+            if status != .tracking { status = .tracking }
         case .limited(let reason):
             // Hide the guide while tracking is weak, but keep its ray through a brief hiccup.
             discardPendingDetection()
@@ -1105,7 +1109,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             case .initializing: message = "Waiting for motion sensors…"
             case .insufficientFeatures:
                 message = "Waiting for camera orientation…"
-            case .excessiveMotion: message = "Hold steady to avoid blurring faint stars."
+            case .excessiveMotion: return // Handled by the usable-pose case above.
             case .relocalizing:
                 resetTrackingForCalibration()
                 return
@@ -1228,7 +1232,8 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         // Catalog directions remain internal inputs to identification, never a visual AR layer.
         let time = frame.timestamp
         // One analysis in flight; never queue camera frames or block the main actor on pixels.
-        if detectionTask == nil, lastDetectionTime < 0 || time - lastDetectionTime >= 0.12 {
+        if frame.camera.trackingState.supportsOpticalAnalysis,
+            detectionTask == nil, lastDetectionTime < 0 || time - lastDetectionTime >= 0.12 {
             lastDetectionTime = time
             let buffer = CameraAnalysisBuffer(value: frame.capturedImage)
             let zoom = cameraZoom
@@ -1565,7 +1570,8 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         let sourceID: Int?
     }
     private func retainRecognizedFrame(_ frame: SkyCaptureFrame) {
-        guard status == .tracking, !isAdjustingCamera, !scannerPaused,
+        guard frame.camera.trackingState.supportsOpticalAnalysis,
+            status == .tracking, !isAdjustingCamera, !scannerPaused,
             let pin = pinnedLight,
             let match = pin.observedMatch(at: frame.timestamp)
                 ?? (automaticIdentification.sourceID == pin.opticalID ? automaticIdentification.freshMatch(at: frame.timestamp) : nil),
