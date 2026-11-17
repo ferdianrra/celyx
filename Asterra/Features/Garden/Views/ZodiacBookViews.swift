@@ -2,63 +2,34 @@ import SwiftUI
 
 // Constellation book (Figma "PAI - Asterra", section CONSTELLATION 1355:7098).
 
-extension [CelyxInnerShadow] {
-    /// Book card (1354:6770): the glow rises from the bottom edge.
-    static let celyxBookCard: Self = [
-        .init(color: Color(hex: 0x062277, opacity: 0.6), y: -24, blur: 64, spread: 20),
-        .init(color: Color(hex: 0x0066E2, opacity: 0.8), y: -12, blur: 48, spread: 8),
-        .init(color: Color(hex: 0x7459DF), y: -8, blur: 24, spread: 4),
-        .init(color: .white, y: -2, blur: 12, spread: 2)
-    ]
-}
-
-/// Rafi's artwork with the pattern stars on top. On the detail page the drawing lights up around collected stars.
+/// Rafi's artwork with the pattern stars on top, cropped to the drawing and centred in its frame.
+/// On the detail page the drawing lights up around collected stars.
 struct ZodiacBookArt: View {
     let entry: ZodiacBookEntry
     let collected: Set<Int>
     var revealsAroundStars = false
+    var inset: CGFloat = 0
 
     @State private var artwork: GardenZodiacArtwork?
+    @State private var bounds: CGRect?
     @State private var formed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
-            let size = geometry.size
-            let done = entry.collectedCount(collected) == entry.members.count
-            ZStack {
-                if let artwork {
-                    let image = Image(decorative: artwork.image, scale: 1).resizable()
-                    // Figma stacks the drawing three times so the translucent art reads near-white.
-                    let bright = ZStack { image; image; image }
-                    if revealsAroundStars {
-                        image.opacity(0.22)
-                        bright.mask { revealMask(size: size, done: done) }
-                    } else if collected.isDisjoint(with: entry.members.map(\.id)) {
-                        image.opacity(0.3)
-                    } else {
-                        bright
-                    }
-                }
-                ZodiacBookLines(lines: entry.lines(collected))
-                    .trim(from: 0, to: formed || !revealsAroundStars ? 1 : 0)
-                    .stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .shadow(color: Color(hex: 0x7459DF), radius: 4)
-                ForEach(entry.members) { member in
-                    let point = CGPoint(x: member.point.x * size.width, y: member.point.y * size.height)
-                    if collected.contains(member.id) {
-                        star(member.star).position(point)
-                    } else if revealsAroundStars {
-                        Circle().strokeBorder(.white.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-                            .frame(width: 12, height: 12).position(point)
-                    }
-                }
+            if let artwork, let bounds {
+                content(artwork, rect: Self.imageRect(bounds: bounds, in: geometry.size, inset: inset))
             }
         }
-        .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
         .task(id: entry.assetName) {
-            artwork = await GardenZodiacArtworkStore.shared.load(assetNamed: entry.assetName)
+            guard let loaded = await GardenZodiacArtworkStore.shared.load(assetNamed: entry.assetName) else { return }
+            let points = entry.members.map(\.point)
+            let found = await Task.detached(priority: .userInitiated) {
+                ZodiacArtBounds.bounds(of: loaded.image, including: points)
+            }.value
+            bounds = found
+            artwork = loaded
         }
         .onAppear {
             guard !formed else { return }
@@ -67,20 +38,61 @@ struct ZodiacBookArt: View {
         }
     }
 
-    private func revealMask(size: CGSize, done: Bool) -> some View {
+    /// Where the whole square image goes so that `bounds` (0...1) fills `size` minus `inset`, centred.
+    private static func imageRect(bounds: CGRect, in size: CGSize, inset: CGFloat) -> CGRect {
+        let box = CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset)
+        guard bounds.width > 0, bounds.height > 0, box.width > 0, box.height > 0 else { return .zero }
+        let side = min(box.width / bounds.width, box.height / bounds.height)
+        let fitted = CGSize(width: bounds.width * side, height: bounds.height * side)
+        return CGRect(x: box.midX - fitted.width / 2 - bounds.minX * side,
+                      y: box.midY - fitted.height / 2 - bounds.minY * side, width: side, height: side)
+    }
+
+    @ViewBuilder private func content(_ artwork: GardenZodiacArtwork, rect: CGRect) -> some View {
+        let done = entry.collectedCount(collected) == entry.members.count
+        let place = { (p: CGPoint) in CGPoint(x: rect.minX + p.x * rect.width, y: rect.minY + p.y * rect.height) }
+        let image = Image(decorative: artwork.image, scale: 1).resizable()
+            .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
+        // Figma stacks the drawing three times so the translucent art reads near-white.
+        let bright = ZStack { image; image; image }
+        ZStack {
+            if revealsAroundStars {
+                image.opacity(0.22)
+                bright.mask { revealMask(rect: rect, done: done, place: place) }
+            } else if collected.isDisjoint(with: entry.members.map(\.id)) {
+                image.opacity(0.3)
+            } else {
+                bright
+            }
+            ZodiacBookLines(lines: entry.lines(collected).map { (place($0.0), place($0.1)) })
+                .trim(from: 0, to: formed || !revealsAroundStars ? 1 : 0)
+                .stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .shadow(color: Color(hex: 0x7459DF), radius: 4)
+            ForEach(entry.members) { member in
+                if collected.contains(member.id) {
+                    star(member.star).position(place(member.point))
+                } else if revealsAroundStars {
+                    Circle().strokeBorder(.white.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                        .frame(width: 12, height: 12).position(place(member.point))
+                }
+            }
+        }
+    }
+
+    private func revealMask(rect: CGRect, done: Bool, place: @escaping (CGPoint) -> CGPoint) -> some View {
         ZStack {
             if done {
                 Color.white.opacity(formed ? 1 : 0)
             } else {
                 // Each collected star lights a patch of the drawing; the patches grow with progress.
-                let diameter = size.width * (0.4 + 0.4 * entry.progress(collected))
+                let diameter = rect.width * (0.4 + 0.4 * entry.progress(collected))
                 ForEach(entry.members.filter { collected.contains($0.id) }) { member in
                     Circle()
                         .fill(RadialGradient(colors: [.white, .white.opacity(0.5), .clear], center: .center,
                                              startRadius: 0, endRadius: diameter / 2))
                         .frame(width: diameter, height: diameter)
                         .scaleEffect(formed ? 1 : 0.2)
-                        .position(x: member.point.x * size.width, y: member.point.y * size.height)
+                        .position(place(member.point))
                 }
             }
         }
@@ -93,13 +105,47 @@ struct ZodiacBookArt: View {
     }
 }
 
+/// The visible part of an artwork (non-transparent pixels plus its stars), 0...1.
+nonisolated enum ZodiacArtBounds {
+    static func bounds(of image: CGImage, including points: [CGPoint]) -> CGRect {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        var rect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        if drawn {
+            var minX = width, minY = height, maxX = -1, maxY = -1
+            for y in 0..<height {
+                for x in 0..<width where pixels[(y * width + x) * 4 + 3] > 24 {
+                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+            if maxX >= minX {
+                // Bitmap rows run top to bottom in memory, matching the image's pixel order.
+                rect = CGRect(x: Double(minX) / Double(width), y: Double(minY) / Double(height),
+                              width: Double(maxX - minX + 1) / Double(width), height: Double(maxY - minY + 1) / Double(height))
+            }
+        }
+        for point in points where point.x.isFinite && point.y.isFinite {
+            rect = rect.union(CGRect(x: point.x - 0.02, y: point.y - 0.02, width: 0.04, height: 0.04))
+        }
+        return rect
+    }
+}
+
 private struct ZodiacBookLines: Shape {
+    /// Already in view coordinates.
     let lines: [(CGPoint, CGPoint)]
     func path(in rect: CGRect) -> Path {
         var path = Path()
         for (a, b) in lines {
-            path.move(to: CGPoint(x: a.x * rect.width, y: a.y * rect.height))
-            path.addLine(to: CGPoint(x: b.x * rect.width, y: b.y * rect.height))
+            path.move(to: a)
+            path.addLine(to: b)
         }
         return path
     }
@@ -129,16 +175,18 @@ struct ZodiacBookCard: View {
     let collected: Set<Int>
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        // Figma card 177 × 244: artwork centred above the name and progress, on the exported card glow.
         VStack(alignment: .leading, spacing: 0) {
-            ZodiacBookArt(entry: entry, collected: collected)
+            ZodiacBookArt(entry: entry, collected: collected, inset: 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(entry.name).font(.title3.weight(.semibold)).foregroundStyle(.white)
                 ZodiacBookProgress(entry: entry, collected: collected)
             }
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 16)
         }
-        // Glass sits behind the card so the artwork keeps its own colours.
-        .background { Color.clear.celyxGlass(.celyxBookCard, in: shape) }
+        .aspectRatio(177 / 244, contentMode: .fit)
+        .background { Image("background/background-constellation-card").resizable() }
         .clipShape(shape)
         .contentShape(shape)
         .accessibilityElement(children: .combine)
@@ -189,8 +237,8 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
 
     private func header(_ collected: Set<Int>) -> some View {
         VStack(spacing: 8) {
-            ZodiacBookArt(entry: entry, collected: collected, revealsAroundStars: true)
-                .frame(maxWidth: 260)
+            ZodiacBookArt(entry: entry, collected: collected, revealsAroundStars: true, inset: 8)
+                .frame(height: 250)
             Text(entry.name).font(.title.weight(.bold)).foregroundStyle(.white)
                 .accessibilityAddTraits(.isHeader)
             ZodiacBookProgress(entry: entry, collected: collected).frame(width: 214)
@@ -227,10 +275,13 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
             StarPortraitView(star: star).frame(width: 48, height: 48)
             Text(star.title).font(.headline).foregroundStyle(.white)
             Spacer(minLength: 8)
+            // A status label, not a control: flat capsule, no glass.
             Text(collected ? "Collected" : "Not collected")
-                .font(.subheadline).foregroundStyle(.white)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .glassEffect(collected ? .regular.tint(CelyxColor.accent) : .regular, in: .capsule)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(collected ? .white : .white.opacity(0.7))
+                .padding(.horizontal, 10).padding(.vertical, 3)
+                .background(Capsule().fill(collected ? CelyxColor.accent : .white.opacity(0.08)))
+                .overlay(Capsule().strokeBorder(.white.opacity(collected ? 0.25 : 0.12), lineWidth: 0.5))
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(CelyxInfoBox(cornerRadius: 20))
