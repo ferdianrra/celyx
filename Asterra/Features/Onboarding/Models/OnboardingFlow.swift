@@ -35,6 +35,7 @@ final class OnboardingFlow {
         var requestLocation: () -> Void = {}
         var enableLocation: () -> Void = {}
         var showNote: () -> Void = {}
+        var leaveCapture: () -> Void = {}
         var cancel: () -> Void = {}
         var finish: () -> Void = {}
     }
@@ -145,6 +146,54 @@ final class OnboardingFlow {
 
     // MARK: Pacing
 
+    var canGoBack: Bool {
+        switch step {
+        case .welcome, .camera, .wormhole, .completion, .done: return false
+        default: return true
+        }
+    }
+
+    func back() {
+        guard canGoBack else { return }
+        validationTask?.cancel()
+        validationTask = nil
+        isValidating = false
+        isLocked = false
+        isWaitingForSun = false
+        cameraStarting = false
+        succeeded = false
+        pendingNext = nil
+        lookProgress = 0
+        turned = 0
+        lastForward = nil
+        switch step {
+        case .look:
+            step = .welcome
+            actions.setCamera(false)
+        case .camera:
+            step = .look
+            cameraUnavailable = false
+            cameraFailure = nil
+            actions.setCamera(false)
+        case .visibility:
+            step = .camera
+            if !cameraUnavailable { succeeded = true }
+        case .find, .garden:
+            let leavingGarden = step == .garden
+            step = .visibility
+            star = nil
+            gardenDirection = nil
+            gardenCamera = nil
+            if leavingGarden { actions.leaveCapture() }
+        case .note:
+            step = .garden
+        case .completion:
+            step = .note
+            actions.showNote()
+        default: break
+        }
+    }
+
     /// The card's button.
     func primary() {
         if succeeded, let next = pendingNext { advance(to: next); return }
@@ -159,7 +208,10 @@ final class OnboardingFlow {
                 actions.setCamera(true)
             }
         case .find where isWaitingForSun && locationNeedsSettings: actions.enableLocation()
-        case .visibility: answerVisibility(canSeeObject: true)
+        case .visibility:
+            // Daytime goes straight to the guided Sun at its calculated sky position.
+            // At night the primary action still opens the real collection camera.
+            answerVisibility(canSeeObject: !isDaytime)
         case .garden:
             advance(to: .note)
             actions.showNote()
@@ -419,10 +471,13 @@ final class OnboardingFlow {
             }
             return Card(symbol: "arkit", title: OnboardingCopy.cameraTitle, body: OnboardingCopy.cameraBody)
         case .visibility:
-            return Card(symbol: isDaytime ? "sun.max" : "moon.stars",
-                title: isDaytime ? OnboardingCopy.dayVisibilityTitle : OnboardingCopy.nightVisibilityTitle,
-                body: isDaytime ? OnboardingCopy.dayVisibilityBody : OnboardingCopy.nightVisibilityBody,
-                primary: OnboardingCopy.canSeeObject, secondary: offersGuidedSun ? OnboardingCopy.tryGuidedSun : OnboardingCopy.cannotSeeObject)
+            if isDaytime {
+                return Card(symbol: "sun.max", title: OnboardingCopy.dayVisibilityTitle,
+                    body: OnboardingCopy.dayVisibilityBody, primary: OnboardingCopy.tryGuidedSun)
+            }
+            return Card(symbol: "moon.stars", title: OnboardingCopy.nightVisibilityTitle,
+                body: OnboardingCopy.nightVisibilityBody, primary: OnboardingCopy.canSeeObject,
+                secondary: OnboardingCopy.cannotSeeObject)
         case .find:
             if isWaitingForSun {
                 return Card(symbol: "location", title: "Finding the Sun’s position",

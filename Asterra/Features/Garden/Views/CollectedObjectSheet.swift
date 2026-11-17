@@ -12,6 +12,7 @@ struct CollectedObjectSheet: View {
     /// Onboarding tour: guide lines in the sheet, a glowing close button and no Delete.
     var tourGuide = false
     var onNoteCompleted: (() -> Void)? = nil
+    var onTourBack: (() -> Void)? = nil
     let onDelete: () -> Void
 
     @FocusState private var noteFocused: Bool
@@ -33,7 +34,9 @@ struct CollectedObjectSheet: View {
     init(item: GardenCollectionItem, direction: SIMD3<Double>?, collection: HomeViewModel? = nil,
          capturedPhoto: UIImage? = nil, startsWithNoteEntry: Bool = false,
          onSaveNote: ((String) -> Void)? = nil, onSavePlace: ((String) -> Void)? = nil,
-         tourGuide: Bool = false, onNoteCompleted: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
+         tourGuide: Bool = false, onNoteCompleted: (() -> Void)? = nil,
+         onTourBack: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
+        self.onTourBack = onTourBack
         self.tourGuide = tourGuide
         self.onNoteCompleted = onNoteCompleted
         self.item = item; self.direction = direction; self.collection = collection
@@ -59,15 +62,21 @@ struct CollectedObjectSheet: View {
     var body: some View {
         CelyxSheetScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if tourGuide, let onTourBack {
+                    Button("Back", systemImage: "chevron.left") {
+                        onTourBack()
+                        dismiss()
+                    }
+                    .buttonStyle(.glass)
+                    .padding(.horizontal, 20).padding(.top, 20)
+                }
                 header.padding(.horizontal, 20).padding(.top, 32)
                 VStack(spacing: 12) {
-                    if tourGuide {
-                        OnboardingGuidePill(text: editingNote
-                            ? OnboardingCopy.noteEntryGuide
-                            : OnboardingCopy.starCardGuide,
-                            symbol: editingNote ? "pencil" : "info.circle")
+                    if tourGuide && !editingNote {
+                        OnboardingGuidePill(text: OnboardingCopy.starCardGuide,
+                            symbol: "info.circle")
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .animation(.smooth(duration: 0.4), value: editingNote)
+                            .transition(.opacity)
                     }
                     notes
                     if !compactNoteEntry {
@@ -208,7 +217,7 @@ struct CollectedObjectSheet: View {
                 .padding(.bottom, 4)
             }
             if editingNote {
-                TextField(tourGuide ? "e.g. My very first star" : "Write a note…", text: $note, axis: .vertical)
+                TextField(notePlaceholder, text: $note, axis: .vertical)
                     .font(.body).textFieldStyle(.plain)
                     .lineLimit(4...4)
                     .focused($noteFocused)
@@ -258,6 +267,14 @@ struct CollectedObjectSheet: View {
         // The scaled photo extends past its crop and must not intercept taps on the note.
         .allowsHitTesting(false)
             .accessibilityIdentifier("collected-star-photo")
+    }
+    private var notePlaceholder: String {
+        if tourGuide {
+            return item.star.isSun
+                ? "What did the sunlight look like, and how did this moment feel?"
+                : "What did you notice, where were you, and how did this moment feel?"
+        }
+        return "Write a note…"
     }
 
     private var metadata: some View {

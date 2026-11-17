@@ -182,6 +182,6 @@ struct OnboardingHighlight: View {
 }
 
 #Preview {
-    OnboardingGuidePill(text: OnboardingCopy.noteEntryGuide, symbol: "pencil")
+    OnboardingGuidePill(text: OnboardingCopy.starCardGuide, symbol: "info.circle")
         .padding().background(CelyxColor.night)
 }
