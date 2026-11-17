@@ -155,6 +155,15 @@ struct OnboardingOverlay: View {
                 .accessibilityAddTraits(.isModal)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if flow.canGoBack && flow.step != .note && flow.step != .completion {
+                Button("Back", systemImage: "chevron.left") { flow.back() }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.glass).tint(.white)
+                    .padding(.leading, 16).padding(.top, topBarVisible ? 58 : 4)
+                    .accessibilityIdentifier("tour-back")
+            }
+        }
         .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.5, bounce: 0.12), value: flow.step)
         .onAppear { flow.reduceMotion = reduceMotion }
         .preferredColorScheme(.dark)
@@ -167,19 +176,26 @@ struct OnboardingOverlay: View {
         return .default
     }
 
-    /// When the star is off screen: a spot on the screen edge and the bearing toward it.
+    /// Keep the direction cue close to the fixed reticle until the target is near enough to lock.
+    /// Once the target is visible, use its projected point for a precise screen-space bearing.
     private func edgeHint(for star: OnboardingFlow.PracticeStar, point: CGPoint?, size: CGSize)
         -> (point: CGPoint, angle: Angle)?
     {
-        let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 40, dy: 120)
-        if let point, bounds.contains(point) { return nil }
-        // Bearing in the camera's own frame (works even when the star is behind the viewer).
-        let x = simd_dot(star.direction, camera.right), y = simd_dot(star.direction, camera.up)
-        let angle = atan2(-y, x)
-        let dx = cos(angle), dy = sin(angle)
-        let s = min(dx == 0 ? .infinity : (bounds.width / 2) / abs(dx),
-                    dy == 0 ? .infinity : (bounds.height / 2) / abs(dy))
-        return (CGPoint(x: bounds.midX + dx * s, y: bounds.midY + dy * s), .radians(angle))
+        let center = camera.center(in: size)
+        let angle: Double
+        if let point {
+            let x = point.x - center.x, y = point.y - center.y
+            guard hypot(x, y) > holdRadius else { return nil }
+            angle = atan2(Double(y), Double(x))
+        } else {
+            // Camera-frame bearing continues to work when the target is behind the viewer.
+            let x = simd_dot(star.direction, camera.right)
+            let y = simd_dot(star.direction, camera.up)
+            angle = atan2(-y, x)
+        }
+        let dx = CGFloat(cos(angle)), dy = CGFloat(sin(angle))
+        let radius = min(104, max(72, min(size.width, size.height) * 0.16))
+        return (CGPoint(x: center.x + dx * radius, y: center.y + dy * radius), .radians(angle))
     }
 }
 
@@ -195,12 +211,18 @@ private struct OnboardingCard: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
+                    if flow.step == .welcome {
+                        Image("asterra-app-logo").resizable().scaledToFit()
+                            .frame(width: 30, height: 30)
+                            .accessibilityHidden(true)
+                    } else {
                     Image(systemName: flow.succeeded ? "checkmark.circle.fill" : card.symbol)
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(flow.succeeded ? CelyxColor.ready : Color(red: 0.72, green: 0.82, blue: 1))
                         .contentTransition(.symbolEffect(.replace))
                         .symbolEffect(.bounce, value: flow.succeeded)
                         .frame(width: 26)
+                    }
                     Text(card.title).font(.title3.weight(.semibold))
                     Spacer(minLength: 8)
                     if let index = flow.progressIndex {
@@ -223,6 +245,17 @@ private struct OnboardingCard: View {
                     .animation(.smooth(duration: 0.3), value: flow.lookProgress)
                     .padding(.top, 18)
             }
+            if let primary = card.primary {
+                Button { flow.primary() } label: {
+                    Text(primary).font(.system(size: 17, weight: .semibold)).tracking(-0.43)
+                        .foregroundStyle(CelyxColor.primaryLabel)
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(CelyxTintedGlassButtonStyle())
+                .padding(.top, 20)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
             if let secondary = card.secondary {
                 Button { flow.secondary() } label: {
                     Text(secondary)
@@ -234,18 +267,7 @@ private struct OnboardingCard: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(OnboardingSecondaryButtonStyle())
-                .padding(.top, 20)
-            }
-            if let primary = card.primary {
-                Button { flow.primary() } label: {
-                    Text(primary).font(.system(size: 17, weight: .semibold)).tracking(-0.43)
-                        .foregroundStyle(CelyxColor.primaryLabel)
-                        .frame(maxWidth: .infinity).frame(height: 50)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(CelyxTintedGlassButtonStyle())
-                .padding(.top, 20)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .padding(.top, 12)
             }
         }
         .foregroundStyle(CelyxColor.primaryLabel)
@@ -305,9 +327,10 @@ private struct OnboardingEdgeHint: View {
 
     var body: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.95))
-            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.9), radius: 8)
+            .font(.system(size: 30, weight: .black))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
+            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1), radius: 10)
             .phaseAnimator([0.0, 1.0]) { view, t in
                 view.offset(x: reduceMotion ? 0 : t * 7)
             } animation: { t in t == 1 ? .easeInOut(duration: 0.7) : .easeInOut(duration: 0.9) }

@@ -19,6 +19,7 @@ struct StarShareContent {
         return value.isEmpty ? "A sky moment captured with Asterra." : value
     }
     var lightTravel: String {
+        if item.star.isSun { return "Sunlight takes about 8 minutes to reach Earth." }
         guard let distance = item.star.distance_ly, distance.isFinite, distance > 0,
             !item.star.isSolarSystemBody else { return "A moment under your sky." }
         let years = distance.formatted(.number.precision(.fractionLength(0)).locale(Locale(identifier: "en_US")))

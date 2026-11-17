@@ -28,6 +28,7 @@ struct GardenSkyView: View {
     var tourFocusDirection: SIMD3<Double>?
     var tourFocusCamera: NightSeaCamera?
     var onTourNoteCompleted: () -> Void
+    var onTourBack: () -> Void
 
     @State private var viewModel: GardenViewModel
     @State private var failed = false
@@ -43,13 +44,15 @@ struct GardenSkyView: View {
         onDemoEnded: @escaping () -> Void = {},
         cameraLink: LiveCameraLink? = nil, showsCameraCollection: Bool = true, tourFocusDirection: SIMD3<Double>? = nil,
         tourFocusCamera: NightSeaCamera? = nil,
-        onTourNoteCompleted: @escaping () -> Void = {}
+        onTourNoteCompleted: @escaping () -> Void = {},
+        onTourBack: @escaping () -> Void = {}
     ) {
         self.cameraLink = cameraLink
         self.showsCameraCollection = showsCameraCollection
         self.tourFocusDirection = tourFocusDirection
         self.tourFocusCamera = tourFocusCamera
         self.onTourNoteCompleted = onTourNoteCompleted
+        self.onTourBack = onTourBack
         self.handover = handover
         self.sheetRequest = sheetRequest
         self.showsDemoConstellations = showsDemoConstellations
@@ -174,11 +177,13 @@ struct GardenSkyView: View {
                     onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                     onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
                     tourGuide: request.isTour && cameraLink != nil,
+                    onTourBack: onTourBack,
                     onDelete: { model.deleteCollected(id: item.id); albumRequest = nil })
                     .id(request.id)
             } else if let demo = request.demoItem {
                 CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
                     startsWithNoteEntry: true, tourGuide: request.isTour && cameraLink != nil,
+                    onTourBack: onTourBack,
                     onDelete: { albumRequest = nil })
                     .id(request.id)
             }
