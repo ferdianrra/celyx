@@ -28,6 +28,7 @@ struct GardenSkyView: View {
     var tourFocusDirection: SIMD3<Double>?
     var tourFocusCamera: NightSeaCamera?
     var onTourNoteCompleted: () -> Void
+    var onTourBack: () -> Void
 
     @State private var viewModel: GardenViewModel
     @State private var failed = false
@@ -43,13 +44,15 @@ struct GardenSkyView: View {
         onDemoEnded: @escaping () -> Void = {},
         cameraLink: LiveCameraLink? = nil, showsCameraCollection: Bool = true, tourFocusDirection: SIMD3<Double>? = nil,
         tourFocusCamera: NightSeaCamera? = nil,
-        onTourNoteCompleted: @escaping () -> Void = {}
+        onTourNoteCompleted: @escaping () -> Void = {},
+        onTourBack: @escaping () -> Void = {}
     ) {
         self.cameraLink = cameraLink
         self.showsCameraCollection = showsCameraCollection
         self.tourFocusDirection = tourFocusDirection
         self.tourFocusCamera = tourFocusCamera
         self.onTourNoteCompleted = onTourNoteCompleted
+        self.onTourBack = onTourBack
         self.handover = handover
         self.sheetRequest = sheetRequest
         self.showsDemoConstellations = showsDemoConstellations
@@ -174,11 +177,13 @@ struct GardenSkyView: View {
                     onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
                     onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
                     tourGuide: request.isTour && cameraLink != nil,
+                    onTourBack: onTourBack,
                     onDelete: { model.deleteCollected(id: item.id); albumRequest = nil })
                     .id(request.id)
             } else if let demo = request.demoItem {
                 CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
                     startsWithNoteEntry: true, tourGuide: request.isTour && cameraLink != nil,
+                    onTourBack: onTourBack,
                     onDelete: { albumRequest = nil })
                     .id(request.id)
             }
@@ -299,6 +304,9 @@ struct GardenSkyView: View {
                         else { return nil }
                         return (object.id, point)
                     }), isActive: gardenIsActive)
+                if !failed && !showsCaptureSequence {
+                    cardinalLabels(in: geometry.size, camera: shown)
+                }
                 labels(in: geometry.size, camera: shown)
             }
             .allowsHitTesting(tourFocusDirection == nil && (handover == nil || handover!.phase >= .presenting))
@@ -342,6 +350,30 @@ struct GardenSkyView: View {
     }
 
     // MARK: Labels
+    @ViewBuilder
+    private func cardinalLabels(in size: CGSize, camera: NightSeaCamera) -> some View {
+        let directions: [(label: String, direction: SIMD3<Double>)] = [
+            ("N", SIMD3(0, 1, 0)),
+            ("E", SIMD3(1, 0, 0)),
+            ("S", SIMD3(0, -1, 0)),
+            ("W", SIMD3(-1, 0, 0))
+        ]
+
+        ForEach(directions.indices, id: \.self) { index in
+            let marker = directions[index]
+
+            if let point = camera.project(marker.direction, in: size),
+               point.x >= 14, point.x <= size.width - 14,
+               point.y >= 14, point.y <= size.height - 14 {
+                Text(marker.label)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.7), radius: 3)
+                    .position(point)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 
     @ViewBuilder private func labels(in size: CGSize, camera: NightSeaCamera) -> some View {
         ForEach(viewModel.placed.filter { entry in

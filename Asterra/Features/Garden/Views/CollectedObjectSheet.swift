@@ -12,6 +12,7 @@ struct CollectedObjectSheet: View {
     /// Onboarding tour: guide lines in the sheet, a glowing close button and no Delete.
     var tourGuide = false
     var onNoteCompleted: (() -> Void)? = nil
+    var onTourBack: (() -> Void)? = nil
     let onDelete: () -> Void
 
     @FocusState private var noteFocused: Bool
@@ -27,13 +28,17 @@ struct CollectedObjectSheet: View {
     @State private var noteContentHeight: CGFloat = 300
     @State private var containerBottomInset: CGFloat = 0
     @State private var detent: PresentationDetent = .large
+    @State private var randomPlaceholder = CollectedObjectSheet.notePlaceholders.randomElement()
+        ?? "Write a note…"
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(item: GardenCollectionItem, direction: SIMD3<Double>?, collection: HomeViewModel? = nil,
          capturedPhoto: UIImage? = nil, startsWithNoteEntry: Bool = false,
          onSaveNote: ((String) -> Void)? = nil, onSavePlace: ((String) -> Void)? = nil,
-         tourGuide: Bool = false, onNoteCompleted: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
+         tourGuide: Bool = false, onNoteCompleted: (() -> Void)? = nil,
+         onTourBack: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
+        self.onTourBack = onTourBack
         self.tourGuide = tourGuide
         self.onNoteCompleted = onNoteCompleted
         self.item = item; self.direction = direction; self.collection = collection
@@ -59,15 +64,21 @@ struct CollectedObjectSheet: View {
     var body: some View {
         CelyxSheetScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if tourGuide, let onTourBack {
+                    Button("Back", systemImage: "chevron.left") {
+                        onTourBack()
+                        dismiss()
+                    }
+                    .buttonStyle(.glass)
+                    .padding(.horizontal, 20).padding(.top, 20)
+                }
                 header.padding(.horizontal, 20).padding(.top, 32)
                 VStack(spacing: 12) {
-                    if tourGuide {
-                        OnboardingGuidePill(text: editingNote
-                            ? OnboardingCopy.noteEntryGuide
-                            : OnboardingCopy.starCardGuide,
-                            symbol: editingNote ? "pencil" : "info.circle")
+                    if tourGuide && !editingNote {
+                        OnboardingGuidePill(text: OnboardingCopy.starCardGuide,
+                            symbol: "info.circle")
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .animation(.smooth(duration: 0.4), value: editingNote)
+                            .transition(.opacity)
                     }
                     notes
                     if !compactNoteEntry {
@@ -208,7 +219,7 @@ struct CollectedObjectSheet: View {
                 .padding(.bottom, 4)
             }
             if editingNote {
-                TextField(tourGuide ? "e.g. My very first star" : "Write a note…", text: $note, axis: .vertical)
+                TextField(notePlaceholder, text: $note, axis: .vertical)
                     .font(.body).textFieldStyle(.plain)
                     .lineLimit(4...4)
                     .focused($noteFocused)
@@ -259,6 +270,14 @@ struct CollectedObjectSheet: View {
         .allowsHitTesting(false)
             .accessibilityIdentifier("collected-star-photo")
     }
+    private var notePlaceholder: String {
+        if tourGuide {
+            return item.star.isSun
+                ? "What did the sunlight look like, and how did this moment feel?"
+                : "What did you notice, where were you, and how did this moment feel?"
+        }
+        return randomPlaceholder
+    }
 
     private var metadata: some View {
         VStack(spacing: 12) {
@@ -305,6 +324,26 @@ struct CollectedObjectSheet: View {
         }
         onNoteCompleted?()
     }
+}
+
+private extension CollectedObjectSheet {
+    static let notePlaceholders = [
+        "What caught your eye tonight?",
+        "How did this moment feel?",
+        "Where were you when you saw this?",
+        "Who were you with?",
+        "What made this moment special?",
+        "What made you look up at the sky?",
+        "If you could give this moment a title, what would it be?",
+        "What feeling does this discovery leave you with?",
+        "What surprised you about this discovery?",
+        "What did the sky look like?",
+        "How would you describe this experience in three words?",
+        "If this discovery had a story, what would it be?",
+        "How did you feel when you found it?",
+        "Who were you with when you spotted it?",
+        "What do you want to remember?"
+    ]
 }
 
 #Preview {

@@ -61,7 +61,8 @@ struct HomeView: View {
                               cameraLink:tourCameraLink, showsCameraCollection:onboarding?.step != .find,
                               tourFocusDirection:onboarding?.gardenDirection,
                               tourFocusCamera:onboarding?.gardenCamera,
-                              onTourNoteCompleted:{ onboarding?.noteCompleted() })
+                              onTourNoteCompleted:{ onboarding?.noteCompleted() },
+                              onTourBack:{ onboarding?.back() })
                     .ignoresSafeArea()
 
                 if let onboarding { tourLayer(onboarding) }
@@ -400,7 +401,23 @@ struct HomeView: View {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 } else { model.requestLocation() }
             },
-            showNote:{ presentCapturedNote() },
+            showNote:{
+                if handover != nil { presentCapturedNote() }
+                else if let previous = sheetRequest {
+                    sheetRequest = GardenSheetRequest(itemID: previous.itemID, demoItem: previous.demoItem,
+                        photo: previous.photo, isTour: true)
+                }
+            },
+            leaveCapture:{
+                tourCaptureTask?.cancel()
+                handoverTask?.cancel()
+                handover?.finish()
+                handover = nil
+                sheetRequest = nil
+                tourShutter = nil
+                demoShowing = false
+                showsStarCamera = false
+            },
             cancel:{
                 tourCaptureTask?.cancel()
                 tourCaptureTask = nil
