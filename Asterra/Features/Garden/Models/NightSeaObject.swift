@@ -3,10 +3,10 @@ import simd
 
 /// One collected object placed in the sky.
 struct NightSeaObject: Identifiable, Equatable {
-    enum Kind: Float { case star = 0, planet = 1, moon = 2, sun = 3, background = 4 }
+    enum Kind: Float { case star = 0, planet = 1, moon = 2, sun = 3 }
     let id: Int
     let direction: SIMD3<Double>
-    /// Stars: core radius in points (the kit's starR, x1.3 for collected). Background stars: their magnitude.
+    /// Stars: core radius in points (the kit's starR, x1.3 for collected).
     /// Planets, Moon, Sun: sprite radius in points (glow included).
     let radius: Double
     let color: SIMD3<Double>

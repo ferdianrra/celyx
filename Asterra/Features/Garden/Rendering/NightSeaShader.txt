@@ -29,19 +29,15 @@ struct GardenPoint {
 
 constant float PI = 3.14159265;
 
-// ---------- pass 1: objects (collected + the kit's background star field) ----------
-// Stars follow the Night Sea kit's 2D star layer (drawStars): r = clamp(3 - .55 mag, .8, 5) * fz, fz = sqrt(72 / fov).
-//  - Background stars (kind 4, dirSize.w = magnitude) are the kit's, toned down: radius x0.8, alpha x0.7, a glow only
-//    below mag 2 at half alpha, NO diffraction spikes, faint dust (mag > 5) at alpha .15.
-//  - Collected stars (kind 0, dirSize.w = core radius in pt, already x1.3) get the kit's brightest-star treatment:
-//    coloured glow, 4-point spikes, white-hot core, true colour and slow breathing.
-//  - Planets, Moon, Sun: unchanged (dirSize.w = sprite radius in pt).
+// ---------- pass 1: garden objects ----------
+// Stars use a core radius in points, coloured glow, 4-point spikes and slow breathing.
+// Planets, Moon and Sun use a sprite radius in points.
 struct PointOut {
     float4 position [[position]];
     float size [[point_size]];
     float4 color;
     float kind;
-    float4 p;   // stars: x core radius (pt), y sprite radius (pt), z alpha, w glow alpha
+    float2 p;   // stars: x core radius (pt), y sprite radius (pt)
 };
 
 vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u [[buffer(0)]],
@@ -50,7 +46,7 @@ vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u
     float3 d = g.dirSize.xyz;
     float z = dot(d, u.F.xyz);
     PointOut o;
-    o.position = float4(2, 2, 0, 1); o.size = 1; o.color = float4(0); o.kind = g.color.w; o.p = float4(0);
+    o.position = float4(2, 2, 0, 1); o.size = 1; o.color = float4(0); o.kind = g.color.w; o.p = float2(0);
     if (z < 0.06 || d.z < -0.01) return o;     // behind the camera or below the horizon
     float2 q = float2(u.cam.y + dot(d, u.R.xyz) / z * u.cam.x, u.cam.z - dot(d, u.U.xyz) / z * u.cam.x);
     float2 px = q * u.res.z;
@@ -61,19 +57,10 @@ vertex PointOut gardenPointVertex(uint id [[vertex_id]], constant SeaUniforms &u
     float fov = 2.0 * atan(0.62 * minSide / u.cam.x) * 180.0 / PI;
     float fz = sqrt(72.0 / max(fov, 5.0));
     float R;
-    if (kind > 3.5 && kind < 5.0) {                       // background star: decoration only
-        float mag = g.dirSize.w;
-        // The kit's size and alpha, toned well down: radius x0.6 (capped at 1.3 pt), alpha x0.42, no glow,
-        // so even the brightest decorative star stays clearly smaller and dimmer than any collected star.
-        float r = min(clamp(3.0 - 0.55 * mag, 0.8, 5.0) * fz * 0.6, 1.3);
-        float a = clamp((6.2 - mag) / 1.1 + 0.35, 0.35, 1.0) * 0.42;
-        if (mag > 5.0) { r = 0.45; a = 0.12; }            // faint dust
-        R = r + 1.0;
-        o.p = float4(r, R, a, 0.0);
-    } else if (kind < 0.5) {                              // collected star
+    if (kind < 0.5) {
         float r = g.dirSize.w * fz;
         R = max(r * 8.0, 5.0 + r + 2.0);
-        o.p = float4(r, R, 1.0, 0.9);
+        o.p = float2(r, R);
     } else {
         R = g.dirSize.w;
     }
@@ -97,28 +84,22 @@ fragment float4 gardenPointFragment(PointOut in [[stage_in]], float2 pc [[point_
     bool selected = in.kind >= 10;
     float3 col = in.color.rgb;
 
-    if (kind < 0.5 || (kind > 3.5 && kind < 5.0)) {
-        bool collected = kind < 0.5;
-        float core = in.p.x, R = in.p.y, alpha = in.p.z, ga = in.p.w;
+    if (kind < 0.5) {
+        float core = in.p.x, R = in.p.y;
         float2 vp = v * R;                                 // points from the centre
         float d = length(vp);
         float seed = col.r * 40.0 + col.g * 57.0 + col.b * 31.0;
-        float tw = collected ? 0.92 + 0.08 * sin(u.res.w * 1.1 + seed)        // slow breathing
-                             : 0.95 + 0.05 * sin(u.res.w * 3.4 + seed);       // half the kit's twinkle
-        if (!collected) col = mix(col, float3(dot(col, float3(.299, .587, .114))), .3);   // a little desaturated
-        float4 o = float4(0);
-        if (ga > 0.0) o += kitGlow(d / R, col) * ga * tw;
-        if (collected) {
-            float L = core * 6.0;                          // 4-point diffraction spikes, 0.6 pt wide
-            float sx = smoothstep(0.45, 0.15, abs(vp.y)) * max(0.0, 1.0 - abs(vp.x) / L);
-            float sy = smoothstep(0.45, 0.15, abs(vp.x)) * max(0.0, 1.0 - abs(vp.y) / L);
-            float sp = max(sx, sy) * 0.28 * tw;
-            o += float4(col * sp, sp);
-        }
-        float disc = smoothstep(core + 0.5, core - 0.5, d) * alpha * (collected ? 1.0 : tw);
+        float tw = 0.92 + 0.08 * sin(u.res.w * 1.1 + seed);
+        float4 o = kitGlow(d / R, col) * 0.9 * tw;
+        float L = core * 6.0;                              // 4-point diffraction spikes, 0.6 pt wide
+        float sx = smoothstep(0.45, 0.15, abs(vp.y)) * max(0.0, 1.0 - abs(vp.x) / L);
+        float sy = smoothstep(0.45, 0.15, abs(vp.x)) * max(0.0, 1.0 - abs(vp.y) / L);
+        float sp = max(sx, sy) * 0.28 * tw;
+        o += float4(col * sp, sp);
+        float disc = smoothstep(core + 0.5, core - 0.5, d);
         o = o * (1.0 - disc) + float4(col * disc, disc);
         if (core > 1.7) {                                  // white-hot core
-            float hot = smoothstep(core * 0.45 + 0.4, core * 0.45 - 0.4, d) * 0.9 * alpha;
+            float hot = smoothstep(core * 0.45 + 0.4, core * 0.45 - 0.4, d) * 0.9;
             o = o * (1.0 - hot) + float4(float3(hot), hot);
         }
         o.a = clamp(o.a, 0.0, 1.0);
@@ -387,7 +368,7 @@ float3 envColor(float3 d, float2 starUV, constant SeaUniforms &u, texture2d<floa
         if (il.a < .5) {
             float2 uv = toScreen(R, u);
             if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
-                // Stars and collected stars become elongated, wobbling streaks.
+                // Reflected garden objects become elongated, wobbling streaks.
                 float4 s = float4(0); float stp = (1.5 + 14.0 * rough) * u.res.z / u.res.y;
                 for (int j = -2; j <= 2; j++) s += layerAt(uv + float2(0.0, float(j) * stp * .5), tA, tB, amtB) * .2;
                 float fd = mix(.3, 1.0, smoothstep(-.55, -.02, d.z));
