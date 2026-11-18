@@ -28,6 +28,8 @@ struct CollectedObjectSheet: View {
     @State private var noteContentHeight: CGFloat = 300
     @State private var containerBottomInset: CGFloat = 0
     @State private var detent: PresentationDetent = .large
+    @State private var randomPlaceholder = CollectedObjectSheet.notePlaceholders.randomElement()
+        ?? "Write a note…"
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -274,7 +276,7 @@ struct CollectedObjectSheet: View {
                 ? "What did the sunlight look like, and how did this moment feel?"
                 : "What did you notice, where were you, and how did this moment feel?"
         }
-        return "Write a note…"
+        return randomPlaceholder
     }
 
     private var metadata: some View {
@@ -322,6 +324,26 @@ struct CollectedObjectSheet: View {
         }
         onNoteCompleted?()
     }
+}
+
+private extension CollectedObjectSheet {
+    static let notePlaceholders = [
+        "What caught your eye tonight?",
+        "How did this moment feel?",
+        "Where were you when you saw this?",
+        "Who were you with?",
+        "What made this moment special?",
+        "What made you look up at the sky?",
+        "If you could give this moment a title, what would it be?",
+        "What feeling does this discovery leave you with?",
+        "What surprised you about this discovery?",
+        "What did the sky look like?",
+        "How would you describe this experience in three words?",
+        "If this discovery had a story, what would it be?",
+        "How did you feel when you found it?",
+        "Who were you with when you spotted it?",
+        "What do you want to remember?"
+    ]
 }
 
 #Preview {
