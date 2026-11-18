@@ -17,6 +17,11 @@ struct ZodiacBookArt: View {
     let collected: Set<Int>
     var revealsAroundStars = false
     var inset: CGFloat = 0
+    
+    // Preloaded artwork for rendering a static share card.
+    var preparedArtwork: GardenZodiacArtwork? = nil
+    var preparedBounds: CGRect? = nil
+    var isStatic = false
 
     @State private var artwork: GardenZodiacArtwork?
     @State private var bounds: CGRect?
@@ -25,12 +30,14 @@ struct ZodiacBookArt: View {
 
     var body: some View {
         GeometryReader { geometry in
-            if let artwork, let bounds {
+            if let artwork = preparedArtwork ?? artwork,
+               let bounds = preparedBounds ?? bounds {
                 content(artwork, rect: Self.imageRect(bounds: bounds, in: geometry.size, inset: inset))
             }
         }
         .accessibilityHidden(true)
         .task(id: entry.assetName) {
+            guard preparedArtwork == nil else { return }
             guard let loaded = await GardenZodiacArtworkStore.shared.load(assetNamed: entry.assetName) else { return }
             let points = entry.members.map(\.point)
             let found = await Task.detached(priority: .userInitiated) {
@@ -73,7 +80,7 @@ struct ZodiacBookArt: View {
                 bright
             }
             ZodiacBookLines(lines: entry.lines(collected).map { (place($0.0), place($0.1)) })
-                .trim(from: 0, to: formed || !revealsAroundStars ? 1 : 0)
+                .trim(from: 0, to: isStatic || formed || !revealsAroundStars ? 1 : 0)
                 .stroke(.white.opacity(0.75), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 .shadow(color: Color(hex: 0x7459DF), radius: 4)
             ForEach(entry.members) { member in
@@ -90,7 +97,7 @@ struct ZodiacBookArt: View {
     private func revealMask(rect: CGRect, done: Bool, place: @escaping (CGPoint) -> CGPoint) -> some View {
         ZStack {
             if done {
-                Color.white.opacity(formed ? 1 : 0)
+                Color.white.opacity(isStatic || formed ? 1 : 0)
             } else {
                 // Each collected star lights a patch of the drawing; the patches grow with progress.
                 let diameter = rect.width * (0.4 + 0.4 * entry.progress(collected))
@@ -99,7 +106,7 @@ struct ZodiacBookArt: View {
                         .fill(RadialGradient(colors: [.white, .white.opacity(0.5), .clear], center: .center,
                                              startRadius: 0, endRadius: diameter / 2))
                         .frame(width: diameter, height: diameter)
-                        .scaleEffect(formed ? 1 : 0.2)
+                        .scaleEffect(isStatic || formed ? 1 : 0.2)
                         .position(place(member.point))
                 }
             }
@@ -210,7 +217,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
     @ViewBuilder let objectSheet: (GardenCollectionItem) -> ObjectSheet
 
     @State private var selected: GardenCollectionItem?
-    @State private var showsInfo = false
+    @State private var showsShare = false
 
     var body: some View {
         let collected = Set(model.collected.keys)
@@ -228,17 +235,20 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
         .background(Color.bookPrimary.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let note = ZodiacBookNotes.note(for: entry.code) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("About \(entry.name)", systemImage: "info") { showsInfo = true }
-                        .popover(isPresented: $showsInfo) {
-                            info(note).presentationCompactAdaptation(.popover)
-                        }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Share constellation", systemImage: "square.and.arrow.up") {
+                    showsShare = true
                 }
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(item: $selected, onDismiss: onObjectSheetDismissed) { objectSheet($0) }
+        .sheet(item: $selected) { objectSheet($0) }
+        .fullScreenCover(isPresented: $showsShare) {
+            ConstellationShareView(
+                entry: entry,
+                collected: Set(model.collected.keys)
+            )
+        }
     }
 
     private func header(_ collected: Set<Int>, topInset: CGFloat, width: CGFloat) -> some View {

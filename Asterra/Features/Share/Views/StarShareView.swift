@@ -158,7 +158,7 @@ struct StarShareView: View {
     }
 }
 
-private enum ShareDestination: String, CaseIterable, Identifiable {
+enum ShareDestination: String, CaseIterable, Identifiable {
     case instagram, copy, save, more
     var id: String { rawValue }
     var title: String {
