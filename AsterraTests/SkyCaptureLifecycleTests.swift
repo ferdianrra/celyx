@@ -1,0 +1,248 @@
+import AVFoundation
+import CoreVideo
+import Foundation
+import Testing
+import UIKit
+import simd
+@testable import Asterra
+
+nonisolated private final class TestCaptureDriver: SkyCaptureDriving, @unchecked Sendable {
+    let captureSession = AVCaptureSession()
+    let device: AVCaptureDevice? = nil
+    private let lock = NSLock()
+    private var callbacks: [@Sendable (Result<SkyCaptureFrame, Error>) -> Void] = []
+    private var stops = 0
+    private var releases = 0
+    var startCount: Int { lock.withLock { callbacks.count } }
+    var stopCount: Int { lock.withLock { stops } }
+    var releaseCount: Int { lock.withLock { releases } }
+    func start(deliver: @escaping @Sendable (Result<SkyCaptureFrame, Error>) -> Void) { lock.withLock { callbacks.append(deliver) } }
+    func stop() { lock.withLock { stops += 1 } }
+    func releaseFrame() { lock.withLock { releases += 1 } }
+    func configureDevice(_ update: @escaping @Sendable (AVCaptureDevice) -> Void) {}
+    func fail(_ error: Error, run: Int) {
+        let callback = lock.withLock { callbacks[run] }
+        callback(.failure(error))
+    }
+    func emit(_ frame: SkyCaptureFrame, run: Int) {
+        let callback = lock.withLock { callbacks[run] }
+        callback(.success(frame))
+    }
+}
+
+@MainActor private final class CaptureRecorder: SkyCaptureSessionDelegate {
+    var times: [Double] = []
+    var interruptions = 0
+    func session(_ session: SkyCaptureSession, didUpdate frame: SkyCaptureFrame) { times.append(frame.timestamp) }
+    func sessionWasInterrupted(_ session: SkyCaptureSession) { interruptions += 1 }
+}
+
+@MainActor struct SkyCaptureLifecycleTests {
+    private func frame(at time: Double, tracking: SkyCaptureCamera.TrackingState = .normal) throws -> SkyCaptureFrame {
+        var image: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 32, 32, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, nil, &image)
+        return SkyCaptureFrame(capturedImage: try #require(image), timestamp: time,
+            camera: SkyCaptureCamera(transform: matrix_identity_float4x4, intrinsics: matrix_identity_float3x3,
+                imageResolution: CGSize(width: 32, height: 32), trackingState: tracking))
+    }
+    private func drain() async { try? await Task.sleep(for: .milliseconds(20)) }
+
+    @Test func tutorialCameraIsReadyWithMotionLimitedFramesBeforeAPoseOrViewportExists() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let link = LiveCameraLink()
+        link.connect(to: session)
+        session.run()
+        driver.emit(try frame(at: 1, tracking: .limited(.excessiveMotion)), run: 0)
+        await drain()
+        #expect(link.state == .streaming, "A visible camera must not time out while motion alignment settles")
+        #expect(link.pose == nil, "Readiness must not depend on a layout or TimelineView callback")
+        let flow = OnboardingFlow()
+        flow.jump(to: "camera")
+        flow.liveCameraReady(link.pose)
+        #expect(flow.succeeded && !flow.cameraStarting)
+        #expect(flow.startCollectingPressed())
+        #expect(flow.step == .visibility)
+        link.viewport = CGSize(width: 402, height: 874)
+        driver.emit(try frame(at: 2, tracking: .limited(.excessiveMotion)), run: 0)
+        await drain()
+        #expect(link.pose != nil)
+    }
+
+    @Test func nativePreviewCanBecomeReadyBeforeCalibratedFramesAndDoesNotHideAFailure() {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let link = LiveCameraLink()
+        link.connect(to: session)
+        link.previewChanged(true, from: session)
+        #expect(link.state == .streaming && link.pose == nil)
+        link.session(session, didFailWithError: NSError(domain: "SkyCapture", code: 8,
+            userInfo: [NSLocalizedDescriptionKey: "Motion unavailable"]))
+        link.previewChanged(true, from: session)
+        #expect(link.state == .failed("Motion unavailable"))
+        link.disconnect(from: session)
+        link.previewChanged(true, from: session)
+        #expect(link.state == .idle, "A disappearing preview cannot mark the next opening ready")
+    }
+
+    @Test func tutorialReportsSensorFailureAndClearsReadinessAcrossReopening() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let link = LiveCameraLink()
+        link.connect(to: session)
+        session.run()
+        driver.fail(NSError(domain: "SkyCapture", code: 8,
+            userInfo: [NSLocalizedDescriptionKey: "Motion data is unavailable."]), run: 0)
+        await drain()
+        #expect(link.state == .failed("Motion data is unavailable."))
+        link.disconnect(from: session)
+        #expect(link.state == .idle && link.pose == nil)
+        link.connect(to: session)
+        #expect(link.state == .starting)
+        session.run()
+        driver.emit(try frame(at: 3), run: 0) // Old generation cannot make a new opening ready.
+        await drain()
+        #expect(link.state == .starting)
+        driver.emit(try frame(at: 4), run: 1)
+        await drain()
+        #expect(link.state == .streaming)
+        link.sessionWasInterrupted(session)
+        #expect(link.state == .starting && link.pose == nil)
+        driver.emit(try frame(at: 5), run: 1)
+        await drain()
+        #expect(link.state == .streaming)
+    }
+
+    @Test func pauseAndResumeAcceptNewFramesAndDiscardOldRunCallbacksWithoutWedgingDelivery() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let recorder = CaptureRecorder(); session.delegate = recorder
+        session.run(); driver.emit(try frame(at: 1), run: 0); await drain()
+        #expect(recorder.times == [1])
+        session.pause()
+        #expect(!session.isRunning && session.currentFrame == nil)
+        session.run()
+        driver.emit(try frame(at: 2), run: 0) // Completion retained by the old run.
+        driver.emit(try frame(at: 3), run: 1)
+        await drain()
+        #expect(session.isRunning)
+        #expect(recorder.times == [1, 3])
+        #expect(session.currentFrame?.timestamp == 3)
+        #expect(driver.releaseCount == 3, "Discarded callbacks must also release the delivery slot")
+    }
+
+    @Test func screenshotEditorInactivityKeepsCaptureAndAlignmentButRealBackgroundStopsThem() {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let notifications = NotificationCenter()
+        let name = "SkyCaptureLifecycleTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let alignment = CameraSkyAlignment(defaults: defaults, notifications: notifications, session: session)
+        alignment.save(rotation: simd_quatf(angle: 0.1, axis: SIMD3(0, 1, 0)), reference: "Jupiter", date: Date())
+        alignment.run()
+        notifications.post(name: UIApplication.userDidTakeScreenshotNotification, object: nil)
+        notifications.post(name: UIApplication.willResignActiveNotification, object: nil)
+        notifications.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        #expect(session.isRunning && !alignment.requiresCalibration)
+        #expect(driver.stopCount == 0)
+        notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        #expect(!session.isRunning && alignment.requiresCalibration)
+        #expect(driver.stopCount == 1)
+    }
+
+    @Test func overlappingForegroundCallbacksDoNotInvalidateTheLiveRun() async throws {
+        let driver = TestCaptureDriver()
+        let session = SkyCaptureSession(driver: driver)
+        let recorder = CaptureRecorder()
+        session.delegate = recorder
+        session.run()
+        session.run()
+        session.run()
+        driver.emit(try frame(at: 1), run: 0)
+        await drain()
+        #expect(driver.startCount == 1 && recorder.times == [1])
+    }
+
+    @Test func interruptionEndRestartsSensorsAndAcceptsOnlyFreshFrames() async throws {
+        let driver = TestCaptureDriver()
+        let notifications = NotificationCenter()
+        let session = SkyCaptureSession(driver: driver, notifications: notifications)
+        let link = LiveCameraLink()
+        link.viewport = CGSize(width: 402, height: 874)
+        link.connect(to: session)
+        session.run()
+        driver.emit(try frame(at: 1), run: 0)
+        await drain()
+        notifications.post(name: AVCaptureSession.wasInterruptedNotification, object: driver.captureSession)
+        await drain()
+        #expect(link.state == .starting && session.currentFrame == nil)
+        notifications.post(name: AVCaptureSession.interruptionEndedNotification, object: driver.captureSession)
+        await drain()
+        #expect(driver.startCount == 2 && driver.stopCount == 1)
+        driver.emit(try frame(at: 2), run: 0)
+        await drain()
+        #expect(link.state == .starting && session.currentFrame == nil)
+        driver.emit(try frame(at: 3), run: 1)
+        await drain()
+        #expect(link.state == .streaming && session.currentFrame?.timestamp == 3)
+    }
+
+    @Test func aFrozenRunningSessionRecoversWithoutReopeningTheCamera() async throws {
+        let driver = TestCaptureDriver()
+        var now: TimeInterval = 0
+        let session = SkyCaptureSession(driver: driver, clock: { now })
+        session.run()
+        driver.emit(try frame(at: 1), run: 0)
+        await drain()
+        now = 1
+        session.recoverIfStalled()
+        #expect(driver.startCount == 1)
+        now = 4
+        session.recoverIfStalled()
+        #expect(driver.startCount == 2 && driver.stopCount == 1)
+        driver.emit(try frame(at: 5), run: 1)
+        await drain()
+        #expect(session.currentFrame?.timestamp == 5)
+        session.pause()
+        now = 10
+        session.recoverIfStalled()
+        #expect(driver.startCount == 2, "A hidden camera must stay stopped")
+    }
+
+    @Test func mediaServicesResetRecoversOnlyWhileTheCameraIsWanted() async {
+        let driver = TestCaptureDriver()
+        let notifications = NotificationCenter()
+        let session = SkyCaptureSession(driver: driver, notifications: notifications)
+        session.run()
+        let error = NSError(domain: AVFoundationErrorDomain, code: AVError.mediaServicesWereReset.rawValue)
+        notifications.post(name: AVCaptureSession.runtimeErrorNotification, object: driver.captureSession,
+            userInfo: [AVCaptureSessionErrorKey: error])
+        await drain()
+        #expect(session.isRunning && driver.startCount == 2)
+        session.pause()
+        notifications.post(name: AVCaptureSession.interruptionEndedNotification, object: driver.captureSession)
+        await drain()
+        #expect(!session.isRunning && driver.startCount == 2)
+    }
+
+    private func postInterruptionOffMain(_ notifications: NotificationCenter, driver: TestCaptureDriver) -> Bool {
+        let posted = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            notifications.post(name: AVCaptureSession.wasInterruptedNotification, object: driver.captureSession)
+            posted.signal()
+        }
+        // Intentionally keep the UI occupied, reproducing native camera lock ordering.
+        return posted.wait(timeout: .now() + 0.5) == .success
+    }
+
+    @Test func captureNotificationsNeverWaitSynchronouslyForTheUIThread() async {
+        let driver = TestCaptureDriver()
+        let notifications = NotificationCenter()
+        let session = SkyCaptureSession(driver: driver, notifications: notifications)
+        let recorder = CaptureRecorder(); session.delegate = recorder; session.run()
+        #expect(postInterruptionOffMain(notifications, driver: driver))
+        await drain()
+        #expect(recorder.interruptions == 1)
+    }
+}

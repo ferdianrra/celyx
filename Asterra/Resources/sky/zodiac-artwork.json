@@ -1,0 +1,158 @@
+{
+  "Aqr": {
+    "assetName": "constellation-figures-rafi-aligned/Aquarius",
+    "referenceCanvas": {
+      "x": 0.09664614842216959,
+      "y": 0.10764028732737523,
+      "scale": 0.8371831799446302
+    },
+    "alignmentStarIDs": [
+      166,
+      160,
+      404
+    ]
+  },
+  "Ari": {
+    "assetName": "constellation-figures-rafi-aligned/Aries",
+    "referenceCanvas": {
+      "x": 0.032921140713389904,
+      "y": 0.20432352775156598,
+      "scale": 0.7432376266270642
+    },
+    "alignmentStarIDs": [
+      333,
+      51,
+      105
+    ]
+  },
+  "Cap": {
+    "assetName": "constellation-figures-rafi-aligned/Capriconous",
+    "referenceCanvas": {
+      "x": 0.07333333333333333,
+      "y": 0.016666666666666666,
+      "scale": 0.6666666666666666
+    },
+    "alignmentStarIDs": [
+      144,
+      717,
+      595
+    ]
+  },
+  "Cnc": {
+    "assetName": "constellation-figures-rafi-aligned/Cancer",
+    "referenceCanvas": {
+      "x": 0.09057791907628697,
+      "y": 0.06524733704937348,
+      "scale": 0.8503113286632448
+    },
+    "alignmentStarIDs": [
+      681,
+      537,
+      492
+    ]
+  },
+  "Gem": {
+    "assetName": "constellation-figures-rafi-aligned/Gemini",
+    "referenceCanvas": {
+      "x": 0.08428781822809944,
+      "y": 0.14293309214101946,
+      "scale": 0.8517015032393851
+    },
+    "alignmentStarIDs": [
+      17,
+      24,
+      235
+    ]
+  },
+  "Leo": {
+    "assetName": "constellation-figures-rafi-aligned/Leo",
+    "referenceCanvas": {
+      "x": 0.061669205095482876,
+      "y": 0.11733873868236906,
+      "scale": 0.7569097247689767
+    },
+    "alignmentStarIDs": [
+      63,
+      97,
+      22
+    ]
+  },
+  "Lib": {
+    "assetName": "constellation-figures-rafi-aligned/Libra",
+    "referenceCanvas": {
+      "x": 0.1106464695904192,
+      "y": 0.02091629144379035,
+      "scale": 0.8893535304095808
+    },
+    "alignmentStarIDs": [
+      103,
+      222,
+      329
+    ]
+  },
+  "Psc": {
+    "assetName": "constellation-figures-rafi-aligned/Pisces",
+    "referenceCanvas": {
+      "x": 0.05272766266452364,
+      "y": 0.05405210728924201,
+      "scale": 0.8769239148722838
+    },
+    "alignmentStarIDs": [
+      933,
+      363,
+      419
+    ]
+  },
+  "Sco": {
+    "assetName": "constellation-figures-rafi-aligned/Scorpius",
+    "referenceCanvas": {
+      "x": 0.06396148050140901,
+      "y": 0.0313453192994092,
+      "scale": 0.8925424548903912
+    },
+    "alignmentStarIDs": [
+      98,
+      26,
+      41
+    ]
+  },
+  "Sgr": {
+    "assetName": "constellation-figures-rafi-aligned/Sagitarius",
+    "referenceCanvas": {
+      "x": 0.10740818988413188,
+      "y": 0.18902218632941373,
+      "scale": 0.6867255009442704
+    },
+    "alignmentStarIDs": [
+      53,
+      102,
+      36
+    ]
+  },
+  "Tau": {
+    "assetName": "constellation-figures-rafi-aligned/Taurus",
+    "referenceCanvas": {
+      "x": 0.03021228641057928,
+      "y": 0.01771530979179062,
+      "scale": 0.8393719029498881
+    },
+    "alignmentStarIDs": [
+      28,
+      168,
+      13
+    ]
+  },
+  "Vir": {
+    "assetName": "constellation-figures-rafi-aligned/Virgo",
+    "referenceCanvas": {
+      "x": 0.007187204245371975,
+      "y": 0.06891259474934137,
+      "scale": 0.8687321296857524
+    },
+    "alignmentStarIDs": [
+      546,
+      379,
+      654
+    ]
+  }
+}
