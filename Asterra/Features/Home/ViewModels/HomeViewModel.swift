@@ -56,6 +56,7 @@ final class HomeViewModel {
     private(set) var snapshot: SkySnapshot?
     private(set) var atmosphere = Atmosphere()
     private(set) var isLoadingAtmosphere = false
+    private(set) var captures: [CollectedStar] = []
     private(set) var collected: [Int:CollectedStar] = [:] {
         didSet { scene.collectedIDs = Set(collected.keys) }
     }
@@ -82,7 +83,15 @@ final class HomeViewModel {
         onlineConditions = defaults.bool(forKey:"onlineConditions")
         mode = .touch
         if let data = defaults.data(forKey:"collectedStars"), let values = try? JSONDecoder().decode([CollectedStar].self,from:data) {
-            collected = Dictionary(values.map { ($0.id,$0) },uniquingKeysWith: { first,_ in first })
+            let restored = values.map { record in
+                var record = record
+                if record.captureID == nil { record.captureID = UUID() }
+                return record
+            }
+            applyCaptures(restored)
+            if values.contains(where: { $0.captureID == nil }) {
+                try? persistCaptures(restored)
+            }
         }
         scene.collectedIDs = Set(collected.keys)
         scene.showsMilkyWay = false
@@ -317,108 +326,128 @@ final class HomeViewModel {
         }
     }
     func collectSelected() {
-        guard let observation = selectedObservation, observation.canCollect, let location, collected[observation.id] == nil else { return }
-        collected[observation.id] = CollectedStar(id:observation.id,date:clock,latitude:location.latitude,longitude:location.longitude)
-        if let data = try? JSONEncoder().encode(Array(collected.values)) { defaults.set(data,forKey:"collectedStars") }
+        guard let observation = selectedObservation, observation.canCollect, let location else { return }
+        let record = CollectedStar(id: observation.id, date: clock, latitude: location.latitude,
+                                   longitude: location.longitude, captureID: UUID())
+        try? persistCaptures(captures + [record])
     }
-    /// Removes a collected object and its photo from the garden.
+
+    func observationHistory(for id: Int) -> [CollectedStar] {
+        captures.filter { $0.id == id }
+    }
+
+    func observation(captureID: UUID) -> CollectedStar? {
+        captures.first { $0.captureID == captureID }
+    }
+
+    private func applyCaptures(_ records: [CollectedStar]) {
+        captures = records.sorted {
+            if $0.date != $1.date { return $0.date > $1.date }
+            return ($0.captureID?.uuidString ?? "") > ($1.captureID?.uuidString ?? "")
+        }
+        collected = Dictionary(captures.map { ($0.id, $0) }, uniquingKeysWith: { newest, _ in newest })
+    }
+
+    private func persistCaptures(_ records: [CollectedStar]) throws {
+        defaults.set(try JSONEncoder().encode(records), forKey: "collectedStars")
+        applyCaptures(records)
+    }
+
     func deleteCollected(id: Int) {
-        guard let record = collected[id] else { return }
-        var updated = collected
-        updated[id] = nil
-        guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
-        defaults.set(data,forKey:"collectedStars")
-        collected = updated
-        if let photo = record.photoFilename { StarPhotoStore.remove(photo) }
+        removeCaptures { $0.id == id }
+    }
+
+    func deleteObservation(captureID: UUID) {
+        removeCaptures { $0.captureID == captureID }
+    }
+
+    private func removeCaptures(where matches: (CollectedStar) -> Bool) {
+        let removed = captures.filter(matches)
+        guard !removed.isEmpty else { return }
+        let remaining = captures.filter { !matches($0) }
+        guard (try? persistCaptures(remaining)) != nil else { return }
+        let retainedPhotos = Set(remaining.compactMap(\.photoFilename))
+        for name in Set(removed.compactMap(\.photoFilename)).subtracting(retainedPhotos) {
+            StarPhotoStore.remove(name)
+        }
     }
 
     #if DEBUG
-    /// Batch demo setup without fabricating photos or replacing real observations.
     func seedDemoObservations(_ records: [CollectedStar]) throws {
-        var updated = collected
-        for record in records where updated[record.id] == nil { updated[record.id] = record }
-        guard updated.count != collected.count else { return }
-        let data = try JSONEncoder().encode(Array(updated.values))
-        defaults.set(data, forKey: "collectedStars")
-        collected = updated
+        var seen = Set(collected.keys)
+        let additions = records.compactMap { record -> CollectedStar? in
+            guard seen.insert(record.id).inserted else { return nil }
+            var record = record
+            record.captureID = UUID()
+            return record
+        }
+        if !additions.isEmpty { try persistCaptures(captures + additions) }
     }
     #endif
 
-    /// A guided collection uses ephemeris position; it does not claim an optical identification.
-    /// Replaying the tour preserves an existing Sun observation and its notes/photo.
+    /// Replaying onboarding keeps the existing Sun history.
     func saveGuidedSun(image: UIImage?, date: Date, location: ObserverLocation) throws {
         guard collected[CatalogStar.sun.id] == nil else { return }
         if let image {
             try saveCameraObservation(.init(star: .sun, image: image, date: date, location: location,
                 identificationNote: OnboardingCopy.guidedSunIdentificationNote), note: "")
         } else {
-            var updated = collected
-            updated[CatalogStar.sun.id] = CollectedStar(id: CatalogStar.sun.id, date: date,
+            try persistCaptures(captures + [CollectedStar(id: CatalogStar.sun.id, date: date,
                 latitude: location.latitude, longitude: location.longitude,
-                identificationNote: OnboardingCopy.guidedSunIdentificationNote)
-            let data = try JSONEncoder().encode(Array(updated.values))
-            defaults.set(data, forKey: "collectedStars")
-            collected = updated
+                identificationNote: OnboardingCopy.guidedSunIdentificationNote, captureID: UUID())])
         }
     }
 
-    func saveCameraObservation(_ draft: CameraObservationDraft,note: String) throws {
-        // Seeing a source in the camera is enough to save it. Forecasts never gate this path.
+    @discardableResult
+    func saveCameraObservation(_ draft: CameraObservationDraft, note: String) throws -> CollectedStar {
         let filename = try StarPhotoStore.save(draft.image)
-        let previous = collected[draft.star.id]
-        var updated = collected
-        updated[draft.star.id] = CollectedStar(id:draft.star.id,date:draft.date,
-            latitude:draft.location.latitude,longitude:draft.location.longitude,
-            photoFilename:filename,note:note.trimmingCharacters(in:.whitespacesAndNewlines),
-            identificationNote:draft.identificationNote)
+        let captureID = UUID()
+        let record = CollectedStar(id: draft.star.id, date: draft.date,
+            latitude: draft.location.latitude, longitude: draft.location.longitude,
+            photoFilename: filename, note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            identificationNote: draft.identificationNote, captureID: captureID)
         do {
-            let data = try JSONEncoder().encode(Array(updated.values))
-            defaults.set(data,forKey:"collectedStars")
-            collected = updated
-            if let old = previous?.photoFilename { StarPhotoStore.remove(old) }
-            loadLightPollution(
-                id: draft.star.id,
-                photoFilename: filename,
-                location: draft.location
-            )
+            try persistCaptures(captures + [record])
         } catch {
             StarPhotoStore.remove(filename)
             throw error
         }
-    }
-    private func loadLightPollution(id: Int, photoFilename: String, location: ObserverLocation) {
+
+        let location = draft.location
         Task { [weak self] in
             guard let estimate = await LightPollutionService.lookup(
-                latitude: location.latitude,
-                longitude: location.longitude
-            ), let self,
-            var record = self.collected[id],
-            record.photoFilename == photoFilename else { return }
-
-            record.lightPollution = estimate
-            var updated = self.collected
-            updated[id] = record
-
-            guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
-            self.defaults.set(data, forKey: "collectedStars")
-            self.collected = updated
+                latitude: location.latitude, longitude: location.longitude) else { return }
+            self?.updateCapture(captureID) { $0.lightPollution = estimate }
         }
+        return record
     }
 
-    func updateObservationNote(id: Int,note: String) {
-        guard var record = collected[id] else { return }
-        record.note = note.trimmingCharacters(in:.whitespacesAndNewlines)
-        var updated = collected; updated[id] = record
-        guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
-        defaults.set(data,forKey:"collectedStars"); collected = updated
+    private func updateCapture(_ captureID: UUID, change: (inout CollectedStar) -> Void) {
+        guard let index = captures.firstIndex(where: { $0.captureID == captureID }) else { return }
+        var updated = captures
+        change(&updated[index])
+        try? persistCaptures(updated)
     }
-    func updateObservationPlace(id: Int,name: String) {
-        guard var record = collected[id], let name = ObservationPlaceName.readableName(city:name,region:nil) else { return }
-        record.placeName = name
-        var updated = collected; updated[id] = record
-        guard let data = try? JSONEncoder().encode(Array(updated.values)) else { return }
-        defaults.set(data,forKey:"collectedStars"); collected = updated
+
+    func updateObservationNote(id: Int, note: String) {
+        guard let captureID = collected[id]?.captureID else { return }
+        updateObservationNote(captureID: captureID, note: note)
     }
+
+    func updateObservationNote(captureID: UUID, note: String) {
+        updateCapture(captureID) { $0.note = note.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    func updateObservationPlace(id: Int, name: String) {
+        guard let captureID = collected[id]?.captureID else { return }
+        updateObservationPlace(captureID: captureID, name: name)
+    }
+
+    func updateObservationPlace(captureID: UUID, name: String) {
+        guard let name = ObservationPlaceName.readableName(city: name, region: nil) else { return }
+        updateCapture(captureID) { $0.placeName = name }
+    }
+
     func showDetail(_ star: CatalogStar) {
         guard !isCameraTransitioning else { return }
         selectedStar = star

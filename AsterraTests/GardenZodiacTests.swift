@@ -65,7 +65,8 @@ struct GardenZodiacTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let existing = existingIDs.map {
-            CollectedStar(id: $0, date: AppPreviewData.date, latitude: -6.2, longitude: 106.85)
+            CollectedStar(id: $0, date: AppPreviewData.date, latitude: -6.2, longitude: 106.85,
+                          captureID: UUID())
         }
         let original = try JSONEncoder().encode(existing)
         defaults.set(original, forKey: "collectedStars")

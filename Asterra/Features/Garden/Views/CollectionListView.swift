@@ -5,8 +5,10 @@ struct CollectionListView: View {
     let category: CollectionCategory
     let model: HomeViewModel
     let events: SkyEventStore
+    var onGuide: ((CatalogStar) -> Void)? = nil
     let onSelectEvent: (SkyEvent) -> Void
     @State private var selected: GardenCollectionItem?
+    @State private var pendingGuide: CatalogStar?
     @State private var book: [ZodiacBookEntry] = []
     @State private var openBook: ZodiacBookEntry?
 
@@ -27,24 +29,25 @@ struct CollectionListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .preferredColorScheme(.dark)
-        .sheet(item: $selected) { objectSheet($0) { selected = nil } }
+        .sheet(item: $selected, onDismiss: openPendingGuide) { objectSheet($0) }
         .navigationDestination(item: $openBook) { entry in
-            ZodiacBookDetailView(entry: entry, model: model) { objectSheet($0) {} }
+            ZodiacBookDetailView(entry: entry, model: model, onObjectSheetDismissed: openPendingGuide) { objectSheet($0) }
         }
         .task(id: category) {
             if category == .constellations, book.isEmpty { book = ZodiacBookEntry.load(catalogue: model.stars) }
         }
     }
 
-    private func objectSheet(_ item: GardenCollectionItem, onDeleted: @escaping () -> Void) -> some View {
-        CollectedObjectSheet(
-            item: item, direction: currentDirection(of: item), collection: model,
-            onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-            onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) }
-        ) {
-            model.deleteCollected(id: item.id)
-            onDeleted()
-        }
+    private func objectSheet(_ item: GardenCollectionItem) -> some View {
+        ObjectObservationSheet(item: item, model: model, allowsCompact: false, onGuide: onGuide.map { _ in
+            { pendingGuide = item.star }
+        })
+    }
+
+    private func openPendingGuide() {
+        guard let star = pendingGuide else { return }
+        pendingGuide = nil
+        onGuide?(star)
     }
 
     @ViewBuilder private var content: some View {
@@ -183,24 +186,6 @@ struct CollectionListView: View {
         return "Star"
     }
 
-    /// Where it is right now (for the detail sheet).
-    private func currentDirection(of item: GardenCollectionItem) -> SIMD3<Double>? {
-        let location =
-            model.location ?? ObserverLocation(latitude: -6.2, longitude: 106.85, isManual: true)
-        let sky = AstronomyService.snapshot(date: Date(), location: location)
-        let star = item.star
-        let geometric: SIMD3<Double>?
-        if star.isSun {
-            geometric = sky.sunDirection
-        } else if star.isMoon {
-            geometric = sky.moonDirection
-        } else if star.isPlanet {
-            geometric = sky.planets.first(where: { $0.star.id == star.id })?.direction
-        } else {
-            geometric = sky.direction(ra: star.ra_deg, dec: star.dec_deg)
-        }
-        return geometric.map { Refraction.apparent($0) }
-    }
 }
 
 #Preview("Collection list") {

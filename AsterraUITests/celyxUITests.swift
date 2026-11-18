@@ -9,6 +9,66 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testCollectionObjectSheetOpensAtFullHeight() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-collection-observation-log"]
+        app.launch()
+        let star = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Rigel")).firstMatch
+        XCTAssertTrue(star.waitForExistence(timeout: 15))
+        star.tap()
+
+        let log = app.staticTexts["Observation log"]
+        XCTAssertTrue(log.waitForExistence(timeout: 5))
+        let guide = app.buttons["guide-to-collected-object"]
+        XCTAssertTrue(guide.isHittable)
+
+        let title = app.staticTexts["Rigel"].firstMatch
+        let sheetTop = (title.frame.minY - 25) / app.frame.height
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sheetTop))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sheetTop + 0.2)))
+        XCTAssertTrue(log.exists)
+        XCTAssertTrue(guide.isHittable)
+    }
+
+    @MainActor
+    func testGardenObjectSheetExpandsIntoObservationLog() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-observation-log"]
+        app.launch()
+        let star = app.buttons["preview-collected-star"]
+        XCTAssertTrue(star.waitForExistence(timeout: 15))
+        star.tap()
+        let fact = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "blue supergiant")).firstMatch
+        XCTAssertTrue(fact.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Observation log"].exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot())
+        collapsed.name = "Compact observation sheet"
+        collapsed.lifetime = .keepAlways
+        add(collapsed)
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.76))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.16)))
+        XCTAssertTrue(app.staticTexts["Observation log"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "2/9")).firstMatch.exists)
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Mount Bromo")).firstMatch.exists)
+        XCTAssertFalse(app.buttons["guide-to-collected-object"].exists)
+        let expanded = XCTAttachment(screenshot: app.screenshot())
+        expanded.name = "Expanded observation log"
+        expanded.lifetime = .keepAlways
+        add(expanded)
+        app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Tebet")).firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Observation 2 of 2"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["collected-star-photo"].exists)
+        let detail = XCTAttachment(screenshot: app.screenshot())
+        detail.name = "Capture detail"
+        detail.lifetime = .keepAlways
+        add(detail)
+    }
+
+    @MainActor
     func testSkipExitsTheTourAndStaysFinishedAfterRelaunch() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

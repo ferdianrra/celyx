@@ -32,7 +32,7 @@ final class StarCollectViewModel {
     var excludedID: Int?
     /// Called after a successful save. Return true when the caller takes over the celebration
     /// (the wormhole handover from Home); the album here is then not opened.
-    @ObservationIgnored var onSaved: ((CenterTarget) -> Bool)?
+    @ObservationIgnored var onSaved: ((CenterTarget, CollectedStar) -> Bool)?
     var isChecking: Bool { if case .checking = verification { true } else { false } }
 
     init(model: HomeViewModel) {
@@ -157,7 +157,7 @@ final class StarCollectViewModel {
     /// Collect the retained recognized frame, or capture fresh optical evidence.
     /// A remembered direction alone never substitutes for a recorded photograph.
     func collect(_ target: CenterTarget) {
-        guard !isChecking, capturedItem == nil, model.collected[target.id] == nil,
+        guard !isChecking, capturedItem == nil,
             service.status == .tracking || service.retainedCaptureAnnotation?.id == target.id,
             !service.isAdjustingCamera
         else { return }
@@ -201,17 +201,15 @@ final class StarCollectViewModel {
             return
         }
         do {
-            try model.saveCameraObservation(draft, note: "")
-            if let onSaved, onSaved(target) { return }
+            let record = try model.saveCameraObservation(draft, note: "")
+            if let onSaved, onSaved(target, record) { return }
             // Celebrate: our own chime + haptic, and mute the crosshair's automatic "back" on the way to Enable.
             CrosshairFeedback.shared.suppress(.back, for: 0.6)
             CrosshairFeedback.shared.play(CrosshairSound.collect)
             CrosshairFeedback.shared.play(CrosshairHaptic.collect)
             verification = .idle
-            if let record = model.collected[target.id] {
-                capturedItem = GardenCollectionItem(star: target.star, record: record)
-                service.stop()
-            }
+            capturedItem = GardenCollectionItem(star: target.star, record: record)
+            service.stop()
         } catch {
             verification = .idle
             errorMessage = error.localizedDescription

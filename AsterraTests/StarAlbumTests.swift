@@ -57,6 +57,43 @@ import Testing
         #expect(record.latitude == -6.38)
     }
 
+    @Test func repeatCapturesPreserveLegacyHistoryAndDeleteOnlyTheSelectedPhoto() throws {
+        let suite = "asterra.repeat-captures.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let star = AppPreviewData.star
+        var legacy = AppPreviewData.record
+        legacy.photoFilename = try StarPhotoStore.save(AppPreviewData.albumPhoto)
+        defer { if let filename = legacy.photoFilename { StarPhotoStore.remove(filename) } }
+        legacy.note = "First observation"
+        defaults.set(try JSONEncoder().encode([legacy]), forKey: "collectedStars")
+        let model = HomeViewModel(defaults: defaults)
+        let firstID = try #require(model.observationHistory(for: star.id).first?.captureID)
+        let next = try model.saveCameraObservation(.init(star: star, image: AppPreviewData.albumPhoto,
+            date: legacy.date.addingTimeInterval(60), location: AppPreviewData.location,
+            identificationNote: "Second identification"), note: "Second observation")
+        defer { if let filename = next.photoFilename { StarPhotoStore.remove(filename) } }
+        let secondID = try #require(next.captureID)
+        model.updateObservationNote(captureID: firstID, note: "Edited first")
+        model.updateObservationPlace(captureID: secondID, name: "Bandung")
+
+        let restored = HomeViewModel(defaults: defaults)
+        #expect(restored.collectionItems.filter { $0.id == star.id }.count == 1)
+        #expect(restored.observationHistory(for: star.id).compactMap(\.captureID) == [secondID, firstID])
+        #expect(restored.observation(captureID: firstID)?.note == "Edited first")
+        #expect(restored.observation(captureID: secondID)?.note == "Second observation")
+        #expect(restored.observation(captureID: secondID)?.placeName == "Bandung")
+        #expect(StarPhotoStore.load(legacy.photoFilename) != nil)
+        #expect(StarPhotoStore.load(next.photoFilename) != nil)
+
+        restored.deleteObservation(captureID: secondID)
+        #expect(restored.collected[star.id]?.captureID == firstID)
+        #expect(StarPhotoStore.load(next.photoFilename) == nil)
+        #expect(StarPhotoStore.load(legacy.photoFilename) != nil)
+        restored.deleteObservation(captureID: firstID)
+        #expect(restored.collected[star.id] == nil)
+    }
+
     @Test func cityNamesPreferReadablePlacesAndFallBackWithoutCoordinates() {
         #expect(ObservationPlaceName.readableName(city:"  Depok, Jawa Barat  ",region:"Indonesia") == "Depok, Jawa Barat")
         #expect(ObservationPlaceName.readableName(city:"  ",region:"Indonesia") == "Indonesia")

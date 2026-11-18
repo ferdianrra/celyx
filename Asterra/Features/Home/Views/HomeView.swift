@@ -15,6 +15,7 @@ struct HomeView: View {
     @State private var showsCalibration = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
+    @State private var guideTarget: CatalogStar?
     @State private var handoverTask: Task<Void, Never>?
     @State private var handover: WormholeHandover?
     @State private var sheetRequest: GardenSheetRequest?
@@ -123,7 +124,10 @@ struct HomeView: View {
                 case .event(let event):
                     SkyEventDetailView(event:event,store:events) { camera = .event(event) }
                 case .collection(let category):
-                    CollectionListView(category:category,model:model,events:events) { path.append(.event($0)) }
+                    CollectionListView(category: category, model: model, events: events, onGuide: { star in
+                        guideTarget = star
+                        showsStarCamera = true
+                    }) { path.append(.event($0)) }
                 }
             }
         }
@@ -143,8 +147,8 @@ struct HomeView: View {
         .fullScreenCover(isPresented:$showsCalibration) {
             SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
         }
-        .fullScreenCover(isPresented:$showsStarCamera) {
-            StarCollectCameraView(model:model,handover:handover,onCollect:collected, onboardingGuide:realCameraGuide) {
+        .fullScreenCover(isPresented:$showsStarCamera, onDismiss: { guideTarget = nil }) {
+            StarCollectCameraView(model:model,handover:handover,onCollect:collected, onboardingGuide:realCameraGuide, guideTarget:guideTarget) {
                 showsStarCamera = false
                 onboarding?.realCameraClosed()
             }
@@ -404,7 +408,7 @@ struct HomeView: View {
             showNote:{
                 if handover != nil { presentCapturedNote() }
                 else if let previous = sheetRequest {
-                    sheetRequest = GardenSheetRequest(itemID: previous.itemID, demoItem: previous.demoItem,
+                    sheetRequest = GardenSheetRequest(itemID: previous.itemID, captureID: previous.captureID, demoItem: previous.demoItem,
                         photo: previous.photo, isTour: true)
                 }
             },
@@ -556,6 +560,7 @@ struct HomeView: View {
     }
 
     private func collected(_ result: StarCollectCameraView.CollectResult) {
+        if guideTarget != nil { path.removeAll() }
         onboarding?.realObjectCollected()
         switch result {
         case .wormhole(let handover):
@@ -564,13 +569,14 @@ struct HomeView: View {
             demoShowing = handover.demo != nil
             handoverTask?.cancel()
             handoverTask = Task { await handover.run() }
-        case .fade(let itemID):
+        case .fade(let itemID, let captureID):
             // Reduce Motion: cross-fade, reveal in place, then present the album.
             withAnimation(.easeInOut(duration:0.4)) { showsStarCamera = false }
             guard let itemID else { return }
             let transition = WormholeHandover(freeze: .placeholder(size: screenSize),
                 star: CGPoint(x: screenSize.width / 2, y: screenSize.height / 2), itemID: itemID,
                 scene: GardenSkyView.wormholeScene(model: model, newID: itemID))
+            transition.captureID = captureID
             if onboarding != nil { transition.holdForOnboarding() }
             handoverTask?.cancel()
             handover = transition
@@ -582,7 +588,7 @@ struct HomeView: View {
         guard let handover, let id = handover.itemID else { return }
         let photo = handover.demo != nil ? handover.freeze.image.map { UIImage(cgImage:$0) } : nil
         if !reduceMotion { WormholeFeedback.shared.playSheet() }
-        sheetRequest = GardenSheetRequest(itemID:id,demoItem:handover.demo?.item,photo:photo,
+        sheetRequest = GardenSheetRequest(itemID:id,captureID:handover.captureID,demoItem:handover.demo?.item,photo:photo,
             isTour:onboarding != nil)
     }
 
@@ -633,14 +639,16 @@ enum TabBarMetrics {
     static let searchGap: CGFloat = 12
 }
 
-private struct StartCollectingButton: View {
+struct StartCollectingButton: View {
     var height: CGFloat = 50
+    var title = OnboardingCopy.startCollecting
+    var identifier = "start-collecting"
     let action: () -> Void
     var body: some View {
         Button(action:action) {
             HStack(spacing:12) {
                 Image("celyx-icon-telescope").resizable().frame(width:28,height:28)
-                Text(OnboardingCopy.startCollecting).font(.system(size:17,weight:.semibold)).tracking(-0.43)
+                Text(title).font(.system(size:17,weight:.semibold)).tracking(-0.43)
                     .foregroundStyle(CelyxColor.primaryLabel)
             }
             .padding(.horizontal,20)
@@ -648,7 +656,7 @@ private struct StartCollectingButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(CelyxTintedGlassButtonStyle())
-        .accessibilityIdentifier("start-collecting")
+        .accessibilityIdentifier(identifier)
     }
 }
 
