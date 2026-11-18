@@ -304,6 +304,9 @@ struct GardenSkyView: View {
                         else { return nil }
                         return (object.id, point)
                     }), isActive: gardenIsActive)
+                if !failed && !showsCaptureSequence {
+                    cardinalLabels(in: geometry.size, camera: shown)
+                }
                 labels(in: geometry.size, camera: shown)
             }
             .allowsHitTesting(tourFocusDirection == nil && (handover == nil || handover!.phase >= .presenting))
@@ -347,6 +350,30 @@ struct GardenSkyView: View {
     }
 
     // MARK: Labels
+    @ViewBuilder
+    private func cardinalLabels(in size: CGSize, camera: NightSeaCamera) -> some View {
+        let directions: [(label: String, direction: SIMD3<Double>)] = [
+            ("N", SIMD3(0, 1, 0)),
+            ("E", SIMD3(1, 0, 0)),
+            ("S", SIMD3(0, -1, 0)),
+            ("W", SIMD3(-1, 0, 0))
+        ]
+
+        ForEach(directions.indices, id: \.self) { index in
+            let marker = directions[index]
+
+            if let point = camera.project(marker.direction, in: size),
+               point.x >= 14, point.x <= size.width - 14,
+               point.y >= 14, point.y <= size.height - 14 {
+                Text(marker.label)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.7), radius: 3)
+                    .position(point)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 
     @ViewBuilder private func labels(in size: CGSize, camera: NightSeaCamera) -> some View {
         ForEach(viewModel.placed.filter { entry in
