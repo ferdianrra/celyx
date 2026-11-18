@@ -303,13 +303,14 @@ struct CelyxScreenWash: View {
 
 /// Scrolls the artwork with the content and holds its top edge in place during pull-down bounce.
 struct CelyxSheetScrollView<Content: View>: View {
+    var showsArtwork = true
     @ViewBuilder let content: Content
     @State private var topBounce: CGFloat = 0
 
     var body: some View {
         ScrollView {
             content.background(alignment: .top) {
-                artwork.offset(y: -topBounce)
+                if showsArtwork { artwork.offset(y: -topBounce) }
             }
         }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in

@@ -86,7 +86,7 @@ struct StarShareView: View {
 
     private var content: StarShareContent {
         var record = item.record
-        if let latest = collection?.collected[item.id],
+        if let captureID = record.captureID, let latest = collection?.observation(captureID: captureID),
            latest.photoFilename == record.photoFilename,
            latest.date == record.date {
             record.lightPollution = latest.lightPollution

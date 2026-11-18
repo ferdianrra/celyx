@@ -206,6 +206,7 @@ struct ZodiacBookCard: View {
 struct ZodiacBookDetailView<ObjectSheet: View>: View {
     let entry: ZodiacBookEntry
     let model: HomeViewModel
+    var onObjectSheetDismissed: () -> Void = {}
     @ViewBuilder let objectSheet: (GardenCollectionItem) -> ObjectSheet
 
     @State private var selected: GardenCollectionItem?
@@ -237,7 +238,7 @@ struct ZodiacBookDetailView<ObjectSheet: View>: View {
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(item: $selected) { objectSheet($0) }
+        .sheet(item: $selected, onDismiss: onObjectSheetDismissed) { objectSheet($0) }
     }
 
     private func header(_ collected: Set<Int>, topInset: CGFloat, width: CGFloat) -> some View {

@@ -80,6 +80,7 @@ final class WormholeHandover: Identifiable {
     let star: CGPoint
     /// Collected object, for the sheet (nil in a debug replay without a collection).
     let itemID: Int?
+    var captureID: UUID?
     /// The Night Sea seen through the hole.
     let scene: WormholeScene
     /// Temporary simulated placement that lights up at landing; the collection record is saved separately.

@@ -141,8 +141,8 @@ struct GardenSkyView: View {
                 if let demo = handover.demo { viewModel.demo = demo }
                 viewModel.place(using: handover.scene)
                 let id = handover.itemID
-                let completed = viewModel.completedZodiacFigures.first { $0.requiredStarIDs.contains(id ?? Int.min) }
-                let edges = viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
+                let completed = isRepeatCapture ? nil : viewModel.completedZodiacFigures.first { $0.requiredStarIDs.contains(id ?? Int.min) }
+                let edges = isRepeatCapture ? [] : viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
                 var ids = completed?.requiredStarIDs ?? Set(edges.flatMap { [$0.startID, $0.endID] })
                 if let id { ids.insert(id) }
                 handover.configureFocus(
@@ -171,14 +171,12 @@ struct GardenSkyView: View {
             }
             handover?.finish()
         }) { request in
-            if let item = model.collectionItems.first(where: { $0.id == request.itemID }) {
-                CollectedObjectSheet(item: item, direction: nil, collection: model,
-                    capturedPhoto: request.photo, startsWithNoteEntry: true,
-                    onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-                    onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
-                    tourGuide: request.isTour && cameraLink != nil,
-                    onTourBack: onTourBack,
-                    onDelete: { model.deleteCollected(id: item.id); albumRequest = nil })
+            if let item = model.collectionItems.first(where: { $0.id == request.itemID }),
+               let record = request.captureID.map({ model.observation(captureID: $0) }) ?? item.record {
+                let captured = GardenCollectionItem(star: item.star, record: record)
+                CaptureDetailView(item: captured, model: model, startsWithNoteEntry: true,
+                    capturedPhoto: request.photo, tourGuide: request.isTour && cameraLink != nil,
+                    onTourBack: onTourBack, onDeleted: { albumRequest = nil })
                     .id(request.id)
             } else if let demo = request.demoItem {
                 CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
@@ -195,16 +193,7 @@ struct GardenSkyView: View {
             }
         }
         .sheet(item: $viewModel.selected) { item in
-            CollectedObjectSheet(
-                item: item,
-                direction: viewModel.placed.first(where: { $0.id == item.id })?.object.direction,
-                collection: model,
-                onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-                onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) }
-            ) {
-                model.deleteCollected(id: item.id)
-                viewModel.selected = nil
-            }
+            ObjectObservationSheet(item: item, model: model)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your garden sky")
@@ -243,15 +232,20 @@ struct GardenSkyView: View {
     }
 
     /// Reveal newly collected threads only after placement and focus settle.
+    private var isRepeatCapture: Bool {
+        guard let id = handover?.itemID, handover?.captureID != nil else { return false }
+        return model.observationHistory(for: id).count > 1
+    }
+
     private var shownConnections: [GardenConstellationConnection] {
-        guard let handover, !handover.revealIsVisible, let id = handover.itemID else {
+        guard !isRepeatCapture, let handover, !handover.revealIsVisible, let id = handover.itemID else {
             return viewModel.constellationConnections
         }
         return viewModel.constellationConnections.filter { $0.startID != id && $0.endID != id }
     }
 
     private var shownZodiacFigures: [GardenZodiacFigure] {
-        guard let handover, !handover.revealIsVisible, let id = handover.itemID else {
+        guard !isRepeatCapture, let handover, !handover.revealIsVisible, let id = handover.itemID else {
             return viewModel.completedZodiacFigures
         }
         return viewModel.completedZodiacFigures.filter { !$0.requiredStarIDs.contains(id) }
@@ -432,6 +426,7 @@ struct GardenSkyView: View {
 struct GardenSheetRequest: Equatable, Identifiable {
     let id = UUID()
     let itemID: Int
+    var captureID: UUID? = nil
     /// Debug replay: an in-memory object that isn't in the collection.
     var demoItem: GardenCollectionItem? = nil
     /// Photo to show in the album (the demo's frozen frame; real captures use their saved photo).

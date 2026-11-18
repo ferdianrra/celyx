@@ -9,7 +9,14 @@ struct ContentView: View {
 
     var body: some View {
         #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-ui-testing-note-flow") {
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing-observation-log") {
+                CollectionCaptureFlowPreview(showsObservationLog: true)
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-collection-observation-log") {
+                NavigationStack {
+                    CollectionListView(category: .stars, model: StarSharePreviewData.observationLogModel,
+                        events: SkyEventStore(), onGuide: { _ in }, onSelectEvent: { _ in })
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-note-flow") {
                 CollectionCaptureFlowPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-share-flow") {
                 StarShareFlowPreview()

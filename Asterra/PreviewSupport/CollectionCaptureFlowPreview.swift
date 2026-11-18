@@ -3,11 +3,18 @@ import SwiftUI
 
 /// Exercises the production sheet component with an isolated collection and a saved-photo fixture.
 struct CollectionCaptureFlowPreview: View {
+    private let showsObservationLog: Bool
     private enum Route: String, Identifiable { case detail; var id: String { rawValue } }
     @State private var route: Route?
     @State private var captureRequest: GardenSheetRequest?
     @State private var camera = NightSeaCamera()
-    @State private var collection = StarSharePreviewData.model()
+    @State private var collection: HomeViewModel
+
+    init(showsObservationLog: Bool = false) {
+        self.showsObservationLog = showsObservationLog
+        _collection = State(initialValue: showsObservationLog
+            ? StarSharePreviewData.observationLogModel : StarSharePreviewData.model())
+    }
     private var item: GardenCollectionItem? { collection.collectionItems.first { $0.id == StarSharePreviewData.item.id } }
     var body: some View {
         ZStack {
@@ -27,7 +34,9 @@ struct CollectionCaptureFlowPreview: View {
         .background { Image("asterra-share-background").resizable().scaledToFill().ignoresSafeArea() }
         .preferredColorScheme(.dark)
         .sheet(item: $route) { current in
-            if let item {
+            if let item, showsObservationLog {
+                ObjectObservationSheet(item: item, model: collection)
+            } else if let item {
                 CollectedObjectSheet(item: item, direction: nil, collection: collection,
                     capturedPhoto: AppPreviewData.albumPhoto, startsWithNoteEntry: false,
                     onSaveNote: { collection.updateObservationNote(id: item.id, note: $0) },
