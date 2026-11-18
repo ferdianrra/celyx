@@ -283,7 +283,7 @@ struct GardenSkyView: View {
                         .clipped()
                 } else {
                     NightSeaView(
-                        camera: shown, objects: viewModel.background + shownPlaced,
+                        camera: shown, objects: shownPlaced,
                         selectedID: viewModel.selected?.id, moon: viewModel.moon,
                         equatorial: viewModel.equatorial, isActive: gardenIsActive
                     ) { _ in failed = true }

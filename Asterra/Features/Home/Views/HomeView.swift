@@ -180,14 +180,9 @@ struct HomeView: View {
                 Toggle("Demo constellations", isOn: $demoConstellationsEnabled)
                 #endif
             } label: {
-                Group {
-                    if gardenUsesGyro {
-                        CompassBadge().rotationEffect(.radians(-gardenCamera.heading))
-                    } else {
-                        Image(systemName:"hand.draw").font(.system(size:20)).foregroundStyle(.white)
-                    }
-                }
-                .frame(width:44,height:44).contentShape(Circle())
+                CompassBadge()
+                    .rotationEffect(.radians(-gardenCamera.heading))
+                    .frame(width:44,height:44).contentShape(Circle())
             }
             // HIG: a fixed 44×44 round Liquid Glass button of its own, not the toolbar's shared capsule.
             .frame(width:44,height:44)

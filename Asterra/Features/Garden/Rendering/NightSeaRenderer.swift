@@ -149,7 +149,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         lastObjects = objects; lastSelected = selectedID
         let gpu = objects.map { object in
             GPUPoint(dirSize:SIMD4(Float(object.direction.x),Float(object.direction.y),Float(object.direction.z),Float(object.radius)),
-                     color:SIMD4(Float(object.color.x),Float(object.color.y),Float(object.color.z),object.gpuKind+(object.id == selectedID && object.kind != .background ? 10 : 0)))
+                     color:SIMD4(Float(object.color.x),Float(object.color.y),Float(object.color.z),object.gpuKind+(object.id == selectedID ? 10 : 0)))
         }
         pointCount = gpu.count
         pointBuffer = gpu.isEmpty ? nil : queue.device.makeBuffer(bytes:gpu,length:gpu.count*MemoryLayout<GPUPoint>.stride,options:.storageModeShared)
