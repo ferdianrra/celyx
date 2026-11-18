@@ -48,6 +48,14 @@ struct SkyCalendarView: View {
         .background(CelyxColor.screen)
         .navigationTitle("Sky Events")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Sky Events")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
         .toolbar(.visible,for:.navigationBar)
         .toolbarBackgroundVisibility(.hidden,for:.navigationBar)
         .preferredColorScheme(.dark)
@@ -73,31 +81,42 @@ struct SkyCalendarView: View {
     private var calendarHeader: some View {
         // Keep the decorative surface outside the control's accessibility bounds.
         VStack(spacing: 0) {
-            CelyxSegmentedControl(selection:$viewModel.displayMode,segments:[
-                .init(value:.list,title:"List",systemImage:"list.bullet"),
-                .init(value:.calendar,title:"Calendar",systemImage:"calendar")
-            ])
-            .background {
-                // Anchor to the Calendar half of the real segmented control, not the whole header.
-                GeometryReader { geometry in
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        Color.clear.frame(width: geometry.size.width / 2)
-                            .popover(isPresented: $showsDiscovery, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-                                DiscoveryTooltip(title: "Calendar view",
-                                    message: "Tap Calendar to see upcoming sky events by date.",
-                                    onDismiss: { showsDiscovery = false })
-                                    .accessibilityIdentifier("calendar-discovery-tip")
-                                    .onAppear(perform: onDiscoveryShown)
-                            }
+            VStack(spacing: 8) {
+                    Text("Something interesting is always happening above you. See what’s coming up in the sky.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 32)
+                }
+                .padding(.top, 0)
+                .padding(.bottom, 10)
+
+                CelyxSegmentedControl(selection:$viewModel.displayMode,segments:[
+                    .init(value:.list,title:"List",systemImage:"list.bullet"),
+                    .init(value:.calendar,title:"Calendar",systemImage:"calendar")
+                ])
+                .background {
+                    // Anchor to the Calendar half of the real segmented control, not the whole header.
+                    GeometryReader { geometry in
+                        HStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            Color.clear.frame(width: geometry.size.width / 2)
+                                .popover(isPresented: $showsDiscovery, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                                    DiscoveryTooltip(title: "Calendar view",
+                                        message: "Tap Calendar to see upcoming sky events by date.",
+                                        onDismiss: { showsDiscovery = false })
+                                        .accessibilityIdentifier("calendar-discovery-tip")
+                                        .onAppear(perform: onDiscoveryShown)
+                                }
+                        }
                     }
                 }
+                .padding(16)
+                .padding(.bottom,14)
             }
-            .padding(16)
-            .padding(.bottom,24)
+            .background(alignment: .top) { topSurface.accessibilityHidden(true) }
         }
-        .background(alignment: .top) { topSurface.accessibilityHidden(true) }
-    }
 
     /// TOP SECTION (998:2109): dark fill lit from the top by the blue/violet inner-shadow stack.
     /// Runs under the status bar and the toolbar, and 32pt under the bottom section.
