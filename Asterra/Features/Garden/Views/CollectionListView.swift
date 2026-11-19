@@ -11,6 +11,7 @@ struct CollectionListView: View {
     @State private var pendingGuide: CatalogStar?
     @State private var book: [ZodiacBookEntry] = []
     @State private var openBook: ZodiacBookEntry?
+    @State private var openPlanet: SolarSystemEntry?
 
     var body: some View {
         ScrollView {
@@ -32,6 +33,13 @@ struct CollectionListView: View {
         .sheet(item: $selected, onDismiss: openPendingGuide) { objectSheet($0) }
         .navigationDestination(item: $openBook) { entry in
             ZodiacBookDetailView(entry: entry, model: model, onObjectSheetDismissed: openPendingGuide) { objectSheet($0) }
+        }
+        .navigationDestination(item: $openPlanet) { entry in
+            SolarSystemDetailView(
+                entry: entry,
+                model: model,
+                onGuide: onGuide
+            )
         }
         .task(id: category) {
             if category == .constellations, book.isEmpty { book = ZodiacBookEntry.load(catalogue: model.stars) }
@@ -57,9 +65,19 @@ struct CollectionListView: View {
                 CollectionCategory.stars(model.collectionItems),
                 empty: "No stars yet. Tap Start Collecting and point at a bright one.")
         case .planets:
-            itemList(
-                CollectionCategory.planets(model.collectionItems),
-                empty: "No planets or Moon yet. They look like steady, bright stars.")
+            LazyVStack(spacing: 12) {
+                ForEach(SolarSystemEntry.allCases) { entry in
+                    Button {
+                        openPlanet = entry
+                    } label: {
+                        SolarSystemCard(
+                            entry: entry,
+                            isCollected: entry.item(in: model) != nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         case .skyEvents:
             let collected = SkyEvent.catalogue.filter { events.collected.contains($0.id) }
             if collected.isEmpty {

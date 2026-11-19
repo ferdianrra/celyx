@@ -9,6 +9,22 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testDirectionMenuOmitsManualCalibrationAndReset() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-hasCompletedTour", "YES", "-gardenUsesCamera", "NO"]
+        app.launch()
+        let directionOptions = app.buttons["Direction options"]
+        XCTAssertTrue(directionOptions.waitForExistence(timeout: 15))
+        directionOptions.tap()
+        XCTAssertTrue(app.buttons["Gyro"].exists)
+        XCTAssertTrue(app.buttons["Touch"].exists)
+        XCTAssertTrue(app.buttons["Replay tour"].exists)
+        XCTAssertFalse(app.buttons["Calibrate direction"].exists)
+        XCTAssertFalse(app.buttons["Reset view"].exists)
+    }
+
+    @MainActor
     func testCollectionObjectSheetOpensAtFullHeight() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -122,24 +138,20 @@ final class celyxUITests: XCTestCase {
         add(calendarShot)
         XCTAssertFalse(app.buttons["Try Calendar"].exists)
         app.buttons["Dismiss tip"].tap()
-        let eventTip = app.descendants(matching: .any)["event-card-discovery-tip"].firstMatch
-        XCTAssertTrue(eventTip.waitForExistence(timeout: 5), "The event hint follows Calendar without leaving this screen")
         XCTAssertTrue(app.navigationBars["Sky Events"].exists)
-        let eventHelp = XCTAttachment(screenshot: app.screenshot())
-        eventHelp.name = "Event card help points at the card"
-        eventHelp.lifetime = .keepAlways
-        add(eventHelp)
-        app.buttons["Dismiss tip"].tap()
-        app.buttons["About sky events"].tap()
-        XCTAssertTrue(eventTip.waitForExistence(timeout: 5))
-        app.buttons["Dismiss tip"].tap()
-        app.buttons["Calendar"].tap()
+        XCTAssertFalse(app.buttons["About sky events"].exists)
+        let displayMode = app.segmentedControls["sky-events-display-mode"]
+        XCTAssertTrue(displayMode.exists)
+        XCTAssertTrue(displayMode.buttons["List"].isSelected)
+        displayMode.buttons["Calendar"].tap()
         XCTAssertTrue(app.staticTexts["Tap a marked date to view its events."].waitForExistence(timeout: 5))
+        displayMode.buttons["List"].tap()
+        XCTAssertTrue(displayMode.buttons["List"].isSelected)
         app.buttons["Back"].firstMatch.tap()
         app.buttons["Sky Calendar"].tap()
         XCTAssertFalse(calendarToast.exists)
-        XCTAssertFalse(eventTip.exists)
-        let firstCard = app.descendants(matching: .any)["sky-event-card-mars-jupiter"].firstMatch
+        XCTAssertFalse(app.buttons["About sky events"].exists)
+        let firstCard = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "sky-event-card-")).firstMatch
         XCTAssertTrue(firstCard.waitForExistence(timeout: 5))
         XCTAssertLessThan(firstCard.frame.height, app.frame.height * 0.3)
         let events = XCTAttachment(screenshot: app.screenshot())
@@ -572,7 +584,7 @@ final class celyxUITests: XCTestCase {
         let collect = app.buttons["start-collecting"]
         XCTAssertTrue(collect.waitForExistence(timeout:30))
         collect.tap()
-        XCTAssertTrue(app.buttons["Calibrate direction"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.buttons["Back"].firstMatch.waitForExistence(timeout:10))
         let brightness = app.descendants(matching:.any)["camera-brightness-control"]
         XCTAssertFalse(brightness.exists)
         XCTAssertFalse(app.buttons["Brightness"].exists)

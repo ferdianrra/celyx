@@ -9,7 +9,6 @@ Asterra/
     Garden/       Collected-object sky, collection lists, albums and story export
     Events/       Event data, reminder persistence, calendar and event details
     Sky/          Camera collection, detection, prediction overlays and photo processing
-    Calibration/  Reference selection, star-pattern matching and alignment
     Share/        Figma share cards, collection badges, PNG rendering and native share actions
   Shared/
     Style/        Colors, panels, reusable controls and hints
@@ -34,8 +33,8 @@ Each feature uses `Models`, `Views`, `ViewModels`, and `Services` as needed. Gar
 - Garden gyro tracking follows true north without touch offsets. A swipe preserves the current direction and zoom, then switches to touch; motion tracking continues quietly in the background. After a swipe, changing the phone’s aim by at least 5° while pointing near the horizon (−8°) or above resumes gyro after a brief 0.15-second debounce. Lowering the phone first is unnecessary. Small hand tremors and screen-axis roll do not trigger it; movement during a drag or pinch resets the reference so the gesture keeps control. The direction menu can also select either mode. GPS/compass readiness still gates real-world tracking, without displaying setup progress or calibration prompts in the garden.
 - `StarCollectViewModel` owns target selection, capture verification, feedback and saving observations. `SkyFinderService` owns live camera analysis, matching and retained camera frames.
 - `EventCollectionViewModel` owns the existing event-camera prototype state; it does not turn that prototype into real event detection.
-- `SkyCalendarViewModel` owns date navigation and shared filtering rules for the list and month grid. `SkyEventStore` owns reminder and collected-event persistence.
-- `SkyCalibrationViewModel` owns target selection, sensor samples, reference validation and saved corrections. The calibration service and pattern solver remain separate.
+- `SkyCalendarViewModel` owns date navigation and shared filters for the list, month grid and day chooser. All three hide events after their local viewing window ends. `SkyEventStore` owns reminder and collected-event persistence.
+- `SkyCalendarView` binds the native segmented picker to the shared List/Calendar mode. The first-visit Calendar tip explains date browsing, event details and the reminder bell. The month header contains the month and navigation arrows.
 
 Views keep layout, gestures, sheets and navigation bindings. Models do not own screen layout. Services handle device APIs, image processing and persistence. Changes to folder structure do not change resource names, stored keys or catalog IDs.
 

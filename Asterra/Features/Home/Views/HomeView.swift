@@ -11,8 +11,6 @@ struct HomeView: View {
     @State private var pendingCollectionCategory: CollectionCategory?
     @State private var camera: CollectCameraView.Mode?
     @State private var gardenCamera = NightSeaCamera()
-    @State private var gardenReset = 0
-    @State private var showsCalibration = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
     @State private var guideTarget: CatalogStar?
@@ -27,8 +25,6 @@ struct HomeView: View {
     @State private var screenSize = CGSize(width: 402, height: 874)
     @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
-    /// Temporary: lets the garden be viewed without object names (read by GardenSkyView).
-    @AppStorage(GardenSkyView.showsStarNamesKey) private var gardenShowsStarNames = true
     @State private var gardenUsesGyro = true
     /// First-run run-through over the Night Sea (replayable from the direction menu).
     @AppStorage("hasCompletedTour") private var hasCompletedOnboarding = false
@@ -146,9 +142,6 @@ struct HomeView: View {
             .presentationDetents([.height(300),.large])
             .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented:$showsCalibration) {
-            SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
-        }
         .fullScreenCover(isPresented:$showsStarCamera, onDismiss: { guideTarget = nil }) {
             StarCollectCameraView(model:model,handover:handover,onCollect:collected, onboardingGuide:realCameraGuide, guideTarget:guideTarget) {
                 showsStarCamera = false
@@ -179,10 +172,7 @@ struct HomeView: View {
                     Label("Gyro",systemImage:"gyroscope").tag(true)
                     Label("Touch",systemImage:"hand.draw").tag(false)
                 }
-                Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
-                Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
-                Toggle("Star Names",systemImage:"character.textbox",isOn:$gardenShowsStarNames)
-                Button(OnboardingCopy.replayIntro,systemImage:"arrow.counterclockwise") { startOnboarding() }
+                Button(OnboardingCopy.replayTour,systemImage:"arrow.counterclockwise") { startOnboarding() }
                 #if DEBUG
                 Toggle("Demo constellations", isOn: $demoConstellationsEnabled)
                 #endif
@@ -274,7 +264,6 @@ struct HomeView: View {
                         home.didPrepareDiscovery = true
                         home.hasSeenCollectionHint = false
                         home.hasSeenCalendarHint = false
-                        UserDefaults.standard.set(false, forKey: "hasSeenEventCardHint")
                     }
                     #endif
                     if home.shouldStartOnboarding && !home.didAutoStartTour { home.didAutoStartTour = true; home.startOnboarding() } }

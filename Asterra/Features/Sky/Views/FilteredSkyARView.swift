@@ -5,7 +5,6 @@ struct FilteredSkyARView: View {
     @State private var service: SkyFinderService
     @State private var selectedID: Int?
     @State private var zoomStart: Double?
-    @State private var showsCalibration = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     @Environment(\.openURL) private var openURL
@@ -73,12 +72,7 @@ struct FilteredSkyARView: View {
                     Spacer()
                     Text("Filtered Stars AR").font(.system(size: 17, weight: .semibold))
                     Spacer()
-                    CelyxGlassButton(action: {
-                        service.stop()
-                        showsCalibration = true
-                    }) {
-                        Image(systemName: "scope").foregroundStyle(CelyxColor.primaryLabel)
-                    }.accessibilityLabel("Calibrate direction")
+                    Color.clear.frame(width: 48, height: 48)
                 }.padding(.horizontal, 20)
                 Spacer()
             }
@@ -102,17 +96,10 @@ struct FilteredSkyARView: View {
         .onChange(of: model.atmosphere) { _, _ in updateVisibility() }
         .onDisappear { service.stop() }
         .onChange(of: phase) { _, value in
-            if value == .active, !showsCalibration {
+            if value == .active {
                 Task { await start() }
             } else if value == .background {
                 service.suspendForBackground()
-            } else if value == .active, showsCalibration {
-                service.stop()
-            }
-        }
-        .fullScreenCover(isPresented: $showsCalibration, onDismiss: { Task { await start() } }) {
-            SkyCalibrationView(catalogue: model.stars, alignment: model.cameraAlignment) {
-                showsCalibration = false
             }
         }
     }
@@ -125,15 +112,7 @@ struct FilteredSkyARView: View {
                 "The same visibility filters as your list. Markers show predicted positions, not camera detections."
             )
             .font(.system(size: 13)).foregroundStyle(CelyxColor.secondaryLabel)
-            if service.alignment.requiresCalibration {
-                Text("Calibrate direction to restore the sky markers.").font(.system(size: 13))
-                CelyxPillButton(title: "Calibrate direction") {
-                    service.stop()
-                    showsCalibration = true
-                }
-            } else {
-                status
-            }
+            status
             if let target {
                 Text(target.star.title).font(.system(size: 17, weight: .semibold))
                 Text(target.guide.isAligned ? "Near the center of your view" : instruction(target.guide))
@@ -146,7 +125,7 @@ struct FilteredSkyARView: View {
         switch service.status {
         case .tracking:
             if markers.isEmpty, !model.predictedVisibleObjects.isEmpty {
-                Text("Waiting for reliable direction. Calibrate if markers do not appear.")
+                Text("Waiting for reliable compass direction.")
                     .font(.system(size: 13)).foregroundStyle(CelyxColor.secondaryLabel)
             }
         case .preparing, .requestingPermission:

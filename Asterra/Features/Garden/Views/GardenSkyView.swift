@@ -10,7 +10,6 @@ struct GardenSkyView: View {
     @Binding var camera: NightSeaCamera
     var isActive = true
     /// Bump to face north (no gyro) or keep the real direction (gyro).
-    var resetRequest = 0
     /// Live camera behind the collected objects instead of the virtual Night Sea.
     var usesCamera = false
     var showsCameraCollection = true
@@ -41,7 +40,7 @@ struct GardenSkyView: View {
 
     init(
         model: HomeViewModel, camera: Binding<NightSeaCamera>, isActive: Bool = true,
-        resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
+        usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
         sheetRequest: GardenSheetRequest? = nil, showsDemoConstellations: Bool = false,
         onDemoEnded: @escaping () -> Void = {},
@@ -63,7 +62,6 @@ struct GardenSkyView: View {
         self.model = model
         _camera = camera
         self.isActive = isActive
-        self.resetRequest = resetRequest
         self.usesCamera = usesCamera
         self.usesGyro = usesGyro
         self.onModeChange = onModeChange
@@ -121,7 +119,6 @@ struct GardenSkyView: View {
             if tracksGardenMotion { viewModel.setGyroMode(usesGyro) }
         }
         .onChange(of: viewModel.usesGyro) { _, enabled in onModeChange?(enabled) }
-        .onChange(of: resetRequest) { _, _ in viewModel.resetCamera() }
         .onChange(of: viewModel.camera) { _, value in if camera != value { camera = value } }
         .onChange(of: camera) { _, value in if viewModel.camera != value { viewModel.camera = value } }
         .onChange(of: reduceMotion, initial: true) { _, value in viewModel.reduceMotion = value }

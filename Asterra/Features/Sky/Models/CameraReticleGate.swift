@@ -13,12 +13,3 @@ nonisolated struct CameraReticleGate: Sendable {
     }
     mutating func reset() { centeredID = nil }
 }
-
-struct CameraReferenceCapture: Identifiable {
-    let id = UUID()
-    let generation: Int
-    let direction: SIMD3<Float>
-    let date: Date
-    let location: ObserverLocation
-    let candidates: [CalibrationCandidate]
-}
