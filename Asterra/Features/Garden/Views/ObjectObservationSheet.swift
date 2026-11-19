@@ -62,7 +62,7 @@ struct ObjectObservationSheet: View {
         }
         .safeAreaInset(edge: .bottom) {
             if isExpanded, let onGuide {
-                StartCollectingButton(title: "Guide me to this star", identifier: "guide-to-collected-object") {
+                StartCollectingButton(title: "Find in the sky", identifier: "guide-to-collected-object") {
                     dismiss()
                     onGuide()
                 }
