@@ -27,6 +27,8 @@ struct HomeView: View {
     @State private var screenSize = CGSize(width: 402, height: 874)
     @State private var screenWidth: CGFloat = 402
     @AppStorage("gardenUsesCamera") private var gardenUsesCamera = false
+    /// Temporary: lets the garden be viewed without object names (read by GardenSkyView).
+    @AppStorage(GardenSkyView.showsStarNamesKey) private var gardenShowsStarNames = true
     @State private var gardenUsesGyro = true
     /// First-run run-through over the Night Sea (replayable from the direction menu).
     @AppStorage("hasCompletedTour") private var hasCompletedOnboarding = false
@@ -179,6 +181,7 @@ struct HomeView: View {
                 }
                 Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
                 Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
+                Toggle("Star Names",systemImage:"character.textbox",isOn:$gardenShowsStarNames)
                 Button(OnboardingCopy.replayIntro,systemImage:"arrow.counterclockwise") { startOnboarding() }
                 #if DEBUG
                 Toggle("Demo constellations", isOn: $demoConstellationsEnabled)

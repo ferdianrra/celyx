@@ -62,29 +62,38 @@ struct GardenZodiacFigure: Identifiable {
     }
 
     /// The garden and AR supply their own projection, including gyro roll and zoom.
+    /// Every limit fades the artwork out gradually (it never pops): the camera-plane distance
+    /// (`depthLimit`, relaxed for the garden's stereographic dome), uneven stretch, sinking below the
+    /// horizon, and growing far larger than the screen at deep zoom.
     static func project(_ figures: [Self], basis: simd_double3x3?, size: CGSize, forward: SIMD3<Double>,
+                        depthLimit: Double = 0.6,
                         point: (SIMD3<Double>) -> CGPoint?) -> [ProjectedConstellationFigure] {
         guard let basis, size.width > 0, size.height > 0 else { return [] }
+        func smooth(_ x: Double) -> Double { let t = min(1, max(0, x)); return t * t * (3 - 2 * t) }
         return figures.compactMap { item in
             let figure = item.figure
-            guard (basis * figure.center).z > 0 else { return nil }
+            // The centre may dip a little below the horizon while the figure fades; the sky mask
+            // softens the horizon itself.
+            let centerAltitude = (basis * figure.center).z
+            let horizonFade = (centerAltitude + 0.08) / 0.12
+            guard horizonFade > 0 else { return nil }
             let directions = figure.definition.anchors.map { Refraction.apparent(basis * $0.equatorial) }
-            // Keep the existing distance from the camera plane as a safety limit.
+            // Keep a distance from the camera plane as a safety limit.
             let depth = directions.map { simd_dot(forward, $0) }.min() ?? 0
-            guard depth > 0.6 else { return nil }
+            guard depth > depthLimit else { return nil }
             let targets = directions.compactMap(point)
             // Measure the extra deformation from the camera angle against a centered view.
             // Preserve the exact anchor fit and fade the artwork before the distortion is pronounced.
             let stretch = cameraStretch(directions: directions, targets: targets)
             let shapeVisibility = min(1, (1.28 - stretch) / (1.28 - 1.10))
             guard shapeVisibility > 0 else { return nil }
-            let fade = min(shapeVisibility, (depth - 0.6) / 0.24)
             let sources = figure.definition.anchors.map { CGPoint(x: $0.pixel[0], y: $0.pixel[1]) }
             guard let transform = ConstellationFigureProjection.affine(source: sources, target: targets) else { return nil }
             let bounds = CGRect(x: 0, y: 0, width: figure.definition.size[0], height: figure.definition.size[1]).applying(transform)
-            guard bounds.intersects(CGRect(origin: .zero, size: size)),
-                bounds.width < size.width * 8, bounds.height < size.height * 8 else { return nil }
-            return ProjectedConstellationFigure(figure: figure, transform: transform, opacity: 0.64 * fade * fade * (3 - 2 * fade))
+            let oversize = max(bounds.width / size.width, bounds.height / size.height)
+            guard bounds.intersects(CGRect(origin: .zero, size: size)), oversize < 8 else { return nil }
+            let fade = min(shapeVisibility, (depth - depthLimit) / 0.24, horizonFade, (8 - oversize) / 5)
+            return ProjectedConstellationFigure(figure: figure, transform: transform, opacity: 0.64 * smooth(fade))
         }
     }
 
@@ -109,20 +118,33 @@ struct GardenZodiacFigure: Identifiable {
         return Double((sum + sqrt((sum - 2) * (sum + 2))) / 2)
     }
 
-    /// Clip artwork at the real horizon, even when the phone is rolled.
-    static func skyClip(size: CGSize, height: (CGPoint) -> Double) -> [CGPoint] {
-        let corners = [CGPoint.zero, CGPoint(x: size.width, y: 0),
-                       CGPoint(x: size.width, y: size.height), CGPoint(x: 0, y: size.height)]
-        var output: [CGPoint] = []
-        for (a, b) in zip(corners, corners.dropFirst() + [corners[0]]) {
-            let ha = height(a), hb = height(b)
-            if ha >= 0 { output.append(a) }
-            if (ha >= 0) != (hb >= 0) {
-                let t = ha / (ha - hb)
-                output.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+    /// Soft horizon mask for the artwork: a small alpha image (stretched with linear filtering)
+    /// that is clear below the real horizon and fades in over ~2° above it. Sampling the true
+    /// height per cell follows phone roll and the curved horizon of the stereographic dome.
+    /// `height` is the sine of the altitude at a screen point.
+    static func skyMask(size: CGSize, columns: Int = 24, height: (CGPoint) -> Double) -> CGImage? {
+        guard size.width > 0, size.height > 0, columns > 1 else { return nil }
+        let rows = max(2, Int((Double(columns) * size.height / size.width).rounded()))
+        // Premultiplied white: a layer mask only reads the alpha channel.
+        var pixels = [UInt8](repeating: 0, count: columns * rows * 4)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let point = CGPoint(x: (Double(column) + 0.5) / Double(columns) * size.width,
+                                    y: (Double(row) + 0.5) / Double(rows) * size.height)
+                let t = min(1, max(0, height(point) / horizonBand))
+                let value = UInt8((t * t * (3 - 2 * t) * 255).rounded())
+                let i = (row * columns + column) * 4
+                pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value; pixels[i + 3] = value
             }
         }
-        return output
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
+        return CGImage(width: columns, height: rows, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: columns * 4,
+                       space: CGColorSpaceCreateDeviceRGB(),
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
+
+    /// Altitude band (sine, ~2°) over which artwork fades in above the horizon.
+    static let horizonBand = 0.035
 
 }

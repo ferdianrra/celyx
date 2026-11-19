@@ -15,6 +15,8 @@ struct GardenCameraLayer: View {
     var zodiacFigures: [GardenZodiacFigure] = []
     var equatorial: simd_double3x3?
     var isActive = true
+    /// Compass menu "Star Names" toggle; hidden names stay available to VoiceOver.
+    var showsLabels = true
     var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
     /// The onboarding tour's view of this camera (pose every frame, frozen frame on demand).
     let link: LiveCameraLink?
@@ -52,7 +54,8 @@ struct GardenCameraLayer: View {
                     let sprites = project(in:size)
                     ZStack {
                         GardenZodiacFigures(unlocked: zodiacFigures,
-                            projected: projectZodiac(in: size), skyClip: zodiacSkyClip(in: size),
+                            projected: projectZodiac(in: size),
+                            skyMask: zodiacFigures.isEmpty ? nil : zodiacSkyMask(in: size),
                             isActive: isActive)
                         GardenConstellationLines(connections: connections,
                             positions: Dictionary(uniqueKeysWithValues: sprites.map { ($0.id, $0.point) }),
@@ -71,6 +74,8 @@ struct GardenCameraLayer: View {
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .opacity(showsLabels ? 1 : 0)
+                            .allowsHitTesting(showsLabels)
                             .position(sprite.labelPosition)
                             .disabled(sprite.entry.isPreview)
                             .accessibilityLabel(sprite.entry.isPreview ? "\(sprite.entry.item.star.title), preview star" :
@@ -203,11 +208,11 @@ struct GardenCameraLayer: View {
         }
     }
 
-    private func zodiacSkyClip(in size: CGSize) -> [CGPoint] {
-        guard size.width > 0, size.height > 0, let frame = projectionFrame else { return [] }
+    private func zodiacSkyMask(in size: CGSize) -> CGImage? {
+        guard size.width > 0, size.height > 0, let frame = projectionFrame else { return nil }
         let inverse = simd_inverse(frame.camera.viewMatrix(viewRotationAngle: 90))
         let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
-        return GardenZodiacFigure.skyClip(size: size) { point in
+        return GardenZodiacFigure.skyMask(size: size) { point in
             let x = Float(2 * point.x / size.width - 1) / projection.columns.0.x
             let y = Float(1 - 2 * point.y / size.height) / projection.columns.1.y
             return Double((inverse * SIMD4(x, y, -1, 0)).y)

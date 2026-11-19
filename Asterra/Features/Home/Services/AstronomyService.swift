@@ -28,15 +28,18 @@ enum AstronomyService {
             return SIMD3(sin(a)*cos(alt),cos(a)*cos(alt),sin(alt))
         }
         let bodies: [astro_body_t] = [BODY_MERCURY,BODY_VENUS,BODY_MARS,BODY_JUPITER,BODY_SATURN]
+        var phaseAngles: [Int: Double] = [:]
         let planets = zip(CatalogStar.planets,bodies).compactMap { entry,value -> (star:CatalogStar,direction:SIMD3<Double>)? in
             let illumination = Astronomy_Illumination(value,time)
             guard illumination.status == ASTRO_SUCCESS, illumination.mag.isFinite else { return nil }
             let direction = body(value)
             guard direction.x.isFinite, direction.y.isFinite, direction.z.isFinite else { return nil }
+            if illumination.phase_angle.isFinite { phaseAngles[entry.id] = illumination.phase_angle }
             return (CatalogStar.planet(id:entry.id,name:entry.title,magnitude:illumination.mag),direction)
         }
         return SkySnapshot(date: date,basis: simd_double3x3(columns: (rotate(1,0,0),rotate(0,1,0),rotate(0,0,1))),
                            sunDirection: body(BODY_SUN),moonDirection: body(BODY_MOON),
-                           moonIllumination: Astronomy_Illumination(BODY_MOON,time).phase_fraction,planets:planets)
+                           moonIllumination: Astronomy_Illumination(BODY_MOON,time).phase_fraction,planets:planets,
+                           planetPhaseAngles: phaseAngles)
     }
 }

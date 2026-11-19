@@ -202,13 +202,51 @@ struct GardenZodiacTests {
         #expect(opacity(stretch: 1.30) == nil)
     }
 
-    @Test func horizonClipExcludesTheSeaAndFollowsPhoneRoll() {
+    /// The horizon mask is clear below the horizon, opaque well above it, soft in between,
+    /// and follows phone roll.
+    @Test func horizonMaskExcludesTheSeaSoftlyAndFollowsPhoneRoll() throws {
+        func alpha(_ image: CGImage) -> [UInt8] {
+            var rgba = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let context = CGContext(data: &rgba, width: image.width, height: image.height, bitsPerComponent: 8,
+                                    bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return stride(from: 3, to: rgba.count, by: 4).map { rgba[$0] }
+        }
         let size = CGSize(width: 100, height: 100)
-        let upright = GardenZodiacFigure.skyClip(size: size) { Double(50 - $0.y) }
-        #expect(upright.count == 4 && upright.allSatisfy { $0.y <= 50 })
-        let rolled = GardenZodiacFigure.skyClip(size: size) { Double($0.x + $0.y - 100) }
-        #expect(!rolled.isEmpty && rolled.allSatisfy { $0.x + $0.y >= 100 })
-        #expect(GardenZodiacFigure.skyClip(size: size) { _ in -1 }.isEmpty)
+        // Height falls 0.002 per point from the top: horizon at y = 50, fully clear of the band by y ≈ 32.
+        let upright = try #require(GardenZodiacFigure.skyMask(size: size, columns: 10) { 0.002 * Double(50 - $0.y) })
+        let values = alpha(upright)
+        let rows = upright.height
+        let top = values[0], bottom = values[(rows - 1) * 10]
+        #expect(top == 255 && bottom == 0)
+        #expect(values.contains { $0 > 0 && $0 < 255 })                         // a soft band, not a cut
+        for row in 1..<rows { #expect(values[row * 10] <= values[(row - 1) * 10]) }
+        let rolled = try #require(GardenZodiacFigure.skyMask(size: size, columns: 10) { 0.01 * Double(100 - $0.x - $0.y) })
+        let rolledValues = alpha(rolled)
+        #expect(rolledValues[0] == 255 && rolledValues[(rows - 1) * 10 + 9] == 0)
+        let below = try #require(GardenZodiacFigure.skyMask(size: size) { _ in -1 })
+        #expect(alpha(below).allSatisfy { $0 == 0 })
+    }
+
+    /// Zooming deep into a figure fades it out instead of making it vanish at a size cut-off.
+    @Test func deepZoomFadesTheArtworkInsteadOfCuttingIt() throws {
+        let item = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        let (sky, centered) = try scene(for: item)
+        let size = CGSize(width: 402, height: 650)
+        var opacities: [Double] = []
+        // 5% zoom steps, like a pinch frame by frame.
+        for fov in sequence(first: 60.0, next: { $0 * 0.95 }).prefix(while: { $0 > 1 }) {
+            var camera = centered
+            camera.fieldOfView = fov
+            let projected = GardenZodiacFigure.project([item], basis: sky.basis, size: size, forward: camera.forward) {
+                camera.project($0, in: size)
+            }
+            opacities.append(projected.first?.opacity ?? 0)
+        }
+        // A monotonic fade, no step larger than a few percent per 5% of zoom.
+        for (a, b) in zip(opacities, opacities.dropFirst()) { #expect(a >= b && a - b < 0.07) }
+        #expect(opacities.last == 0)
     }
 
     @Test(arguments: ["Lib", "Cap", "Psc", "Sco"])
@@ -237,7 +275,7 @@ struct GardenZodiacTests {
         let view = GardenZodiacFigureLayerView()
         view.frame = CGRect(origin: .zero, size: size)
         view.update(unlockedIDs: [code], projected: projected,
-            skyClip: [CGPoint.zero, CGPoint(x: size.width, y: 0), CGPoint(x: size.width, y: size.height), CGPoint(x: 0, y: size.height)],
+            skyMask: GardenZodiacFigure.skyMask(size: size) { _ in 1 },
             artwork: [code: decoded], animatedIDs: [], isActive: true, reduceMotion: true)
         view.layoutIfNeeded()
         let image = UIGraphicsImageRenderer(size: size).image { context in
@@ -262,11 +300,11 @@ struct GardenZodiacTests {
         let decoded = try #require(await GardenZodiacArtworkStore.shared.load(assetNamed: "constellation-figures-rafi-aligned/Libra"))
         let view = GardenZodiacFigureLayerView()
         view.frame = CGRect(x: 0, y: 0, width: 402, height: 650)
-        let clip = [CGPoint.zero, CGPoint(x: 402, y: 0), CGPoint(x: 402, y: 650), CGPoint(x: 0, y: 650)]
+        let clip = GardenZodiacFigure.skyMask(size: CGSize(width: 402, height: 650)) { _ in 1 }
         func update(_ step: Int, active: Bool = true, reduceMotion: Bool = false, opacity: Double = 0.64) {
             let drawing = ProjectedConstellationFigure(figure: libra.figure,
                 transform: CGAffineTransform(translationX: Double(step % 100), y: 20), opacity: opacity)
-            view.update(unlockedIDs: ["Lib"], projected: [drawing], skyClip: clip,
+            view.update(unlockedIDs: ["Lib"], projected: [drawing], skyMask: clip,
                 artwork: ["Lib": decoded], animatedIDs: ["Lib"], isActive: active, reduceMotion: reduceMotion)
         }
         update(0)

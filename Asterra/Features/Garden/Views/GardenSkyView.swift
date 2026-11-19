@@ -31,6 +31,9 @@ struct GardenSkyView: View {
     var onTourBack: () -> Void
 
     @State private var viewModel: GardenViewModel
+    static let showsStarNamesKey = "gardenShowsStarNames"
+    /// Compass menu toggle. Hidden names stay available to VoiceOver.
+    @AppStorage(GardenSkyView.showsStarNamesKey) private var showsStarNames = true
     @State private var failed = false
     /// The album shown right after a capture's wormhole lands.
     @State private var albumRequest: GardenSheetRequest?
@@ -75,6 +78,7 @@ struct GardenSkyView: View {
                     connections: showsCameraCollection ? shownConnections : [],
                     zodiacFigures: showsCameraCollection ? shownZodiacFigures : [],
                     equatorial: viewModel.equatorial, isActive: refreshesSkyPositions,
+                    showsLabels: showsStarNames,
                     onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
                     link: cameraLink
                 ) { viewModel.selected = $0 }
@@ -121,6 +125,10 @@ struct GardenSkyView: View {
         .onChange(of: viewModel.camera) { _, value in if camera != value { camera = value } }
         .onChange(of: camera) { _, value in if viewModel.camera != value { viewModel.camera = value } }
         .onChange(of: reduceMotion, initial: true) { _, value in viewModel.reduceMotion = value }
+        // Another camera drives the view during a capture handover or the tour: stay pinhole.
+        .onChange(of: handover == nil && tourFocusDirection == nil && tourFocusCamera == nil, initial: true) { _, free in
+            viewModel.projectionLocked = !free
+        }
         .onChange(of: tourFocusDirection, initial: true) { _, direction in
             guard direction != nil else {
                 viewModel.camera.centerYFraction = nil
@@ -279,17 +287,18 @@ struct GardenSkyView: View {
                     NightSeaView(
                         camera: shown, objects: shownPlaced,
                         selectedID: viewModel.selected?.id, moon: viewModel.moon,
+                        sun: viewModel.placed.first { $0.item.star.isSun }?.object.direction,
                         equatorial: viewModel.equatorial, isActive: gardenIsActive
                     ) { _ in failed = true }
                 }
                 GardenZodiacFigures(unlocked: shownZodiacFigures,
                     projected: GardenZodiacFigure.project(shownZodiacFigures, basis: viewModel.equatorial,
-                        size: geometry.size, forward: shown.forward, point: { shown.project($0, in: geometry.size) }),
-                    skyClip: GardenZodiacFigure.skyClip(size: geometry.size) { point in
-                        let center = shown.center(in: geometry.size)
-                        let focal = shown.focalLength(in: geometry.size)
-                        return shown.forward.z + Double(point.x - center.x) / focal * shown.right.z
-                            + Double(center.y - point.y) / focal * shown.up.z
+                        size: geometry.size, forward: shown.forward,
+                        // The dome keeps shapes true further out, so the artwork may sit further off-centre.
+                        depthLimit: 0.6 - 0.3 * shown.stereographic,
+                        point: { shown.project($0, in: geometry.size) }),
+                    skyMask: shownZodiacFigures.isEmpty ? nil : GardenZodiacFigure.skyMask(size: geometry.size) { point in
+                        shown.direction(at: point, in: geometry.size).z
                     }, isActive: gardenIsActive)
                 GardenConstellationLines(connections: shownConnections,
                     positions: Dictionary(uniqueKeysWithValues: shownPlaced.compactMap { object in
@@ -312,25 +321,15 @@ struct GardenSkyView: View {
                         // A finger on the water trails through it while looking around.
                         if let p = waterPoint(at: value.location, in: geometry.size) { NightSeaWater.shared.trail(at: p) }
                     }
-                    .onEnded { _ in
-                        viewModel.dragStart = nil
+                    .onEnded { value in
+                        viewModel.endDrag(velocity: value.velocity, in: geometry.size)
                         NightSeaWater.shared.endTrail()
                     }
             )
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { value in
-                        if viewModel.camera.orientation != nil {
-                            if viewModel.zoomStart == nil { viewModel.zoomStart = viewModel.camera.zoom }
-                            viewModel.camera.zoom = min(
-                                4, max(0.5, (viewModel.zoomStart ?? 1) * value.magnification))
-                        } else {
-                            if viewModel.zoomStart == nil {
-                                viewModel.zoomStart = viewModel.camera.fieldOfView
-                            }
-                            viewModel.camera.fieldOfView = min(
-                                110, max(24, (viewModel.zoomStart ?? 72) / value.magnification))
-                        }
+                        viewModel.pinch(value.magnification, anchor: value.startLocation, in: geometry.size)
                     }
                     .onEnded { _ in viewModel.zoomStart = nil }
             )
@@ -370,6 +369,9 @@ struct GardenSkyView: View {
     }
 
     @ViewBuilder private func labels(in size: CGSize, camera: NightSeaCamera) -> some View {
+        // Names appear only once the user zooms in; zoomed out the sky stays clean.
+        let zoomOpacity = GardenZoomLimits.labelOpacity(zoom: camera.gardenZoom(in: size))
+        let labelOpacity = showsStarNames ? zoomOpacity : 0
         ForEach(viewModel.placed.filter { entry in
             entry.object.isAboveHorizon && (tourFocusDirection.map {
                 simd_distance($0, entry.object.direction) > 0.0001
@@ -389,7 +391,12 @@ struct GardenSkyView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(entry.isPreview)
-                .position(x: point.x, y: point.y + entry.object.radius * (entry.object.kind == .star ? 7 / 1.3 : 1) * 0.45 + 14)
+                // Visually hidden but still a VoiceOver element; taps go to the object itself.
+                .opacity(labelOpacity)
+                .allowsHitTesting(labelOpacity > 0.5)
+                .animation(.easeInOut(duration: 0.25), value: showsStarNames)
+                // Below the drawn object, which grows with zoom.
+                .position(x: point.x, y: point.y + entry.object.apparent(camera: camera, in: size).labelOffset)
                 .accessibilityLabel(entry.isPreview ? "\(entry.item.star.title), preview star" :
                     "\(entry.item.star.title), collected \(entry.item.collectedDate)")
                 .accessibilityHint(entry.isPreview ? "" : "Shows details")
@@ -406,10 +413,7 @@ struct GardenSkyView: View {
     /// Where a screen point's view ray meets the water plane (horizon frame metres), if it's on the water.
     private func waterPoint(at point: CGPoint, in size: CGSize) -> SIMD2<Double>? {
         guard !usesCamera, handover == nil else { return nil }
-        let camera = viewModel.camera
-        let f = camera.focalLength(in: size), c = camera.center(in: size)
-        let d = simd_normalize(camera.forward + ((point.x - c.x) / f) * camera.right + ((c.y - point.y) / f) * camera.up)
-        return NightSeaWater.waterPoint(d)
+        return NightSeaWater.waterPoint(viewModel.camera.direction(at: point, in: size))
     }
 
     // MARK: Handover

@@ -7,6 +7,8 @@ struct NightSeaView: UIViewRepresentable {
     var selectedID: Int?
     /// Moon glitter on the sea and a halo in the sky, only when the Moon is in the collection and up.
     var moon: (direction: SIMD3<Double>, illumination: Double)?
+    /// The collected Sun's direction: tints the sky with the real time of day (thinly).
+    var sun: SIMD3<Double>? = nil
     /// Columns: the equatorial X, Y, Z axes in the horizon frame for this place and time (rotates the Milky Way).
     var equatorial: simd_double3x3?
     var isActive = true
@@ -36,6 +38,7 @@ struct NightSeaView: UIViewRepresentable {
         renderer.camera = camera
         renderer.setObjects(objects,selectedID:selectedID)
         renderer.moon = moon
+        renderer.sun = sun
         renderer.equatorial = equatorial
         view.isPaused = !isActive
     }
