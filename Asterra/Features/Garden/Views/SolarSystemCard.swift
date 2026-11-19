@@ -42,40 +42,46 @@ struct SolarSystemCard: View {
     let entry: SolarSystemEntry
     let isCollected: Bool
 
-    @ScaledMetric(relativeTo: .body)
-    private var cardHeight: CGFloat = 144
-
     var body: some View {
         HStack(spacing: 12) {
             SolarSystemPortrait(entry: entry)
-                .frame(width: 96, height: 96)
+                .frame(width: 72, height: 72)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(entry.category)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.64))
 
                 Text(entry.rawValue)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.headline)
                     .foregroundStyle(.white)
-
-                Label(
-                    isCollected ? "Collected" : "Not collected",
-                    systemImage: isCollected
-                        ? "checkmark.circle.fill"
-                        : "circle"
-                )
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.75))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.5))
+            Spacer(minLength: 8)
+
+            Text(isCollected ? "Collected" : "Not collected")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(
+                    isCollected ? .white : .white.opacity(0.7)
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule().fill(
+                        isCollected
+                            ? CelyxColor.accent
+                            : .white.opacity(0.08)
+                    )
+                )
+                .overlay(
+                    Capsule().strokeBorder(
+                        .white.opacity(isCollected ? 0.25 : 0.12),
+                        lineWidth: 0.5
+                    )
+                )
         }
-        .padding(16)
-        .frame(minHeight: cardHeight)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background {
             Image("celyx-card-bg").resizable()
         }

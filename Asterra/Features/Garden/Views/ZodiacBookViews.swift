@@ -192,7 +192,7 @@ struct ZodiacBookCard: View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         // Figma card 177 × 244: artwork centred above the name and progress, on the exported card glow.
         VStack(alignment: .leading, spacing: 0) {
-            ZodiacBookArt(entry: entry, collected: collected, inset: 14)
+            ZodiacBookArt(entry: entry, collected: collected, revealsAroundStars: true, inset: 14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(entry.name).font(.title3.weight(.semibold)).foregroundStyle(.white)

@@ -95,37 +95,21 @@ struct CollectionListView: View {
             }
         case .constellations:
             let collected = Set(model.collected.keys)
-            // The zodiac has artwork, so it gets the book grid; other constellations keep the star list.
-            let groups = CollectionCategory.constellations(model.collectionItems)
-                .filter { !ZodiacBookEntry.order.contains($0.code) }
-            VStack(alignment: .leading, spacing: 24) {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible())], spacing: 16) {
-                    ForEach(book) { entry in
-                        Button { openBook = entry } label: { ZodiacBookCard(entry: entry, collected: collected) }
-                            .buttonStyle(.plain)
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible())
+                ],
+                spacing: 16
+            ) {
+                ForEach(book) { entry in
+                    Button {
+                        openBook = entry
+                    } label: {
+                        ZodiacBookCard(entry: entry, collected: collected)
                     }
-                }
-                if !groups.isEmpty {
-                    Text("More constellations").font(.headline).foregroundStyle(.white)
-                        .accessibilityAddTraits(.isHeader)
-                }
-                ForEach(groups, id: \.code) { group in
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(group.name).font(.system(size: 17, weight: .semibold)).foregroundStyle(
-                                .white)
-                            Spacer()
-                            Text("\(group.items.count) star\(group.items.count == 1 ? "" : "s")")
-                                .font(.system(size: 13)).foregroundStyle(.white.opacity(0.5))
-                        }
-                        ForEach(group.items) { item in
-                            Button {
-                                selected = item
-                            } label: {
-                                itemRow(item)
-                            }.buttonStyle(.plain)
-                        }
-                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
