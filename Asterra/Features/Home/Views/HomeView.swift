@@ -112,7 +112,7 @@ struct HomeView: View {
             // Figma "Home Screen" (998:2689): native top toolbar (compass, then a button group with the
             // collection and the calendar) and a native bottom toolbar (Start Collecting, real-sky camera).
             .toolbar { homeToolbar }
-            .toolbarVisibility(showsChrome ? .visible : .hidden,for:.navigationBar)
+            .toolbarVisibility(showsTopBar ? .visible : .hidden,for:.navigationBar)
             .navigationDestination(for:HomeRoute.self) { route in
                 switch route {
                 case .calendar:
@@ -174,7 +174,9 @@ struct HomeView: View {
                 }
                 Button(OnboardingCopy.replayTour,systemImage:"arrow.counterclockwise") { startOnboarding() }
                 #if DEBUG
-                Toggle("Demo constellations", isOn: $demoConstellationsEnabled)
+                Toggle(isOn: $demoConstellationsEnabled) {
+                    Label("Constellations", systemImage: "point.3.connected.trianglepath.dotted")
+                }
                 #endif
             } label: {
                 CompassBadge()
@@ -186,7 +188,7 @@ struct HomeView: View {
             .glassEffect(.regular.interactive(),in:Circle())
             .accessibilityLabel("Direction options")
             #if DEBUG
-            .accessibilityValue(demoConstellationsEnabled ? "Demo constellations on" : "Demo constellations off")
+            .accessibilityValue(demoConstellationsEnabled ? "Constellations on" : "Constellations off")
             #endif
         }
         .sharedBackgroundVisibility(.hidden)
@@ -206,8 +208,11 @@ struct HomeView: View {
     /// iOS 27: 62pt tall, 28pt side margins, 21pt above the screen's bottom edge): Start Collecting fills the
     /// bar, the real-sky camera sits in the trailing search circle.
     private var bottomBar: some View {
-        HStack(spacing:TabBarMetrics.searchGap) {
+        let pointsToAR = onboarding?.pointer == .cameraButton
+        return HStack(spacing:TabBarMetrics.searchGap) {
             StartCollectingButton(height:TabBarMetrics.height,action:openStarCamera)
+                .disabled(pointsToAR)
+                .opacity(pointsToAR ? 0.35 : 1)
                 .background(WindowFrameReader { tourTargets[.startCollecting] = $0 })
             // Switches the garden between the virtual Night Sea and the live camera (gyro + real sky).
             Button { gardenUsesCamera.toggle() } label: {
@@ -242,6 +247,8 @@ struct HomeView: View {
         guard let handover else { return true }
         return handover.phase >= .presenting
     }
+
+    private var showsTopBar: Bool { showsChrome && onboarding?.step != .camera }
 
     // MARK: Onboarding
 
@@ -334,7 +341,6 @@ struct HomeView: View {
 
     private var tourCameraLink: LiveCameraLink? { onboarding == nil ? nil : cameraLink }
 
-    /// The toolbars come back once the tour points at them.
     /// During the tour the bottom bar shows only for steps about its buttons; the card takes its place otherwise.
     private var tourShowsBottomBar: Bool {
         // Only while the card asks for one of its buttons; a card with its own button (Continue) never
@@ -348,7 +354,7 @@ struct HomeView: View {
 
     private var tourShowsChrome: Bool {
         guard let onboarding else { return true }
-        // Toolbars appear only while the tour points at one of their controls.
+        // Keep the highlighted controls visible during the tour.
         return handover == nil && onboarding.pointer != nil
     }
 
@@ -368,7 +374,7 @@ struct HomeView: View {
                 OnboardingCameraOverlay(flow:onboarding, camera:gardenCamera,
                                   liveCamera:gardenUsesCamera ? cameraLink : nil,
                                   chromeVisible:tourShowsChrome && tourShowsBottomBar,
-                                  topBarVisible:tourShowsChrome)
+                                  topBarVisible:showsTopBar)
                     .transition(.opacity)
             }
     }

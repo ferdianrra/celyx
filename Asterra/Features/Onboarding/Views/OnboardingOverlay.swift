@@ -136,7 +136,7 @@ struct OnboardingOverlay: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if flow.step < .wormhole && !chromeVisible && !topBarVisible {
+            if flow.step < .wormhole && !topBarVisible {
                 Button(OnboardingCopy.skipTour) { flow.skip() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.glass)
@@ -320,17 +320,18 @@ private struct PracticeStarView: View {
     }
 }
 
-/// A soft chevron on the screen edge, nudging toward an off-screen star.
+/// A direction arrow that nudges outward from the reticle toward the target.
 private struct OnboardingEdgeHint: View {
     let angle: Angle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image(systemName: "chevron.right")
-            .font(.system(size: 30, weight: .black))
+        Image(systemName: "location.north.fill")
+            .font(.system(size: 46, weight: .bold))
             .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
-            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1), radius: 10)
+            .shadow(color: .black.opacity(0.5), radius: 4)
+            // Point right before applying the radial offset and screen bearing.
+            .rotationEffect(.degrees(90))
             .phaseAnimator([0.0, 1.0]) { view, t in
                 view.offset(x: reduceMotion ? 0 : t * 7)
             } animation: { t in t == 1 ? .easeInOut(duration: 0.7) : .easeInOut(duration: 0.9) }

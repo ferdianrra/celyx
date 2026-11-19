@@ -330,6 +330,27 @@ final class celyxUITests: XCTestCase {
     }
 
     @MainActor
+    func testOnboardingCameraStepShowsTourNavigationInsteadOfHomeToolbar() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-onboarding", "-onboarding-step=camera", "-gardenUsesCamera", "NO"]
+        app.launch()
+        let camera = app.buttons["Show real sky through the camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 15))
+        let back = app.buttons["tour-back"]
+        let skip = app.buttons["Skip Tour"]
+        XCTAssertTrue(back.isHittable)
+        XCTAssertTrue(skip.isHittable)
+        XCTAssertFalse(app.buttons["Direction options"].exists)
+        XCTAssertFalse(app.buttons["Your Collection"].exists)
+        XCTAssertFalse(app.buttons["Sky Calendar"].exists)
+        back.tap()
+        XCTAssertTrue(app.staticTexts["This is your Night Sea"].waitForExistence(timeout: 5))
+        skip.tap()
+        XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testOnboardingReceivesReadinessFromTheRealGardenCamera() throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("This regression needs the physical camera and motion sensors.")
