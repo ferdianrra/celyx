@@ -26,6 +26,32 @@ struct FeatureViewModelTests {
         #expect(viewModel.events(on: day).allSatisfy { $0.kind == .moon })
     }
 
+    @Test func skyEventsDisappearAfterTheirViewingWindowEnds() throws {
+        let day = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 19)))
+        func event(_ id: String, start: TimeInterval, end: TimeInterval) -> SkyEvent {
+            SkyEvent(id: id, kind: .event, title: id,
+                start: day.addingTimeInterval(start), end: day.addingTimeInterval(end),
+                headerDate: "", detailDate: "", viewingTime: "", direction: "", about: "", tips: "",
+                artwork: .init(asset: "", size: 0, x: 0, y: 0), target: .body("Moon"))
+        }
+        let ended = event("ended", start: 0, end: 1_800)
+        let ongoing = event("ongoing", start: 2_000, end: 3_600)
+        let future = event("future", start: 7_200, end: 9_000)
+        var now = ongoing.end
+        let viewModel = SkyCalendarViewModel(events: [future, ongoing, ended], calendar: calendar, now: { now })
+        viewModel.selectedDay = day
+        #expect(viewModel.monthEvents == [ongoing, future])
+        #expect(viewModel.dayEventChoices == [ongoing, future])
+        #expect(viewModel.upcoming == [ongoing, future])
+
+        now = now.addingTimeInterval(1)
+        viewModel.refreshTime()
+        #expect(viewModel.monthEvents == [future])
+        #expect(viewModel.events(on: day) == [future])
+        #expect(viewModel.dayEventChoices == [future])
+        #expect(viewModel.upcoming == [future])
+    }
+
     @Test func calendarMonthNavigationPreservesACompleteOrderedGrid() throws {
         let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 8)))
         let viewModel = SkyCalendarViewModel(calendar: calendar, now: { date })

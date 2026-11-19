@@ -172,7 +172,7 @@ struct HomeView: View {
                     Label("Gyro",systemImage:"gyroscope").tag(true)
                     Label("Touch",systemImage:"hand.draw").tag(false)
                 }
-                Button(OnboardingCopy.replayIntro,systemImage:"arrow.counterclockwise") { startOnboarding() }
+                Button(OnboardingCopy.replayTour,systemImage:"arrow.counterclockwise") { startOnboarding() }
                 #if DEBUG
                 Toggle("Demo constellations", isOn: $demoConstellationsEnabled)
                 #endif

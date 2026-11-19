@@ -6,6 +6,7 @@ struct SkyCalendarView: View {
     let onSelect: (SkyEvent) -> Void
     @Binding var showsDiscovery: Bool
     var onDiscoveryShown: () -> Void
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: SkyCalendarViewModel
     private typealias DisplayMode = SkyCalendarViewModel.DisplayMode
     private var calendar: Calendar { viewModel.calendar }
@@ -13,7 +14,7 @@ struct SkyCalendarView: View {
     private var filters: Set<SkyEvent.Kind> { viewModel.filters }
 
     init(
-        store: SkyEventStore, events: [SkyEvent] = SkyEvent.catalogue,
+        store: SkyEventStore, events: [SkyEvent]? = nil,
         showsDiscovery: Binding<Bool> = .constant(false), onDiscoveryShown: @escaping () -> Void = {},
         onSelect: @escaping (SkyEvent) -> Void
     ) {
@@ -39,6 +40,13 @@ struct SkyCalendarView: View {
         .toolbar(.visible,for:.navigationBar)
         .toolbarBackgroundVisibility(.hidden,for:.navigationBar)
         .preferredColorScheme(.dark)
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                viewModel.refreshTime()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
         .confirmationDialog(viewModel.selectedDay?.formatted(date:.complete,time:.omitted) ?? "Choose an event",
                             isPresented:$viewModel.showsDayEventChoices,titleVisibility:.visible) {
             ForEach(viewModel.dayEventChoices) { event in
@@ -123,7 +131,7 @@ struct SkyCalendarView: View {
         LazyVStack(spacing:16) {
             if monthEvents.isEmpty {
                 ContentUnavailableView("No Sky Events",systemImage:"calendar",
-                                       description:Text("Nothing matches this month. Try another month or category."))
+                                       description:Text("No ongoing or upcoming events match this month. Try another month or category."))
                     .padding(.top,40)
             }
             ForEach(monthEvents) { event in
@@ -196,13 +204,12 @@ struct SkyCalendarView: View {
     @ViewBuilder private func dayCell(_ day: Date?) -> some View {
         if let day {
             let dayEvents = viewModel.events(on:day)
-            let highlighted = calendar.isDate(day,inSameDayAs:viewModel.selectedDay ?? Date())
+            let highlighted = calendar.isDate(day,inSameDayAs:viewModel.selectedDay ?? viewModel.currentTime)
             Button {
                 viewModel.selectedDay = day
                 if dayEvents.count == 1, let event = dayEvents.first {
                     onSelect(event)
                 } else if !dayEvents.isEmpty {
-                    viewModel.dayEventChoices = dayEvents
                     viewModel.showsDayEventChoices = true
                 }
             } label: {

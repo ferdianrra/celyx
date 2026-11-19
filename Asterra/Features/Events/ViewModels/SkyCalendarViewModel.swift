@@ -13,10 +13,11 @@ final class SkyCalendarViewModel {
     private let catalog: SkyEventCatalog
     let calendar: Calendar
     private let now: () -> Date
+    private(set) var currentTime: Date
     var month: Date
     var displayMode: DisplayMode = .list
     var selectedDay: Date?
-    var dayEventChoices: [SkyEvent] = []
+    var dayEventChoices: [SkyEvent] { selectedDay.map { events(on: $0) } ?? [] }
     var showsDayEventChoices = false
     var filters: Set<SkyEvent.Kind> = []
 
@@ -28,33 +29,42 @@ final class SkyCalendarViewModel {
         self.catalog = catalog ?? .shared
         self.calendar = calendar
         self.now = now
-        month = calendar.dateInterval(of: .month, for: now())?.start ?? now()
+        let date = now()
+        currentTime = date
+        month = calendar.dateInterval(of: .month, for: date)?.start ?? date
     }
     /// Events overlapping `interval`, computed for the user's current location.
     private func events(in interval: DateInterval) -> [SkyEvent] {
         guard let fixedEvents else { return catalog.events(in: interval) }
         return fixedEvents.filter { $0.start < interval.end && $0.end >= interval.start }
     }
-    var upcoming: [SkyEvent] {
-        let today = calendar.startOfDay(for: now())
-        let horizon = calendar.date(byAdding: .year, value: 1, to: today) ?? today
-        return events(in: DateInterval(start: today, end: horizon)).filter { $0.end >= today && (filters.isEmpty || filters.contains($0.kind)) }
-            .sorted { $0.start < $1.start }
+    func refreshTime() {
+        currentTime = now()
     }
-    /// Events of the shown month that pass the category filters.
-    var monthEvents: [SkyEvent] {
-        guard let interval = calendar.dateInterval(of: .month, for: month) else { return [] }
-        return events(in: interval).filter { filters.isEmpty || filters.contains($0.kind) }
-        .sorted { $0.start < $1.start }
-    }
-    func events(on day: Date) -> [SkyEvent] {
-        let start = calendar.startOfDay(for: day)
-        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
-        return events(in: DateInterval(start: start, end: end)).filter {
-            (filters.isEmpty || filters.contains($0.kind)) && calendar.startOfDay(for: $0.start) <= day
-                && calendar.startOfDay(for: $0.end) >= day
+
+    private func visibleEvents(in interval: DateInterval) -> [SkyEvent] {
+        guard interval.end >= currentTime else { return [] }
+        return events(in: interval).filter {
+            !$0.hasEnded(at: currentTime) && (filters.isEmpty || filters.contains($0.kind))
         }.sorted { $0.start < $1.start }
     }
+
+    var upcoming: [SkyEvent] {
+        let today = calendar.startOfDay(for: currentTime)
+        let horizon = calendar.date(byAdding: .year, value: 1, to: today) ?? today
+        return visibleEvents(in: DateInterval(start: today, end: horizon))
+    }
+
+    var monthEvents: [SkyEvent] {
+        guard let interval = calendar.dateInterval(of: .month, for: month) else { return [] }
+        return visibleEvents(in: interval)
+    }
+
+    func events(on day: Date) -> [SkyEvent] {
+        guard let interval = calendar.dateInterval(of: .day, for: day) else { return [] }
+        return visibleEvents(in: interval)
+    }
+
     func moveMonth(by value: Int) {
         if let next = calendar.date(byAdding: .month, value: value, to: month) { month = next }
     }

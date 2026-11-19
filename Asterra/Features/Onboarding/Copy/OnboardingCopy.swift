@@ -2,7 +2,7 @@ enum OnboardingCopy {
 
     static let continueTour = "Continue"
     static let skipTour = "Skip Tour"
-    static let replayIntro = "Replay intro"
+    static let replayTour = "Replay tour"
     static let startCollecting = "Start Collecting"
 
     static let welcomeTitle = "Welcome to Asterra!"

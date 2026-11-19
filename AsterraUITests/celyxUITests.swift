@@ -19,7 +19,7 @@ final class celyxUITests: XCTestCase {
         directionOptions.tap()
         XCTAssertTrue(app.buttons["Gyro"].exists)
         XCTAssertTrue(app.buttons["Touch"].exists)
-        XCTAssertTrue(app.buttons["Replay intro"].exists)
+        XCTAssertTrue(app.buttons["Replay tour"].exists)
         XCTAssertFalse(app.buttons["Calibrate direction"].exists)
         XCTAssertFalse(app.buttons["Reset view"].exists)
     }
