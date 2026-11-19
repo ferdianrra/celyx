@@ -3,13 +3,23 @@ import Foundation
 struct StarShareContent {
     let item: GardenCollectionItem
     let collectionNumber: Int?
-    // Temporary design data; supply the measured rating here when available.
-    var lightPollution: String = "6.2/9"
+    var hasLightPollution: Bool { item.record.lightPollution != nil }
+
+    var lightPollution: String {
+        guard let estimate = item.record.lightPollution else { return "Unavailable" }
+        let sqm = estimate.sqm.formatted(.number.precision(.fractionLength(2)))
+        return "Bortle \(estimate.bortleClass) · SQM \(sqm)"
+    }
+
+    var lightPollutionDetail: String {
+        hasLightPollution ? "\(lightPollution) mag/arcsec²" : lightPollution
+    }
     var note: String {
         let value = item.record.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? "A sky moment captured with Asterra." : value
     }
     var lightTravel: String {
+        if item.star.isSun { return "Sunlight takes about 8 minutes to reach Earth." }
         guard let distance = item.star.distance_ly, distance.isFinite, distance > 0,
             !item.star.isSolarSystemBody else { return "A moment under your sky." }
         let years = distance.formatted(.number.precision(.fractionLength(0)).locale(Locale(identifier: "en_US")))

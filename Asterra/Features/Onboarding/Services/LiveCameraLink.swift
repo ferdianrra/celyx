@@ -68,6 +68,7 @@ final class LiveCameraLink: SkyCaptureSessionDelegate {
 
     func sessionInterruptionEnded(_ session: SkyCaptureSession) {
         guard self.session === session else { return }
+        pose = nil
         state = .starting
     }
 

@@ -4,6 +4,35 @@ import simd
 /// The guided tour drawn over Home. Native Liquid Glass coach cards set the pace; the practice star is
 /// projected through whichever camera the user is looking through (the Night Sea's or the live AR camera),
 /// so it moves exactly like collected stars do. The real crosshair (motion, sound, haptics) does the aiming.
+/// Keep high-frequency camera observations inside this small layer, outside Home's body.
+struct OnboardingCameraOverlay: View {
+    let flow: OnboardingFlow
+    let camera: NightSeaCamera
+    let liveCamera: LiveCameraLink?
+    var chromeVisible = false
+    var topBarVisible = false
+
+    var body: some View {
+        OnboardingOverlay(flow: flow, camera: shownCamera,
+            chromeVisible: chromeVisible, topBarVisible: topBarVisible)
+    }
+    private var shownCamera: NightSeaCamera {
+        if let camera = flow.gardenCamera { return camera }
+        #if DEBUG
+        // Aim the simulator camera at the calculated Sun, without moving the Sun itself.
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing"),
+           ProcessInfo.processInfo.arguments.contains("-onboarding-aimed"),
+           let star = flow.star, star.isSun {
+            var aimed = NightSeaCamera()
+            aimed.azimuth = atan2(star.direction.x, star.direction.y)
+            aimed.altitude = asin(star.direction.z)
+            return aimed
+        }
+        #endif
+        return liveCamera?.pose ?? camera
+    }
+}
+
 struct OnboardingOverlay: View {
     let flow: OnboardingFlow
     /// The camera the user is looking through right now.
@@ -40,6 +69,7 @@ struct OnboardingOverlay: View {
                 if hunting, let star = flow.star {
                     if let point {
                         PracticeStarView(star: star, isLocked: flow.isLocked).position(point)
+                            .transaction { $0.animation = nil }
                             .transition(.scale(scale: 0.2).combined(with: .opacity))
                     }
                     if !flow.isLocked, let hint = edgeHint(for: star, point: point, size: size) {
@@ -54,6 +84,24 @@ struct OnboardingOverlay: View {
                         .animation(.spring(duration: 0.45, bounce: 0.12), value: flow.isLocked)
                         .allowsHitTesting(false)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+
+                if flow.step == .garden, let direction = flow.gardenDirection,
+                    let point = camera.project(direction, in: size) {
+                    VStack(spacing: 10) {
+                        Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1.5)
+                            .frame(width: 54, height: 54)
+                            .background { OnboardingHighlight(size: CGSize(width: 38, height: 38), haptics: false) }
+                        Text(flow.star?.isSun == true ? "Your Sun" : flow.isTemporaryPractice ? "Your practice star" : "Your discovery")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(CelyxColor.night.opacity(0.85), in: Capsule())
+                    }
+                    // The ring is centered on the actual rendered star, above the coach card.
+                    .position(x: point.x, y: point.y + 23)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("tour-garden-star-highlight")
                 }
 
 
@@ -79,21 +127,41 @@ struct OnboardingOverlay: View {
         .overlay(alignment: .bottom) {
             if let card = flow.card {
                 OnboardingCard(card: card, flow: flow)
+                    .id(flow.step)
                     .padding(.horizontal, 16)
                     .padding(.bottom, chromeVisible ? 67 : 12)
-                    .transition(reduceMotion ? .opacity
+                    .transition(reduceMotion || flow.step == .garden ? .opacity
                         : .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                       removal: .opacity.combined(with: .scale(scale: 0.96))))
             }
         }
         .overlay(alignment: .topTrailing) {
-            if flow.step < .done && flow.step != .wormhole && !chromeVisible && !topBarVisible {
+            if flow.step < .wormhole && !topBarVisible {
                 Button(OnboardingCopy.skipTour) { flow.skip() }
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.glass)
                     .tint(.white)
                     .padding(.trailing, 16).padding(.top, 4)
                     .transition(.opacity)
+            }
+        }
+        .overlay {
+            if flow.step == .completion {
+                ZStack {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                    OnboardingCompletionCard(isPractice: flow.isTemporaryPractice) { flow.finish() }
+                        .padding(20)
+                }
+                .accessibilityAddTraits(.isModal)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if flow.canGoBack && flow.step != .note && flow.step != .completion {
+                Button("Back", systemImage: "chevron.left") { flow.back() }
+                    .font(.subheadline.weight(.medium))
+                    .buttonStyle(.glass).tint(.white)
+                    .padding(.leading, 16).padding(.top, topBarVisible ? 58 : 4)
+                    .accessibilityIdentifier("tour-back")
             }
         }
         .animation(reduceMotion ? .easeInOut(duration: 0.25) : .spring(duration: 0.5, bounce: 0.12), value: flow.step)
@@ -108,19 +176,26 @@ struct OnboardingOverlay: View {
         return .default
     }
 
-    /// When the star is off screen: a spot on the screen edge and the bearing toward it.
+    /// Keep the direction cue close to the fixed reticle until the target is near enough to lock.
+    /// Once the target is visible, use its projected point for a precise screen-space bearing.
     private func edgeHint(for star: OnboardingFlow.PracticeStar, point: CGPoint?, size: CGSize)
         -> (point: CGPoint, angle: Angle)?
     {
-        let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 40, dy: 120)
-        if let point, bounds.contains(point) { return nil }
-        // Bearing in the camera's own frame (works even when the star is behind the viewer).
-        let x = simd_dot(star.direction, camera.right), y = simd_dot(star.direction, camera.up)
-        let angle = atan2(-y, x)
-        let dx = cos(angle), dy = sin(angle)
-        let s = min(dx == 0 ? .infinity : (bounds.width / 2) / abs(dx),
-                    dy == 0 ? .infinity : (bounds.height / 2) / abs(dy))
-        return (CGPoint(x: bounds.midX + dx * s, y: bounds.midY + dy * s), .radians(angle))
+        let center = camera.center(in: size)
+        let angle: Double
+        if let point {
+            let x = point.x - center.x, y = point.y - center.y
+            guard hypot(x, y) > holdRadius else { return nil }
+            angle = atan2(Double(y), Double(x))
+        } else {
+            // Camera-frame bearing continues to work when the target is behind the viewer.
+            let x = simd_dot(star.direction, camera.right)
+            let y = simd_dot(star.direction, camera.up)
+            angle = atan2(-y, x)
+        }
+        let dx = CGFloat(cos(angle)), dy = CGFloat(sin(angle))
+        let radius = min(104, max(72, min(size.width, size.height) * 0.16))
+        return (CGPoint(x: center.x + dx * radius, y: center.y + dy * radius), .radians(angle))
     }
 }
 
@@ -136,12 +211,18 @@ private struct OnboardingCard: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
+                    if flow.step == .welcome {
+                        Image("asterra-app-logo").resizable().scaledToFit()
+                            .frame(width: 30, height: 30)
+                            .accessibilityHidden(true)
+                    } else {
                     Image(systemName: flow.succeeded ? "checkmark.circle.fill" : card.symbol)
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(flow.succeeded ? CelyxColor.ready : Color(red: 0.72, green: 0.82, blue: 1))
                         .contentTransition(.symbolEffect(.replace))
                         .symbolEffect(.bounce, value: flow.succeeded)
                         .frame(width: 26)
+                    }
                     Text(card.title).font(.title3.weight(.semibold))
                     Spacer(minLength: 8)
                     if let index = flow.progressIndex {
@@ -164,12 +245,6 @@ private struct OnboardingCard: View {
                     .animation(.smooth(duration: 0.3), value: flow.lookProgress)
                     .padding(.top, 18)
             }
-            if let secondary = card.secondary {
-                Button(secondary) { flow.secondary() }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .padding(.top, 12)
-            }
             if let primary = card.primary {
                 Button { flow.primary() } label: {
                     Text(primary).font(.system(size: 17, weight: .semibold)).tracking(-0.43)
@@ -181,6 +256,19 @@ private struct OnboardingCard: View {
                 .padding(.top, 20)
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
+            if let secondary = card.secondary {
+                Button { flow.secondary() } label: {
+                    Text(secondary)
+                        .font(.body.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(OnboardingSecondaryButtonStyle())
+                .padding(.top, 12)
+            }
         }
         .foregroundStyle(CelyxColor.primaryLabel)
         .padding(.horizontal, 22).padding(.top, 22).padding(.bottom, card.primary == nil ? 22 : 16)
@@ -190,6 +278,15 @@ private struct OnboardingCard: View {
     }
 }
 
+/// A quiet, clearly bounded alternative inside the glass coach card.
+private struct OnboardingSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(CelyxColor.primaryLabel)
+            .background(.white.opacity(configuration.isPressed ? 0.2 : 0.09), in: Capsule())
+            .overlay { Capsule().strokeBorder(.white.opacity(0.3), lineWidth: 1) }
+    }
+}
 
 // MARK: - Pieces
 
@@ -208,7 +305,14 @@ private struct PracticeStarView: View {
                         ring.scaleEffect(grown ? 2.8 : 0.8).opacity(grown ? 0 : 0.9)
                     } animation: { grown in grown ? .easeOut(duration: 1.6) : .linear(duration: 0.01).delay(0.5) }
             }
-            DemoStarView(color: star.color).scaleEffect(isLocked ? 1.3 : 1.15)
+            if star.isSun {
+                Circle().fill(Color(red: 1, green: 0.82, blue: 0.52).opacity(0.3))
+                    .frame(width: 50, height: 50).blur(radius: 9)
+                Circle().fill(Color(red: 1, green: 0.92, blue: 0.7))
+                    .frame(width: 20, height: 20)
+            } else {
+                DemoStarView(color: star.color).scaleEffect(isLocked ? 1.3 : 1.15)
+            }
         }
         .animation(.spring(duration: 0.5, bounce: 0.25), value: isLocked)
         .allowsHitTesting(false)
@@ -216,16 +320,18 @@ private struct PracticeStarView: View {
     }
 }
 
-/// A soft chevron on the screen edge, nudging toward an off-screen star.
+/// A direction arrow that nudges outward from the reticle toward the target.
 private struct OnboardingEdgeHint: View {
     let angle: Angle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image(systemName: "chevron.right")
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.95))
-            .shadow(color: Color(red: 0.62, green: 0.77, blue: 1).opacity(0.9), radius: 8)
+        Image(systemName: "location.north.fill")
+            .font(.system(size: 46, weight: .bold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.5), radius: 4)
+            // Point right before applying the radial offset and screen bearing.
+            .rotationEffect(.degrees(90))
             .phaseAnimator([0.0, 1.0]) { view, t in
                 view.offset(x: reduceMotion ? 0 : t * 7)
             } animation: { t in t == 1 ? .easeInOut(duration: 0.7) : .easeInOut(duration: 0.9) }

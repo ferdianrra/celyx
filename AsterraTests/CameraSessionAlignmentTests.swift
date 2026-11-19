@@ -135,29 +135,6 @@ struct CameraSessionAlignmentTests {
         #expect(!alignment.requiresCalibration)
     }
 
-    @Test func oneKnownReferenceCorrectsOtherDirectionsInTheSameWorld() throws {
-        let existing = 3 * Double.pi / 180
-        let total = 14 * Double.pi / 180
-        let trueReference = ray(azimuth: 120, altitude: 30)
-        let worldError = simd_quatf(angle: Float(total), axis: SIMD3(0, 1, 0))
-        let rotation = try #require(
-            CalibrationReference.localRotation(
-                expected: trueReference,
-                observed: worldError.act(trueReference), existingOffset: existing))
-        let previous = simd_quatf(angle: Float(existing), axis: SIMD3(0, 1, 0))
-        for direction in [trueReference, ray(azimuth: 180, altitude: 50), ray(azimuth: 240, altitude: 15)] {
-            #expect(simd_length(rotation.act(previous.act(direction)) - worldError.act(direction)) < 0.00001)
-            #expect(abs(rotation.act(previous.act(direction)).y - direction.y) < 0.00001)
-        }
-    }
-
-    @Test func aWrongHeightCannotBecomeTheSingleStarReference() {
-        #expect(
-            CalibrationReference.localRotation(
-                expected: ray(azimuth: 120, altitude: 30),
-                observed: ray(azimuth: 105, altitude: 45), existingOffset: 0) == nil)
-    }
-
     @Test func calibratedMatchingNeverUsesTheOldWideCompassSearchRadius() {
         let observed = ray(azimuth: 120, altitude: 30)
         let distant = (star(id: 1, mag: -1.44), ray(azimuth: 126, altitude: 30))

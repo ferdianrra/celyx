@@ -28,6 +28,10 @@ struct CameraAutomaticIdentification {
     /// the last real photo for this same disc, without renewing its timestamp.
     mutating func updateSolarDisc(_ assessment: CameraCandidateAssessment, sourceID: Int, observedAt: TimeInterval) {
         if assessment.issue == .compass, self.sourceID == sourceID { return }
+        // A brief bearing mismatch must not erase a confirmed disc and its real photo.
+        // Keep the original support timestamp: this is continuity, not new evidence.
+        if assessment.issue == .noCandidate, self.sourceID == sourceID, stableMatch != nil,
+            let lastSupport, observedAt >= lastSupport, observedAt - lastSupport <= 0.9 { return }
         update(candidate: assessment.match, sourceID: sourceID, observedAt: observedAt)
     }
 

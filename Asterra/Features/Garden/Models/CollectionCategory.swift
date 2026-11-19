@@ -9,7 +9,7 @@ enum CollectionCategory: String, CaseIterable, Hashable, Identifiable {
     var title: String {
         switch self {
         case .stars: "Stars"
-        case .planets: "Planets & Moon"
+        case .planets: "Solar System"
         case .skyEvents: "Sky events"
         case .constellations: "Constellations"
         }

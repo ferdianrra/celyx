@@ -33,11 +33,65 @@ import Testing
         #expect(StarPhotoStore.load(restored.collected[AppPreviewData.star.id]?.photoFilename) != nil)
     }
 
+    @Test func guidedSunPersistsWithoutACameraPhotoAndReplayPreservesItsNote() throws {
+        let name = "celyx.tests.guided-sun"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defaults.removePersistentDomain(forName: name)
+        defer { defaults.removePersistentDomain(forName: name) }
+        let model = HomeViewModel(location: AppPreviewData.location, date: AppPreviewData.date, defaults: defaults)
+        try model.saveGuidedSun(image: nil, date: AppPreviewData.date, location: AppPreviewData.location)
+        #expect(model.collectionItems.contains { $0.star.isSun })
+        model.updateObservationNote(id: CatalogStar.sun.id, note: "My first Sun")
+        try model.saveGuidedSun(image: AppPreviewData.albumPhoto, date: Date(), location: AppPreviewData.location)
+        let restored = HomeViewModel(defaults: defaults)
+        #expect(restored.collected[CatalogStar.sun.id]?.note == "My first Sun")
+        #expect(restored.collected[CatalogStar.sun.id]?.date == AppPreviewData.date)
+        #expect(restored.collected[CatalogStar.sun.id]?.identificationNote == OnboardingCopy.guidedSunIdentificationNote)
+        #expect(restored.collected[990_001] == nil)
+    }
+
     @Test func oldObservationsDecodeWithoutAPlaceName() throws {
         let data = Data(#"{"id":1,"date":0,"latitude":-6.38,"longitude":106.87}"#.utf8)
         let record = try JSONDecoder().decode(CollectedStar.self,from:data)
         #expect(record.placeName == nil)
         #expect(record.latitude == -6.38)
+    }
+
+    @Test func repeatCapturesPreserveLegacyHistoryAndDeleteOnlyTheSelectedPhoto() throws {
+        let suite = "asterra.repeat-captures.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let star = AppPreviewData.star
+        var legacy = AppPreviewData.record
+        legacy.photoFilename = try StarPhotoStore.save(AppPreviewData.albumPhoto)
+        defer { if let filename = legacy.photoFilename { StarPhotoStore.remove(filename) } }
+        legacy.note = "First observation"
+        defaults.set(try JSONEncoder().encode([legacy]), forKey: "collectedStars")
+        let model = HomeViewModel(defaults: defaults)
+        let firstID = try #require(model.observationHistory(for: star.id).first?.captureID)
+        let next = try model.saveCameraObservation(.init(star: star, image: AppPreviewData.albumPhoto,
+            date: legacy.date.addingTimeInterval(60), location: AppPreviewData.location,
+            identificationNote: "Second identification"), note: "Second observation")
+        defer { if let filename = next.photoFilename { StarPhotoStore.remove(filename) } }
+        let secondID = try #require(next.captureID)
+        model.updateObservationNote(captureID: firstID, note: "Edited first")
+        model.updateObservationPlace(captureID: secondID, name: "Bandung")
+
+        let restored = HomeViewModel(defaults: defaults)
+        #expect(restored.collectionItems.filter { $0.id == star.id }.count == 1)
+        #expect(restored.observationHistory(for: star.id).compactMap(\.captureID) == [secondID, firstID])
+        #expect(restored.observation(captureID: firstID)?.note == "Edited first")
+        #expect(restored.observation(captureID: secondID)?.note == "Second observation")
+        #expect(restored.observation(captureID: secondID)?.placeName == "Bandung")
+        #expect(StarPhotoStore.load(legacy.photoFilename) != nil)
+        #expect(StarPhotoStore.load(next.photoFilename) != nil)
+
+        restored.deleteObservation(captureID: secondID)
+        #expect(restored.collected[star.id]?.captureID == firstID)
+        #expect(StarPhotoStore.load(next.photoFilename) == nil)
+        #expect(StarPhotoStore.load(legacy.photoFilename) != nil)
+        restored.deleteObservation(captureID: firstID)
+        #expect(restored.collected[star.id] == nil)
     }
 
     @Test func cityNamesPreferReadablePlacesAndFallBackWithoutCoordinates() {

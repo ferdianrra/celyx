@@ -5,6 +5,41 @@ import simd
 
 @MainActor
 struct GardenCaptureSequenceTests {
+    @Test func gardenPlacementPreservesTheSunAndMoonCaptureIdentity() {
+        let items = [CatalogStar.sun, CatalogStar.moon].map { star in
+            GardenCollectionItem(star: star, record: CollectedStar(id: star.id, date: AppPreviewData.date,
+                latitude: AppPreviewData.location.latitude, longitude: AppPreviewData.location.longitude))
+        }
+        let scene = GardenViewModel.placement(items: items, location: AppPreviewData.location,
+            date: AppPreviewData.date)
+        let objects = scene.placed.map(\.object)
+        #expect(objects.map(\.id) == [CatalogStar.sun.id, CatalogStar.moon.id])
+        #expect(objects.first { $0.id == CatalogStar.sun.id }?.kind == .sun)
+        #expect(objects.first { $0.id == CatalogStar.moon.id }?.kind == .moon)
+    }
+
+    @Test func onboardingKeepsTheOriginalLandingFramedUntilTheGardenLessonContinues() async throws {
+        let handover = transition()
+        handover.holdForOnboarding()
+        var phases: [WormholeHandover.Phase] = []
+        await handover.run { _ in phases.append(handover.phase) }
+        #expect(handover.phase == .presenting && handover.showsSheet)
+        #expect(!phases.contains(.releasing))
+        let settled = handover.camera(handover.revealAt)
+        let held = handover.camera(handover.revealAt + 10000)
+        #expect(simd_distance(settled.forward, held.forward) < 1e-9)
+        #expect(abs(settled.focalLength(in: handover.freeze.size) - held.focalLength(in: handover.freeze.size)) < 1e-6)
+        let point = try #require(held.project(handover.starDirection, in: handover.freeze.size))
+        #expect(abs(point.y - handover.freeze.size.height * 0.36) < 1e-6)
+    }
+
+    @Test func reduceMotionAlsoHoldsTheFirstLandingForTheGardenLesson() async {
+        let handover = transition()
+        handover.holdForOnboarding()
+        await handover.run(reduceMotion: true) { _ in }
+        #expect(handover.holdsForOnboarding && handover.showsSheet && handover.phase == .presenting)
+    }
+
     private func transition(itemID: Int? = 42) -> WormholeHandover {
         let freeze = WormholeFreeze.placeholder(size: CGSize(width: 402, height: 874))
         return WormholeHandover(freeze: freeze, star: CGPoint(x: 201, y: 437), itemID: itemID,

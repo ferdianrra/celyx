@@ -5,29 +5,57 @@ struct CollectionListView: View {
     let category: CollectionCategory
     let model: HomeViewModel
     let events: SkyEventStore
+    var onGuide: ((CatalogStar) -> Void)? = nil
     let onSelectEvent: (SkyEvent) -> Void
     @State private var selected: GardenCollectionItem?
+    @State private var pendingGuide: CatalogStar?
+    @State private var book: [ZodiacBookEntry] = []
+    @State private var openBook: ZodiacBookEntry?
+    @State private var openPlanet: SolarSystemEntry?
 
     var body: some View {
         ScrollView {
-            content.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 40)
+            content.padding(.horizontal, category == .constellations ? 16 : 20)
+                .padding(.top, category == .constellations ? 32 : 12).padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
-        .background(CelyxScreenWash())
+        .background {
+            if category == .constellations {
+                Image("background/background-constellation-list").resizable().ignoresSafeArea()
+            } else {
+                CelyxScreenWash()
+            }
+        }
         .navigationTitle(category.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .preferredColorScheme(.dark)
-        .sheet(item: $selected) { item in
-            CollectedObjectSheet(
-                item: item, direction: currentDirection(of: item), collection: model,
-                onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-                onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) }
-            ) {
-                model.deleteCollected(id: item.id)
-                selected = nil
-            }
+        .sheet(item: $selected, onDismiss: openPendingGuide) { objectSheet($0) }
+        .navigationDestination(item: $openBook) { entry in
+            ZodiacBookDetailView(entry: entry, model: model, onObjectSheetDismissed: openPendingGuide) { objectSheet($0) }
         }
+        .navigationDestination(item: $openPlanet) { entry in
+            SolarSystemDetailView(
+                entry: entry,
+                model: model,
+                onGuide: onGuide
+            )
+        }
+        .task(id: category) {
+            if category == .constellations, book.isEmpty { book = ZodiacBookEntry.load(catalogue: model.stars) }
+        }
+    }
+
+    private func objectSheet(_ item: GardenCollectionItem) -> some View {
+        ObjectObservationSheet(item: item, model: model, allowsCompact: false, onGuide: onGuide.map { _ in
+            { pendingGuide = item.star }
+        })
+    }
+
+    private func openPendingGuide() {
+        guard let star = pendingGuide else { return }
+        pendingGuide = nil
+        onGuide?(star)
     }
 
     @ViewBuilder private var content: some View {
@@ -37,9 +65,19 @@ struct CollectionListView: View {
                 CollectionCategory.stars(model.collectionItems),
                 empty: "No stars yet. Tap Start Collecting and point at a bright one.")
         case .planets:
-            itemList(
-                CollectionCategory.planets(model.collectionItems),
-                empty: "No planets or Moon yet. They look like steady, bright stars.")
+            LazyVStack(spacing: 12) {
+                ForEach(SolarSystemEntry.allCases) { entry in
+                    Button {
+                        openPlanet = entry
+                    } label: {
+                        SolarSystemCard(
+                            entry: entry,
+                            isCollected: entry.item(in: model) != nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         case .skyEvents:
             let collected = SkyEvent.catalogue.filter { events.collected.contains($0.id) }
             if collected.isEmpty {
@@ -56,27 +94,36 @@ struct CollectionListView: View {
                 }
             }
         case .constellations:
+            let collected = Set(model.collected.keys)
+            // The zodiac has artwork, so it gets the book grid; other constellations keep the star list.
             let groups = CollectionCategory.constellations(model.collectionItems)
-            if groups.isEmpty {
-                emptyState("Collect a star and its constellation shows up here.")
-            } else {
-                VStack(alignment: .leading, spacing: 24) {
-                    ForEach(groups, id: \.code) { group in
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(group.name).font(.system(size: 17, weight: .semibold)).foregroundStyle(
-                                    .white)
-                                Spacer()
-                                Text("\(group.items.count) star\(group.items.count == 1 ? "" : "s")")
-                                    .font(.system(size: 13)).foregroundStyle(.white.opacity(0.5))
-                            }
-                            ForEach(group.items) { item in
-                                Button {
-                                    selected = item
-                                } label: {
-                                    itemRow(item)
-                                }.buttonStyle(.plain)
-                            }
+                .filter { !ZodiacBookEntry.order.contains($0.code) }
+            VStack(alignment: .leading, spacing: 24) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible())], spacing: 16) {
+                    ForEach(book) { entry in
+                        Button { openBook = entry } label: { ZodiacBookCard(entry: entry, collected: collected) }
+                            .buttonStyle(.plain)
+                    }
+                }
+                if !groups.isEmpty {
+                    Text("More constellations").font(.headline).foregroundStyle(.white)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                ForEach(groups, id: \.code) { group in
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(group.name).font(.system(size: 17, weight: .semibold)).foregroundStyle(
+                                .white)
+                            Spacer()
+                            Text("\(group.items.count) star\(group.items.count == 1 ? "" : "s")")
+                                .font(.system(size: 13)).foregroundStyle(.white.opacity(0.5))
+                        }
+                        ForEach(group.items) { item in
+                            Button {
+                                selected = item
+                            } label: {
+                                itemRow(item)
+                            }.buttonStyle(.plain)
                         }
                     }
                 }
@@ -157,24 +204,6 @@ struct CollectionListView: View {
         return "Star"
     }
 
-    /// Where it is right now (for the detail sheet).
-    private func currentDirection(of item: GardenCollectionItem) -> SIMD3<Double>? {
-        let location =
-            model.location ?? ObserverLocation(latitude: -6.2, longitude: 106.85, isManual: true)
-        let sky = AstronomyService.snapshot(date: Date(), location: location)
-        let star = item.star
-        let geometric: SIMD3<Double>?
-        if star.isSun {
-            geometric = sky.sunDirection
-        } else if star.isMoon {
-            geometric = sky.moonDirection
-        } else if star.isPlanet {
-            geometric = sky.planets.first(where: { $0.star.id == star.id })?.direction
-        } else {
-            geometric = sky.direction(ra: star.ra_deg, dec: star.dec_deg)
-        }
-        return geometric.map { Refraction.apparent($0) }
-    }
 }
 
 #Preview("Collection list") {

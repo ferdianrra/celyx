@@ -126,7 +126,17 @@ struct SkyEventDetailView: View {
         } else if isOpen {
             CelyxPillButton(title: "Collect this event", action: onCollect)
         } else {
-            CelyxPillButton(title: event.opensLabel, style: .disabled) {}
+            // Not pressable outside the viewing window: say when it can be collected instead.
+            VStack(spacing: 8) {
+                CelyxPillButton(
+                    title: event.hasEnded(at: Date()) ? "This event has ended" : event.opensLabel,
+                    systemImage: "lock.fill", style: .disabled
+                ) {}
+                Label("Can only be collected \(event.collectWindow)", systemImage: "clock")
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 }

@@ -38,6 +38,7 @@
       "build-settings": {
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+        "ASTERRA_LIGHT_POLLUTION_URL": "https://asterra-light-pollution.ahzaki95.workers.dev/light-pollution",
         "ASTERRA_META_APP_ID": "",
         "CODE_SIGN_IDENTITY": "Apple Development",
         "CODE_SIGN_STYLE": "Automatic",
@@ -132,7 +133,7 @@
       "build-settings": {
         "CODE_SIGN_STYLE": "Automatic",
         "CURRENT_PROJECT_VERSION": "1",
-        "DEVELOPMENT_TEAM": "4JUFXF99LG",
+        "DEVELOPMENT_TEAM": "3SFYM6B225",
         "GENERATE_INFOPLIST_FILE": "YES",
         "IPHONEOS_DEPLOYMENT_TARGET": "27.0",
         "MARKETING_VERSION": "1.0",

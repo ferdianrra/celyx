@@ -25,10 +25,14 @@ struct CollectCameraView: View {
     }
 
     var body: some View {
-        if case .star = mode {
+        switch mode {
+        case .star:
             StarCollectCameraView(model: model) { onFinish(false) }
-        } else {
-            eventBody
+        case .event(let event):
+            // Events use the live star camera: it guides to the event and collects only inside its window.
+            StarCollectCameraView(
+                model: model, event: event, eventStore: events, onEventCollected: { onFinish(false) }
+            ) { onFinish(false) }
         }
     }
 

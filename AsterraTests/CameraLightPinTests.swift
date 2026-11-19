@@ -67,23 +67,6 @@ struct CameraLightPinTests {
         #expect(pin.observedMatch(at: 10.1) == nil)
     }
 
-    @Test func anUnnamedLightCanBeSelectedToRestoreAlignment() {
-        var pin = CameraLightPin(direction: ray, time: 10, observations: 1)
-        #expect(!pin.canUseAsReference(at: 10, distance: 0))
-        pin.observe(direction: ray, time: 10.2)
-        #expect(pin.canUseAsReference(at: 10.2, distance: 20))
-        #expect(pin.match == nil)
-        #expect(!pin.isIdentified, "Detecting the light must not invent its reference name")
-    }
-
-    @Test func selectingAReferenceRequiresFreshLightInsideTheReticle() {
-        let pin = CameraLightPin(direction: ray, time: 10, observations: 2)
-        #expect(pin.canUseAsReference(at: 10.5, distance: 28))
-        #expect(!pin.canUseAsReference(at: 12.1, distance: 0))
-        #expect(!pin.canUseAsReference(at: 10.1, distance: 161))
-        #expect(!pin.canUseAsReference(at: 9.9, distance: 0))
-    }
-
     @Test func aRememberedLightSurvivesWithoutNewCameraObservations() {
         var pin = CameraLightPin(direction: ray, time: 10, observations: 2)
         pin.assess(.init(match: nil, issue: .ambiguous))

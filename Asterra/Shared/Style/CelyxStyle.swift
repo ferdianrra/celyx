@@ -159,54 +159,6 @@ struct CelyxTintedGlassButtonStyle: ButtonStyle {
     }
 }
 
-/// Segmented control from Figma (998:2108): grey track, tinted-glass thumb, SF Symbol + title per segment.
-/// The system segmented picker can't show a symbol next to its title or take this thumb, so it is drawn here;
-/// VoiceOver still gets the native segmented control through `accessibilityRepresentation`.
-struct CelyxSegmentedControl<Value: Hashable>: View {
-    struct Segment {
-        let value: Value
-        let title: String
-        let systemImage: String
-    }
-    @Binding var selection: Value
-    let segments: [Segment]
-    @Namespace private var thumb
-
-    var body: some View {
-        HStack(spacing:4) {
-            ForEach(segments,id:\.value) { segment in
-                let isOn = segment.value == selection
-                Button {
-                    guard !isOn else { return }
-                    withAnimation(.spring(duration:0.42,bounce:0.2)) { selection = segment.value }
-                } label: {
-                    Label(segment.title,systemImage:segment.systemImage)
-                        .font(.system(size:13.33,weight:isOn ? .semibold : .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth:.infinity).frame(height:34)
-                        .contentShape(Capsule())
-                }
-                .accessibilityLabel(segment.title)
-                .accessibilityAddTraits(isOn ? .isSelected : [])
-                .buttonStyle(.plain)
-                .background {
-                    if isOn {
-                        // Figma export "SegmentedControlActive" (glass over the segment gradient), incl. its rim glow.
-                        Image("celyx-segment-active").resizable()
-                            .padding(.horizontal,-8.5).padding(.vertical,-2)
-                            .matchedGeometryEffect(id:"thumb",in:thumb)
-                    }
-                }
-            }
-        }
-        .padding(2)
-        .sensoryFeedback(.selection,trigger:selection)
-        .background(Capsule().fill(Color(hex:0x767680,opacity:0.24)))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("View")
-    }
-}
-
 /// Subtle frosted box (`Action Group` in Figma): 1% white fill with an 8% white inner glow.
 struct CelyxInfoBox: View {
     var cornerRadius: CGFloat = 16
@@ -303,13 +255,14 @@ struct CelyxScreenWash: View {
 
 /// Scrolls the artwork with the content and holds its top edge in place during pull-down bounce.
 struct CelyxSheetScrollView<Content: View>: View {
+    var showsArtwork = true
     @ViewBuilder let content: Content
     @State private var topBounce: CGFloat = 0
 
     var body: some View {
         ScrollView {
             content.background(alignment: .top) {
-                artwork.offset(y: -topBounce)
+                if showsArtwork { artwork.offset(y: -topBounce) }
             }
         }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
@@ -342,18 +295,6 @@ struct CelyxSheetScrollView<Content: View>: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-}
-
-extension View {
-    /// Native presentation with the calibration sheet's existing grabber.
-    func celyxSheet(detents: Set<PresentationDetent> = [.medium,.large]) -> some View {
-        safeAreaInset(edge:.top,spacing:0) {
-            CelyxGrabber().frame(height:10,alignment:.top).padding(.bottom,14)
-        }
-        .presentationDetents(detents)
-        .presentationDragIndicator(.hidden)
-        .preferredColorScheme(.dark)
     }
 }
 

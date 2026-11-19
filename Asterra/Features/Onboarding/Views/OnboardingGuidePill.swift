@@ -1,17 +1,75 @@
 import SwiftUI
 
+/// Camera instructions and their fallback share a compact panel at the bottom of the camera.
+struct OnboardingCameraGuide: View {
+    let isDaytime: Bool
+    var offersGuidedSun = false
+    let onPractice: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 12))
+        layout {
+            instructions.frame(maxWidth: .infinity, alignment: .leading)
+            practiceOption
+        }
+        .foregroundStyle(.white)
+        .padding(12)
+        .frame(maxWidth: 440)
+        .background(CelyxColor.night.opacity(0.92), in: RoundedRectangle(cornerRadius: 22))
+        .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.18), lineWidth: 1) }
+        .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tour-camera-guide")
+    }
+
+    private var instructions: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(isDaytime ? "Point your camera toward the Sun" : "Point your camera toward a star or Moon")
+                .font(.system(size: 15, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Hold steady")
+                .font(.system(size: 15)).foregroundStyle(.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var practiceOption: some View {
+        VStack(spacing: 6) {
+            Text("Can’t see it?")
+                .font(.system(size: 15))
+                .foregroundStyle(.white.opacity(0.7))
+            practiceButton
+        }
+    }
+
+    private var practiceButton: some View {
+        Button(action: onPractice) {
+            Text(offersGuidedSun ? OnboardingCopy.tryGuidedSun : OnboardingCopy.cannotSeeObject)
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.horizontal, 14).frame(minHeight: 44)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(CelyxTintedGlassButtonStyle())
+        .accessibilityIdentifier("tour-camera-try-virtual-star")
+    }
+
+}
+
 /// The tour's voice wherever the coach card can't be (over the wormhole, inside sheets, on pushed
-/// screens): one calm Liquid Glass line with the same sparkle, so the user always knows what to do next.
+/// screens): a calm Liquid Glass line with an icon that describes the next action.
 struct OnboardingGuidePill: View {
     let text: String
-    var symbol = "sparkles"
+    var symbol = "info.circle"
     var onDismiss: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: symbol).font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color(hex: 0x9AA2FF))
-                .symbolEffect(.pulse, options: .repeat(.periodic(delay: 1.2)))
+                .accessibilityHidden(true)
             Text(text).font(.subheadline.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
             if let onDismiss {
@@ -124,6 +182,6 @@ struct OnboardingHighlight: View {
 }
 
 #Preview {
-    OnboardingGuidePill(text: OnboardingCopy.noteEntryGuide)
+    OnboardingGuidePill(text: OnboardingCopy.starCardGuide, symbol: "info.circle")
         .padding().background(CelyxColor.night)
 }

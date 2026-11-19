@@ -10,22 +10,29 @@ struct GardenSkyView: View {
     @Binding var camera: NightSeaCamera
     var isActive = true
     /// Bump to face north (no gyro) or keep the real direction (gyro).
-    var resetRequest = 0
     /// Live camera behind the collected objects instead of the virtual Night Sea.
     var usesCamera = false
+    var showsCameraCollection = true
     var usesGyro = true
     var onModeChange: ((Bool) -> Void)?
     /// Wormhole handover from the collect camera: drives the view during landing + reframe.
     var handover: WormholeHandover?
     /// Shows a collected object's album after a handover (or the Reduce Motion fade).
     var sheetRequest: GardenSheetRequest?
+    let showsDemoConstellations: Bool
     /// Called when the demo object's album closes (debug replay).
     var onDemoEnded: () -> Void = {}
     /// Onboarding tour hook into the live camera mode.
     var cameraLink: LiveCameraLink?
+    var tourFocusDirection: SIMD3<Double>?
+    var tourFocusCamera: NightSeaCamera?
     var onTourNoteCompleted: () -> Void
+    var onTourBack: () -> Void
 
     @State private var viewModel: GardenViewModel
+    static let showsStarNamesKey = "gardenShowsStarNames"
+    /// Compass menu toggle. Hidden names stay available to VoiceOver.
+    @AppStorage(GardenSkyView.showsStarNamesKey) private var showsStarNames = true
     @State private var failed = false
     /// The album shown right after a capture's wormhole lands.
     @State private var albumRequest: GardenSheetRequest?
@@ -33,20 +40,28 @@ struct GardenSkyView: View {
 
     init(
         model: HomeViewModel, camera: Binding<NightSeaCamera>, isActive: Bool = true,
-        resetRequest: Int = 0, usesCamera: Bool = false, usesGyro: Bool = true,
+        usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
-        sheetRequest: GardenSheetRequest? = nil, onDemoEnded: @escaping () -> Void = {},
-        cameraLink: LiveCameraLink? = nil, onTourNoteCompleted: @escaping () -> Void = {}
+        sheetRequest: GardenSheetRequest? = nil, showsDemoConstellations: Bool = false,
+        onDemoEnded: @escaping () -> Void = {},
+        cameraLink: LiveCameraLink? = nil, showsCameraCollection: Bool = true, tourFocusDirection: SIMD3<Double>? = nil,
+        tourFocusCamera: NightSeaCamera? = nil,
+        onTourNoteCompleted: @escaping () -> Void = {},
+        onTourBack: @escaping () -> Void = {}
     ) {
         self.cameraLink = cameraLink
+        self.showsCameraCollection = showsCameraCollection
+        self.tourFocusDirection = tourFocusDirection
+        self.tourFocusCamera = tourFocusCamera
         self.onTourNoteCompleted = onTourNoteCompleted
+        self.onTourBack = onTourBack
         self.handover = handover
         self.sheetRequest = sheetRequest
+        self.showsDemoConstellations = showsDemoConstellations
         self.onDemoEnded = onDemoEnded
         self.model = model
         _camera = camera
         self.isActive = isActive
-        self.resetRequest = resetRequest
         self.usesCamera = usesCamera
         self.usesGyro = usesGyro
         self.onModeChange = onModeChange
@@ -57,9 +72,11 @@ struct GardenSkyView: View {
         ZStack {
             if usesCamera {
                 GardenCameraLayer(
-                    placed: viewModel.placed, selectedID: viewModel.selected?.id,
-                    connections: shownConnections, zodiacFigures: shownZodiacFigures,
+                    placed: showsCameraCollection ? viewModel.placed : [], selectedID: viewModel.selected?.id,
+                    connections: showsCameraCollection ? shownConnections : [],
+                    zodiacFigures: showsCameraCollection ? shownZodiacFigures : [],
                     equatorial: viewModel.equatorial, isActive: refreshesSkyPositions,
+                    showsLabels: showsStarNames,
                     onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
                     link: cameraLink
                 ) { viewModel.selected = $0 }
@@ -72,6 +89,11 @@ struct GardenSkyView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: usesCamera)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: showsCaptureSequence)
+        #if DEBUG
+        .onChange(of: showsDemoConstellations, initial: true) { _, enabled in
+            viewModel.setDemoConstellations(enabled)
+        }
+        #endif
         // Real positions: recomputed every second from GPS + clock (the sky turns ~0.25° a minute).
         .task(id: refreshesSkyPositions) {
             guard refreshesSkyPositions else { return }
@@ -97,18 +119,35 @@ struct GardenSkyView: View {
             if tracksGardenMotion { viewModel.setGyroMode(usesGyro) }
         }
         .onChange(of: viewModel.usesGyro) { _, enabled in onModeChange?(enabled) }
-        .onChange(of: resetRequest) { _, _ in viewModel.resetCamera() }
         .onChange(of: viewModel.camera) { _, value in if camera != value { camera = value } }
         .onChange(of: camera) { _, value in if viewModel.camera != value { viewModel.camera = value } }
         .onChange(of: reduceMotion, initial: true) { _, value in viewModel.reduceMotion = value }
+        // Another camera drives the view during a capture handover or the tour: stay pinhole.
+        .onChange(of: handover == nil && tourFocusDirection == nil && tourFocusCamera == nil, initial: true) { _, free in
+            viewModel.projectionLocked = !free
+        }
+        .onChange(of: tourFocusDirection, initial: true) { _, direction in
+            guard direction != nil else {
+                viewModel.camera.centerYFraction = nil
+                return
+            }
+            viewModel.stopGyro()
+            guard let focused = tourFocusCamera else { return }
+            viewModel.camera = focused
+            camera = focused
+        }
+        .onChange(of: cameraLink == nil) { _, ended in
+            // A tour demo belongs to the lesson, never to the saved collection.
+            if ended { endDemo() }
+        }
         .onDisappear(perform: viewModel.stopGyro)
         .onChange(of: handover?.phase, initial: true) { _, phase in
-            if phase == .landed, let handover {
+            if let handover, phase == .landed || (handover.holdsForOnboarding && phase == .presenting) {
                 if let demo = handover.demo { viewModel.demo = demo }
                 viewModel.place(using: handover.scene)
                 let id = handover.itemID
-                let completed = viewModel.completedZodiacFigures.first { $0.requiredStarIDs.contains(id ?? Int.min) }
-                let edges = viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
+                let completed = isRepeatCapture ? nil : viewModel.completedZodiacFigures.first { $0.requiredStarIDs.contains(id ?? Int.min) }
+                let edges = isRepeatCapture ? [] : viewModel.constellationConnections.filter { $0.startID == id || $0.endID == id }
                 var ids = completed?.requiredStarIDs ?? Set(edges.flatMap { [$0.startID, $0.endID] })
                 if let id { ids.insert(id) }
                 handover.configureFocus(
@@ -122,22 +161,33 @@ struct GardenSkyView: View {
             guard let request,
                 model.collectionItems.contains(where: { $0.id == request.itemID }) || request.demoItem != nil
             else { return }
+            // Reduce Motion can advance past .landed before SwiftUI observes that phase.
+            if let demo = handover?.demo {
+                viewModel.demo = demo
+                viewModel.place()
+            }
             albumRequest = request
         }
-        .sheet(item: $albumRequest, onDismiss: { endDemo(); handover?.finish() }) { request in
-            if let item = model.collectionItems.first(where: { $0.id == request.itemID }) {
-                CollectedObjectSheet(item: item, direction: nil, collection: model,
-                    capturedPhoto: request.photo, startsWithNoteEntry: true,
-                    onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-                    onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) },
-                    tourGuide: request.isTour && cameraLink != nil,
-                    onNoteCompleted: { if request.isTour { onTourNoteCompleted() } },
-                    onDelete: { model.deleteCollected(id: item.id); albumRequest = nil })
+        .sheet(item: $albumRequest, onDismiss: {
+            if sheetRequest?.isTour == true, cameraLink != nil {
+                onTourNoteCompleted()
+            } else {
+                endDemo()
+            }
+            handover?.finish()
+        }) { request in
+            if let item = model.collectionItems.first(where: { $0.id == request.itemID }),
+               let record = request.captureID.map({ model.observation(captureID: $0) }) ?? item.record {
+                let captured = GardenCollectionItem(star: item.star, record: record)
+                CaptureDetailView(item: captured, model: model, startsWithNoteEntry: true,
+                    capturedPhoto: request.photo, tourGuide: request.isTour && cameraLink != nil,
+                    onTourBack: onTourBack, onDeleted: { albumRequest = nil })
                     .id(request.id)
             } else if let demo = request.demoItem {
                 CollectedObjectSheet(item: demo, direction: nil, capturedPhoto: request.photo,
                     startsWithNoteEntry: true, tourGuide: request.isTour && cameraLink != nil,
-                    onNoteCompleted: { if request.isTour { onTourNoteCompleted() } }, onDelete: { albumRequest = nil })
+                    onTourBack: onTourBack,
+                    onDelete: { albumRequest = nil })
                     .id(request.id)
             }
         }
@@ -148,16 +198,7 @@ struct GardenSkyView: View {
             }
         }
         .sheet(item: $viewModel.selected) { item in
-            CollectedObjectSheet(
-                item: item,
-                direction: viewModel.placed.first(where: { $0.id == item.id })?.object.direction,
-                collection: model,
-                onSaveNote: { model.updateObservationNote(id: item.id, note: $0) },
-                onSavePlace: { model.updateObservationPlace(id: item.id, name: $0) }
-            ) {
-                model.deleteCollected(id: item.id)
-                viewModel.selected = nil
-            }
+            ObjectObservationSheet(item: item, model: model)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your garden sky")
@@ -170,7 +211,8 @@ struct GardenSkyView: View {
 
     private var tracksGardenMotion: Bool {
         // The handover camera owns the shot until focus. Start tracking in time for the live return.
-        refreshesSkyPositions && (!usesCamera || showsCaptureSequence)
+        tourFocusDirection == nil && !(handover?.holdsForOnboarding == true)
+            && refreshesSkyPositions && (!usesCamera || showsCaptureSequence)
     }
 
     private var refreshesSkyPositions: Bool {
@@ -181,7 +223,8 @@ struct GardenSkyView: View {
     }
 
     private var showsCaptureSequence: Bool {
-        handover != nil && handover!.phase < .presenting && !reduceMotion
+        guard let handover, !reduceMotion else { return false }
+        return handover.phase < .presenting || (handover.holdsForOnboarding && handover.phase != .done)
     }
 
     /// Collected objects to draw; the one just collected waits until its flight lands (LandingStarFlight).
@@ -194,15 +237,20 @@ struct GardenSkyView: View {
     }
 
     /// Reveal newly collected threads only after placement and focus settle.
+    private var isRepeatCapture: Bool {
+        guard let id = handover?.itemID, handover?.captureID != nil else { return false }
+        return model.observationHistory(for: id).count > 1
+    }
+
     private var shownConnections: [GardenConstellationConnection] {
-        guard let handover, !handover.revealIsVisible, let id = handover.itemID else {
+        guard !isRepeatCapture, let handover, !handover.revealIsVisible, let id = handover.itemID else {
             return viewModel.constellationConnections
         }
         return viewModel.constellationConnections.filter { $0.startID != id && $0.endID != id }
     }
 
     private var shownZodiacFigures: [GardenZodiacFigure] {
-        guard let handover, !handover.revealIsVisible, let id = handover.itemID else {
+        guard !isRepeatCapture, let handover, !handover.revealIsVisible, let id = handover.itemID else {
             return viewModel.completedZodiacFigures
         }
         return viewModel.completedZodiacFigures.filter { !$0.requiredStarIDs.contains(id) }
@@ -210,6 +258,10 @@ struct GardenSkyView: View {
 
     /// The camera actually rendered: the handover's while it lands and reframes, then the garden's own.
     private func viewCamera() -> NightSeaCamera {
+        if let focused = tourFocusCamera { return focused }
+        if let handover, handover.holdsForOnboarding, handover.phase == .presenting {
+            return handover.camera(handover.revealAt)
+        }
         guard let handover, handover.phase >= .landed, handover.phase < .presenting, !reduceMotion else { return viewModel.camera }
         handover.target = handover.phase >= .releasing ? (usesCamera ? handover.liveCamera ?? viewModel.camera : viewModel.camera) : nil
         return handover.camera(handover.tt())
@@ -230,19 +282,20 @@ struct GardenSkyView: View {
                         .clipped()
                 } else {
                     NightSeaView(
-                        camera: shown, objects: viewModel.background + shownPlaced,
+                        camera: shown, objects: shownPlaced,
                         selectedID: viewModel.selected?.id, moon: viewModel.moon,
+                        sun: viewModel.placed.first { $0.item.star.isSun }?.object.direction,
                         equatorial: viewModel.equatorial, isActive: gardenIsActive
                     ) { _ in failed = true }
                 }
                 GardenZodiacFigures(unlocked: shownZodiacFigures,
                     projected: GardenZodiacFigure.project(shownZodiacFigures, basis: viewModel.equatorial,
-                        size: geometry.size, point: { shown.project($0, in: geometry.size) }),
-                    skyClip: GardenZodiacFigure.skyClip(size: geometry.size) { point in
-                        let center = shown.center(in: geometry.size)
-                        let focal = shown.focalLength(in: geometry.size)
-                        return shown.forward.z + Double(point.x - center.x) / focal * shown.right.z
-                            + Double(center.y - point.y) / focal * shown.up.z
+                        size: geometry.size, forward: shown.forward,
+                        // The dome keeps shapes true further out, so the artwork may sit further off-centre.
+                        depthLimit: 0.6 - 0.3 * shown.stereographic,
+                        point: { shown.project($0, in: geometry.size) }),
+                    skyMask: shownZodiacFigures.isEmpty ? nil : GardenZodiacFigure.skyMask(size: geometry.size) { point in
+                        shown.direction(at: point, in: geometry.size).z
                     }, isActive: gardenIsActive)
                 GardenConstellationLines(connections: shownConnections,
                     positions: Dictionary(uniqueKeysWithValues: shownPlaced.compactMap { object in
@@ -251,9 +304,12 @@ struct GardenSkyView: View {
                         else { return nil }
                         return (object.id, point)
                     }), isActive: gardenIsActive)
+                if !failed && !showsCaptureSequence {
+                    cardinalLabels(in: geometry.size, camera: shown)
+                }
                 labels(in: geometry.size, camera: shown)
             }
-            .allowsHitTesting(handover == nil || handover!.phase >= .presenting)
+            .allowsHitTesting(tourFocusDirection == nil && (handover == nil || handover!.phase >= .presenting))
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 2)
@@ -262,25 +318,15 @@ struct GardenSkyView: View {
                         // A finger on the water trails through it while looking around.
                         if let p = waterPoint(at: value.location, in: geometry.size) { NightSeaWater.shared.trail(at: p) }
                     }
-                    .onEnded { _ in
-                        viewModel.dragStart = nil
+                    .onEnded { value in
+                        viewModel.endDrag(velocity: value.velocity, in: geometry.size)
                         NightSeaWater.shared.endTrail()
                     }
             )
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { value in
-                        if viewModel.camera.orientation != nil {
-                            if viewModel.zoomStart == nil { viewModel.zoomStart = viewModel.camera.zoom }
-                            viewModel.camera.zoom = min(
-                                4, max(0.5, (viewModel.zoomStart ?? 1) * value.magnification))
-                        } else {
-                            if viewModel.zoomStart == nil {
-                                viewModel.zoomStart = viewModel.camera.fieldOfView
-                            }
-                            viewModel.camera.fieldOfView = min(
-                                110, max(24, (viewModel.zoomStart ?? 72) / value.magnification))
-                        }
+                        viewModel.pinch(value.magnification, anchor: value.startLocation, in: geometry.size)
                     }
                     .onEnded { _ in viewModel.zoomStart = nil }
             )
@@ -294,9 +340,40 @@ struct GardenSkyView: View {
     }
 
     // MARK: Labels
+    @ViewBuilder
+    private func cardinalLabels(in size: CGSize, camera: NightSeaCamera) -> some View {
+        let directions: [(label: String, direction: SIMD3<Double>)] = [
+            ("N", SIMD3(0, 1, 0)),
+            ("E", SIMD3(1, 0, 0)),
+            ("S", SIMD3(0, -1, 0)),
+            ("W", SIMD3(-1, 0, 0))
+        ]
+
+        ForEach(directions.indices, id: \.self) { index in
+            let marker = directions[index]
+
+            if let point = camera.project(marker.direction, in: size),
+               point.x >= 14, point.x <= size.width - 14,
+               point.y >= 14, point.y <= size.height - 14 {
+                Text(marker.label)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.7), radius: 3)
+                    .position(point)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 
     @ViewBuilder private func labels(in size: CGSize, camera: NightSeaCamera) -> some View {
-        ForEach(viewModel.placed.filter(\.object.isAboveHorizon)) { entry in
+        // Names appear only once the user zooms in; zoomed out the sky stays clean.
+        let zoomOpacity = GardenZoomLimits.labelOpacity(zoom: camera.gardenZoom(in: size))
+        let labelOpacity = showsStarNames ? zoomOpacity : 0
+        ForEach(viewModel.placed.filter { entry in
+            entry.object.isAboveHorizon && (tourFocusDirection.map {
+                simd_distance($0, entry.object.direction) > 0.0001
+            } ?? true)
+        }) { entry in
             if let point = camera.project(entry.object.direction, in: size),
                 point.x > -40, point.x < size.width + 40, point.y > -40, point.y < size.height + 40
             {
@@ -310,9 +387,16 @@ struct GardenSkyView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .position(x: point.x, y: point.y + entry.object.radius * (entry.object.kind == .star ? 7 / 1.3 : 1) * 0.45 + 14)
-                .accessibilityLabel("\(entry.item.star.title), collected \(entry.item.collectedDate)")
-                .accessibilityHint("Shows details")
+                .disabled(entry.isPreview)
+                // Visually hidden but still a VoiceOver element; taps go to the object itself.
+                .opacity(labelOpacity)
+                .allowsHitTesting(labelOpacity > 0.5)
+                .animation(.easeInOut(duration: 0.25), value: showsStarNames)
+                // Below the drawn object, which grows with zoom.
+                .position(x: point.x, y: point.y + entry.object.apparent(camera: camera, in: size).labelOffset)
+                .accessibilityLabel(entry.isPreview ? "\(entry.item.star.title), preview star" :
+                    "\(entry.item.star.title), collected \(entry.item.collectedDate)")
+                .accessibilityHint(entry.isPreview ? "" : "Shows details")
             }
         }
     }
@@ -326,10 +410,7 @@ struct GardenSkyView: View {
     /// Where a screen point's view ray meets the water plane (horizon frame metres), if it's on the water.
     private func waterPoint(at point: CGPoint, in size: CGSize) -> SIMD2<Double>? {
         guard !usesCamera, handover == nil else { return nil }
-        let camera = viewModel.camera
-        let f = camera.focalLength(in: size), c = camera.center(in: size)
-        let d = simd_normalize(camera.forward + ((point.x - c.x) / f) * camera.right + ((c.y - point.y) / f) * camera.up)
-        return NightSeaWater.waterPoint(d)
+        return NightSeaWater.waterPoint(viewModel.camera.direction(at: point, in: size))
     }
 
     // MARK: Handover
@@ -346,6 +427,7 @@ struct GardenSkyView: View {
 struct GardenSheetRequest: Equatable, Identifiable {
     let id = UUID()
     let itemID: Int
+    var captureID: UUID? = nil
     /// Debug replay: an in-memory object that isn't in the collection.
     var demoItem: GardenCollectionItem? = nil
     /// Photo to show in the album (the demo's frozen frame; real captures use their saved photo).

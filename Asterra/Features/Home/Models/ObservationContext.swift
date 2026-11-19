@@ -23,6 +23,8 @@ struct SkySnapshot {
     let moonDirection: SIMD3<Double>
     let moonIllumination: Double
     var planets: [(star:CatalogStar,direction:SIMD3<Double>)] = []
+    /// Sun–planet–Earth angle in degrees per planet id (the garden lights zoomed disks with it).
+    var planetPhaseAngles: [Int: Double] = [:]
     var sunAltitude: Double { asin(sunDirection.z) * 180 / .pi }
     var phase: String {
         sunAltitude >= -0.833 ? "Daytime" : sunAltitude > -6 ? "Civil twilight" : sunAltitude > -12 ? "Nautical twilight" : sunAltitude > -18 ? "Astronomical twilight" : "Night"
@@ -73,6 +75,8 @@ struct CollectedStar: Codable, Identifiable {
     var note: String? = nil
     var identificationNote: String? = nil
     var placeName: String? = nil
+    var lightPollution: LightPollutionEstimate? = nil
+    var captureID: UUID? = nil
 }
 
 nonisolated struct VisibilityFilters: Equatable, Sendable {

@@ -5,9 +5,8 @@ import simd
 /// Garden in camera mode: the live back camera with the collected objects glowing on top,
 /// each pinned to where it really is in the sky right now.
 ///
-/// Uses the same AVFoundation + Core Motion pipeline as the collecting camera (true-north orientation,
-/// the measured camera intrinsics and sensor orientation, and the calibrated compass correction in
-/// `SkyFinderProjection.worldDirection`), so the overlay lines up with the real image.
+/// Uses the AVFoundation and Core Motion pipeline to project overlays using measured camera
+/// intrinsics and true-north sensor orientation.
 struct GardenCameraLayer: View {
     let placed: [GardenPlacedObject]
     let selectedID: Int?
@@ -15,12 +14,14 @@ struct GardenCameraLayer: View {
     var zodiacFigures: [GardenZodiacFigure] = []
     var equatorial: simd_double3x3?
     var isActive = true
+    /// Compass menu "Star Names" toggle; hidden names stay available to VoiceOver.
+    var showsLabels = true
     var onCameraUpdate: ((NightSeaCamera) -> Void)? = nil
     /// The onboarding tour's view of this camera (pose every frame, frozen frame on demand).
     let link: LiveCameraLink?
     let onSelect: (GardenCollectionItem) -> Void
 
-    @State private var session = SkyCaptureSession()
+    @State private var session = SkyCaptureSession(usesContinuousAutoFocus: true)
     @State private var viewport: CGSize = .zero
     @State private var denied = false
     @Environment(\.scenePhase) private var phase
@@ -52,7 +53,8 @@ struct GardenCameraLayer: View {
                     let sprites = project(in:size)
                     ZStack {
                         GardenZodiacFigures(unlocked: zodiacFigures,
-                            projected: projectZodiac(in: size), skyClip: zodiacSkyClip(in: size),
+                            projected: projectZodiac(in: size),
+                            skyMask: zodiacFigures.isEmpty ? nil : zodiacSkyMask(in: size),
                             isActive: isActive)
                         GardenConstellationLines(connections: connections,
                             positions: Dictionary(uniqueKeysWithValues: sprites.map { ($0.id, $0.point) }),
@@ -71,10 +73,16 @@ struct GardenCameraLayer: View {
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .opacity(showsLabels ? 1 : 0)
+                            .allowsHitTesting(showsLabels)
                             .position(sprite.labelPosition)
-                            .accessibilityLabel("\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
+                            .disabled(sprite.entry.isPreview)
+                            .accessibilityLabel(sprite.entry.isPreview ? "\(sprite.entry.item.star.title), preview star" :
+                                "\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
                         }
-                    if let message = statusMessage {
+                    // The tour already presents camera status and aiming guidance in its coach card.
+                    // A second glass pill here would sit underneath that card.
+                    if link == nil, let message = statusMessage {
                         Text(message).font(.system(size:12,weight:.medium)).foregroundStyle(.white.opacity(0.9))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal,14).padding(.vertical,8)
@@ -100,7 +108,7 @@ struct GardenCameraLayer: View {
             .simultaneousGesture(SpatialTapGesture().onEnded { value in
                 let size = viewport == .zero ? geometry.size : viewport
                 let hits = project(in:size).map { ($0,hypot($0.point.x-value.location.x,$0.point.y-value.location.y)) }
-                    .filter { $0.1 <= $0.0.hitRadius }
+                    .filter { !$0.0.entry.isPreview && $0.1 <= $0.0.hitRadius }
                 if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.item) }
             })
         }
@@ -111,8 +119,16 @@ struct GardenCameraLayer: View {
             else { session.pause(); link?.sessionWasInterrupted(session) }
         }
         .onChange(of:phase) { _, value in
-            if value == .active && isActive { run() }
+            if value == .active && isActive { run(restarting: true) }
             else if value == .background { session.pause(); link?.sessionWasInterrupted(session) }
+        }
+        .task(id: isActive && phase == .active) {
+            guard isActive, phase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard !Task.isCancelled else { return }
+                session.recoverIfStalled()
+            }
         }
         .onDisappear { session.pause(); link?.disconnect(from: session) }
     }
@@ -120,7 +136,7 @@ struct GardenCameraLayer: View {
     private var statusMessage: String? {
         if denied { return "Allow camera access in Settings to see your garden in the real sky." }
         guard let frame = session.currentFrame else { return "Starting the camera…" }
-        if case .normal = frame.camera.trackingState { return nil }
+        if frame.camera.trackingState.hasUsablePose { return nil }
         return "Move your phone slowly to line up the sky…"
     }
 
@@ -142,15 +158,21 @@ struct GardenCameraLayer: View {
         }
         if isActive { run() }
     }
-    private func run() {
-        guard !denied, SkyCaptureSession.isSupported else { return }
-        session.run()
+    private func run(restarting: Bool = false) {
+        guard !denied, SkyCaptureSession.isSupported, phase != .background else { return }
+        if restarting { session.restart() }
+        else { session.run() }
     }
 
     // MARK: Projection (identical to the collecting camera)
 
+    private var projectionFrame: SkyCaptureFrame? {
+        guard let frame = session.currentFrame, frame.camera.trackingState.hasUsablePose else { return nil }
+        return frame
+    }
+
     private func project(in size: CGSize) -> [Sprite] {
-        guard size.width > 0, let frame = session.currentFrame, case .normal = frame.camera.trackingState else { return [] }
+        guard size.width > 0, let frame = projectionFrame else { return [] }
         let view = frame.camera.viewMatrix(viewRotationAngle:90)
         let projection = frame.camera.projectionMatrix(viewRotationAngle:90,viewportSize:size,zNear:0.01,zFar:2000)
         return placed.compactMap { entry in
@@ -169,11 +191,12 @@ struct GardenCameraLayer: View {
     // MARK: Drawing
 
     private func projectZodiac(in size: CGSize) -> [ProjectedConstellationFigure] {
-        guard size.width > 0, size.height > 0, let frame = session.currentFrame,
-            case .normal = frame.camera.trackingState else { return [] }
+        guard size.width > 0, size.height > 0, let frame = projectionFrame else { return [] }
         let view = frame.camera.viewMatrix(viewRotationAngle: 90)
         let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
-        return GardenZodiacFigure.project(zodiacFigures, basis: equatorial, size: size) { direction in
+        let back = view.transpose.columns.2
+        let forward = SkyFinderProjection.horizonDirection(-SIMD3(back.x, back.y, back.z))
+        return GardenZodiacFigure.project(zodiacFigures, basis: equatorial, size: size, forward: forward) { direction in
             let world = SkyFinderProjection.worldDirection(direction)
             let local = view * SIMD4(world.x, world.y, world.z, 0)
             guard local.z < -0.06 else { return nil }
@@ -184,11 +207,11 @@ struct GardenCameraLayer: View {
         }
     }
 
-    private func zodiacSkyClip(in size: CGSize) -> [CGPoint] {
-        guard size.width > 0, size.height > 0, let frame = session.currentFrame else { return [] }
+    private func zodiacSkyMask(in size: CGSize) -> CGImage? {
+        guard size.width > 0, size.height > 0, let frame = projectionFrame else { return nil }
         let inverse = simd_inverse(frame.camera.viewMatrix(viewRotationAngle: 90))
         let projection = frame.camera.projectionMatrix(viewRotationAngle: 90, viewportSize: size, zNear: 0.01, zFar: 2000)
-        return GardenZodiacFigure.skyClip(size: size) { point in
+        return GardenZodiacFigure.skyMask(size: size) { point in
             let x = Float(2 * point.x / size.width - 1) / projection.columns.0.x
             let y = Float(1 - 2 * point.y / size.height) / projection.columns.1.y
             return Double((inverse * SIMD4(x, y, -1, 0)).y)

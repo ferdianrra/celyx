@@ -1,12 +1,10 @@
 import SwiftUI
 
-/// Visible Now filters are independent of the calibration candidate catalog.
 struct FilteredStarsView: View {
     @Bindable var model: HomeViewModel
     @State private var query = ""
     @State private var selectedID: Int?
     @State private var showsAR = false
-    @State private var showsCalibrationCatalog = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
 
@@ -22,7 +20,7 @@ struct FilteredStarsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Visible Now").font(.system(size: 22, weight: .bold))
                     Text(
-                        "Stars and planets predicted from your time, location and filters. This is separate from Calibration Stars and your collection."
+                        "Stars and planets predicted from your time, location and filters."
                     )
                     .font(.system(size: 13)).foregroundStyle(CelyxColor.secondaryLabel)
                     Text(
@@ -40,8 +38,6 @@ struct FilteredStarsView: View {
                     if model.location == nil {
                         Button("Use my location") { model.requestLocation() }
                     }
-                    Button("Open Calibration Stars · separate catalog") { showsCalibrationCatalog = true }
-                        .font(.system(size: 13, weight: .semibold))
                 }
                 filters
                 catalog
@@ -55,19 +51,13 @@ struct FilteredStarsView: View {
         .fullScreenCover(isPresented: $showsAR) {
             FilteredSkyARView(model: model, selectedID: selectedID)
         }
-        .fullScreenCover(isPresented: $showsCalibrationCatalog) {
-            SkyCalibrationView(
-                catalogue: model.stars, alignment: model.cameraAlignment,
-                opensCatalog: true, initialLocation: model.location
-            ) { showsCalibrationCatalog = false }
-        }
         .task {
             guard !AppPreviewData.isRunning else { return }
             model.resume()
         }
         .onDisappear { model.suspend() }
         .onChange(of: phase) { _, value in
-            if value == .active, !showsAR, !showsCalibrationCatalog, !AppPreviewData.isRunning {
+            if value == .active, !showsAR, !AppPreviewData.isRunning {
                 model.resume()
             } else {
                 model.suspend()
