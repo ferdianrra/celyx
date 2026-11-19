@@ -11,8 +11,6 @@ struct HomeView: View {
     @State private var pendingCollectionCategory: CollectionCategory?
     @State private var camera: CollectCameraView.Mode?
     @State private var gardenCamera = NightSeaCamera()
-    @State private var gardenReset = 0
-    @State private var showsCalibration = false
     /// The star collect camera, shown in place (not a cover) so the wormhole can hand over to the garden.
     @State private var showsStarCamera = false
     @State private var guideTarget: CatalogStar?
@@ -52,9 +50,9 @@ struct HomeView: View {
         NavigationStack(path:$path) {
             ZStack(alignment:.bottom) {
                 GardenSkyView(model:model,camera:$gardenCamera,
-                              isActive:phase != .background && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
+                              isActive:phase != .background && path.isEmpty && camera == nil && !showsCollection
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
-                              resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
+                              usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,
                               showsDemoConstellations:showsDemoConstellations && onboarding?.step != .find,
@@ -144,9 +142,6 @@ struct HomeView: View {
             .presentationDetents([.height(300),.large])
             .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented:$showsCalibration) {
-            SkyCalibrationView(catalogue:model.stars,alignment:model.cameraAlignment) { showsCalibration = false }
-        }
         .fullScreenCover(isPresented:$showsStarCamera, onDismiss: { guideTarget = nil }) {
             StarCollectCameraView(model:model,handover:handover,onCollect:collected, onboardingGuide:realCameraGuide, guideTarget:guideTarget) {
                 showsStarCamera = false
@@ -177,8 +172,6 @@ struct HomeView: View {
                     Label("Gyro",systemImage:"gyroscope").tag(true)
                     Label("Touch",systemImage:"hand.draw").tag(false)
                 }
-                Button("Calibrate direction",systemImage:"scope") { showsCalibration = true }
-                Button("Reset view",systemImage:"arrow.counterclockwise") { gardenReset += 1 }
                 Button(OnboardingCopy.replayIntro,systemImage:"arrow.counterclockwise") { startOnboarding() }
                 #if DEBUG
                 Toggle("Demo constellations", isOn: $demoConstellationsEnabled)
@@ -271,7 +264,6 @@ struct HomeView: View {
                         home.didPrepareDiscovery = true
                         home.hasSeenCollectionHint = false
                         home.hasSeenCalendarHint = false
-                        UserDefaults.standard.set(false, forKey: "hasSeenEventCardHint")
                     }
                     #endif
                     if home.shouldStartOnboarding && !home.didAutoStartTour { home.didAutoStartTour = true; home.startOnboarding() } }

@@ -335,59 +335,6 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             estimatedSeparation: match.separation, sourceDirection: pin.direction,
             observedAt: pin.confirmedAt)
     }
-    var canCaptureReference: Bool {
-        guard status == .tracking, !isAdjustingCamera, let pin = pinnedLight,
-            session.currentFrame?.camera.trackingState.supportsOpticalAnalysis == true,
-            let point = pinnedLightGuide?.point
-        else { return false }
-        return pin.canUseAsReference(
-            at: lastFrameTime,
-            distance: hypot(point.x - viewport.width / 2, point.y - viewport.height / 2))
-    }
-    func captureFirstReference() -> CameraReferenceCapture? {
-        guard canCaptureReference, let pin = pinnedLight else { return nil }
-        let date = Date().addingTimeInterval(-max(0, lastFrameTime - pin.lastSeen))
-        let snapshot = AstronomyService.snapshot(date: date, location: location)
-        let candidates = CameraReferenceCandidates.make(catalogue: catalogue, sky: snapshot,
-                                                        observed: pin.direction)
-        return CameraReferenceCapture(
-            generation: alignment.generation, direction: pin.direction, date: date, location: location,
-            candidates: candidates)
-    }
-    @discardableResult
-    func confirmFirstReference(_ capture: CameraReferenceCapture, star: CatalogStar) -> Bool {
-        guard status == .tracking, !isAdjustingCamera,
-            let frame = session.currentFrame, case .normal = frame.camera.trackingState,
-            capture.generation == alignment.generation, abs(capture.date.timeIntervalSinceNow) < 120,
-            capture.candidates.contains(where: { $0.id == star.id })
-        else { return false }
-        // Planet catalog entries do not have fixed stellar RA/Dec. Use the actual
-        // ephemeris direction captured with this observation, including for Jupiter.
-        guard let expected = capture.candidates.first(where: { $0.id == star.id })?.direction else { return false }
-        guard running, hasStartedSession,
-            let rotation = CalibrationReference.localRotation(
-                expected: expected, observed: capture.direction,
-                existingOffset: SkyCalibration.arHeadingOffset)
-        else { return false }
-        alignment.save(
-            rotation: rotation,
-            reference: star.title, date: Date(), location: capture.location)
-        singleLightCandidate = nil
-        singleLightIssue = nil
-        discardPendingDetection()
-        opticalTracks = []
-        candidateHistory = [:]
-        annotations = []
-        unidentifiedLights = []
-        skyDate = nil
-        self.sky = nil
-        var pin = CameraLightPin(direction: capture.direction, time: lastFrameTime, observations: 2, aimDirection: previousForward)
-        pin.identify(using: CameraCandidateMatch(star: star, separation: 0, score: 0))
-        pinnedLight = pin
-        lastPinAssessment = -1
-        updateReticleGate()
-        return true
-    }
     private func updateReticleGate() {
         let distance = pinnedLightGuide?.point.map {
             hypot($0.x - viewport.width / 2, $0.y - viewport.height / 2)
@@ -567,8 +514,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             projection: screenProjection(frame), size: viewport)
     }
 
-    func clearAlignment() { resetTrackingForCalibration() }
-    func resetTrackingForCalibration() {
+    private func resetTrackingForCalibration() {
         clearPinnedLight()
         alignment.clear()
         invalidateCameraMatches()
@@ -784,18 +730,6 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
     func locationManager(_ manager: CLLocationManager, didUpdateHeading heading: CLHeading) {
         cameraHeadingAccuracy =
             heading.trueHeading >= 0 && heading.headingAccuracy >= 0 ? heading.headingAccuracy : nil
-    }
-    func recalibrateCameraDirection() {
-        discardPendingDetection()
-        annotations = []
-        unidentifiedLights = []
-        candidateHistory = [:]
-        opticalTracks = []
-        lastDetectionTime = -1
-        if running && hasLocationFix {
-            hasStartedSession = false
-            runSession()
-        }
     }
     private var viewRotationAngle: CGFloat {
         switch orientation {
@@ -1150,7 +1084,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             }
         }
         guard let sky, viewport.width > 0, viewport.height > 0 else { return }
-        if alignment.requiresCalibration, star != nil || showsPredictions {
+        if alignment.requiresCalibration, star != nil {
             clearPinnedLight()
             discardPendingDetection()
             projection = nil
@@ -1215,7 +1149,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             return CGPoint(x: (x + 1) * viewport.width / 2, y: (1 - y) * viewport.height / 2)
         }
         if showsPredictions {
-            if alignment.reference != nil || cameraHeadingAccuracy.map({ $0 >= 0 && $0 <= 25 }) == true {
+            if hasReferenceAlignment || cameraHeadingAccuracy.map({ $0 >= 0 && $0 <= 25 }) == true {
                 predictions = viewableObjects.filter { !$0.star.isSolarDisc }.map {
                     CameraSkyPrediction(
                         direction: alignedDirection($0.direction), star: $0.star,
@@ -1646,12 +1580,11 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         }
         let token = detectionGeneration
         let world = alignment.generation
-        let prior = SkyCalibration.arHeadingOffset
         lastMappingAttempt = time
         automaticMappingTask = Task { @MainActor [weak self] in
             let solution = await Task.detached(priority: .userInitiated) {
                 SkyPatternMatcher.solve(
-                    observations: observations, catalogue: candidates, anchorID: anchor.id, priorOffset: prior
+                    observations: observations, catalogue: candidates, anchorID: anchor.id
                 )
             }.value
             guard let self, !Task.isCancelled, self.running,
@@ -1667,7 +1600,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
                 let star = self.catalogue.first(where: { $0.id == solution.anchorStarID })
             else { return }
             self.alignment.save(
-                rotation: simd_quatf(angle: Float(solution.headingOffset - prior), axis: SIMD3(0, 1, 0)),
+                rotation: simd_quatf(angle: Float(solution.headingOffset), axis: SIMD3(0, 1, 0)),
                 reference: "Automatic star pattern", date: Date(), location: self.location)
             self.discardPendingDetection()
             self.opticalTracks = []
@@ -1835,7 +1768,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
 
     func session(_ session: SkyCaptureSession, didFailWithError error: Error) {
         clearPinnedLight()
-        alignment.invalidate(reason: "Camera tracking stopped. Restart and calibrate the sky again.")
+        alignment.invalidate(reason: "Camera tracking stopped. Reopen the camera to resume sky tracking.")
         discardPendingDetection()
         projection = nil
         annotations = []
@@ -1849,7 +1782,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         clearPinnedLight()
         alignment.invalidate(
             reason:
-                "Camera tracking was interrupted. Align a known object again before using sky positions.")
+                "Camera tracking was interrupted. Sky mapping will restart when the camera resumes.")
         discardPendingDetection()
         projection = nil
         annotations = []

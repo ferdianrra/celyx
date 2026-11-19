@@ -24,13 +24,13 @@ final class CameraSkyAlignment {
         self.session = session ?? SkyCaptureSession()
         self.defaults = defaults
         // Every launch starts without a verified sensor world, including the first launch.
-        calibrationReason = "Confirm a known star to map the sky before collecting."
+        calibrationReason = "Point the camera at several stars to map the sky automatically."
         defaults.removeObject(forKey: "cameraSkyAlignment.v1")
         // Observe the whole app: the camera screen may be covered by an album or picker.
         lifecycleObserver = notifications.publisher(for: UIApplication.didEnterBackgroundNotification)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.pause(reason: "The app entered the background. Rebuild the sky map with a known object.")
+                    self?.pause(reason: "Sky mapping will restart when the camera resumes.")
                 }
             }
     }
@@ -53,7 +53,7 @@ final class CameraSkyAlignment {
     func enterBackground() {
         pause(
             reason:
-                "The app left the foreground. Align a known object again because the phone may have moved.")
+                "Sky mapping will restart when the camera returns to the foreground.")
     }
     func invalidate(reason: String) {
         generation += 1
@@ -74,6 +74,6 @@ final class CameraSkyAlignment {
         return true
     }
     func clear() {
-        invalidate(reason: "Alignment was reset. Mark a known object to calibrate the sky again.")
+        invalidate(reason: "Sky alignment was reset and will be rebuilt automatically.")
     }
 }

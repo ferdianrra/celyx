@@ -180,17 +180,6 @@ struct FeatureViewModelTests {
         #expect(!viewModel.usesGyro)
     }
 
-    @Test func choosingAKnownReferenceLeavesPatternModeWithoutSavingAnIdentity() {
-        let viewModel = SkyCalibrationViewModel(catalogue: [], preview: .pattern)
-        let candidate = CalibrationCandidate(star: AppPreviewData.star, direction: SIMD3(0, 0.5, -0.8660254))
-        viewModel.chooseCandidate(candidate)
-        #expect(viewModel.mode == .reference)
-        #expect(viewModel.selectedID == candidate.id)
-        #expect(viewModel.selectedFromCatalog)
-        #expect(!viewModel.saved)
-        #expect(!viewModel.engine.patternEnabled)
-    }
-
     @Test func movedRenderingAndFeedbackResourcesRemainBundled() {
         #expect(Bundle.main.url(forResource: "NightSeaShader", withExtension: "txt") != nil)
         for sound in CrosshairSound.allCases {

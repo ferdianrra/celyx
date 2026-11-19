@@ -80,7 +80,7 @@ enum OnboardingCopy {
     static let collectionSuccessBody = "Come back to it anytime from the book at the top."
     static let calendarTitle = "Sky Calendar"
     static let calendarBody = "Meteor showers, eclipses and more. Tap the glowing calendar at the top to see what's coming."
-    static let calendarGuide = "Browse upcoming sky events in List or Calendar, then tap a bell to set a reminder."
+    static let calendarGuide = "Use Calendar to browse by date. Tap a card for details or its bell to toggle a reminder."
     static let calendarSuccessTitle = "That's the Sky Calendar"
     static let calendarSuccessBody = "Set a reminder on any event so you never miss it."
 
