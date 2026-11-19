@@ -48,7 +48,7 @@ struct CollectionSheet: View {
                                 .accessibilityIdentifier("collection-discovery-tip")
                                 .onAppear(perform: onDiscoveryShown)
                         }
-                        CollectionTile(title: "Planet", count: counts.planets, action: { onSelect(.planets) })
+                        CollectionTile(title: "Solar System", count: counts.planets, action: { onSelect(.planets) })
                         {
                             Image("celyx-tile-planet").resizable().frame(width: 148, height: 109).offset(
                                 x: 61, y: -8)
@@ -56,7 +56,7 @@ struct CollectionSheet: View {
                     }
                     GridRow {
                         CollectionTile(
-                            title: "Sky event", count: counts.events, action: { onSelect(.skyEvents) }
+                            title: "Sky Events", count: counts.events, action: { onSelect(.skyEvents) }
                         ) {
                             // Figma: mirrored horizontally and blended with Screen, so the meteors glow out of the dark tile.
                             Image("celyx-event-meteor-card").resizable().frame(width: 214, height: 214)
@@ -67,7 +67,7 @@ struct CollectionSheet: View {
                                 .blendMode(.screen)
                         }
                         CollectionTile(
-                            title: "Constellation", count: counts.constellations,
+                            title: "Constellations", count: counts.constellations,
                             action: { onSelect(.constellations) }
                         ) {
                             Image("celyx-tile-constellation").resizable().frame(width: 192, height: 123)
