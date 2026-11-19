@@ -42,21 +42,4 @@ import simd
             headingAccuracy: 5, candidates: [(jupiter, ray), (second, ray)])
         #expect(result.match == nil && result.issue == .ambiguous)
     }
-
-    @Test func jupiterCanBeAReferenceUsingItsLiveEphemerisInsteadOfZeroRAAndDec() throws {
-        let location = AppPreviewData.location
-        let snapshots = (0..<24).map {
-            AstronomyService.snapshot(date: AppPreviewData.date.addingTimeInterval(Double($0) * 3600), location: location)
-        }
-        let sky = try #require(snapshots.first { snapshot in
-            snapshot.planets.contains { $0.star.id == jupiter.id && $0.direction.z > 0.2 && $0.direction.z < 0.95 }
-        })
-        let planet = try #require(sky.planets.first { $0.star.id == jupiter.id })
-        let d = Refraction.apparent(planet.direction)
-        let observed = SIMD3<Float>(Float(d.x), Float(d.z), Float(-d.y))
-        let candidates = CameraReferenceCandidates.make(catalogue: [], sky: sky, observed: observed)
-        let reference = try #require(candidates.first { $0.id == jupiter.id })
-        #expect(simd_distance(reference.direction, observed) < 1e-6)
-        #expect(CalibrationReference.localRotation(expected: reference.direction, observed: observed, existingOffset: 0) != nil)
-    }
 }

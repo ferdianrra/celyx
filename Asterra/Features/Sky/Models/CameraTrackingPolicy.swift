@@ -12,7 +12,6 @@ nonisolated enum CameraTrackingPolicy {
     static let maximumScanTurnDegrees: Float = 20
     static let trackGap: TimeInterval = 1.5
     static let scanMemory: TimeInterval = 5
-    static let referenceFreshness: TimeInterval = 2
     static let maximumAnalysisAge: TimeInterval = 2
 
     static func acceptsAnalysis(capturedAt: TimeInterval, now: TimeInterval) -> Bool {

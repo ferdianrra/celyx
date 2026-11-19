@@ -29,7 +29,7 @@ enum CameraIdentificationIssue: Equatable {
         case .ambiguous:
             "Several objects fit this direction too closely to choose a name. A known reference can help align the camera."
         case .alignment:
-            "There’s a possible match outside the saved alignment’s close range. Hold steady, or check alignment with a known object."
+            "There’s a possible match outside the saved alignment’s close range. Hold steady while the camera checks the match."
         }
     }
 }

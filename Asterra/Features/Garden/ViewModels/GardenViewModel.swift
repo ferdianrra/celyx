@@ -47,15 +47,6 @@ final class GardenViewModel {
         completedZodiacFigures = GardenZodiacFigure.unlocked(zodiacFigures, collected: Set(model.collected.keys))
     }
 
-    func resetCamera() {
-        if camera.orientation == nil {
-            camera.azimuth = 0
-            camera.altitude = 18 * .pi / 180
-        }
-        camera.fieldOfView = 72
-        camera.zoom = 1
-    }
-
     // MARK: Placement
 
     #if DEBUG
@@ -259,10 +250,7 @@ final class GardenViewModel {
     }
     /// Follow the real viewing direction without a drag offset or artificial upward tilt.
     private func follow(_ attitude: simd_double3x3) {
-        var sensor = simd_quatd(attitude)
-        // Calibrated compass error (see SkyCalibration): turn the sensor's north to true north.
-        let correction = SkyCalibration.motionHeadingOffset
-        if correction != 0 { sensor = simd_quatd(angle: -correction, axis: SIMD3(0, 0, 1)) * sensor }
+        let sensor = simd_quatd(attitude)
         guard let current = camera.orientation, !reduceMotion else {
             camera.orientation = sensor
             return

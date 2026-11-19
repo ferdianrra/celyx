@@ -5,9 +5,8 @@ import simd
 /// Garden in camera mode: the live back camera with the collected objects glowing on top,
 /// each pinned to where it really is in the sky right now.
 ///
-/// Uses the same AVFoundation + Core Motion pipeline as the collecting camera (true-north orientation,
-/// the measured camera intrinsics and sensor orientation, and the calibrated compass correction in
-/// `SkyFinderProjection.worldDirection`), so the overlay lines up with the real image.
+/// Uses the AVFoundation and Core Motion pipeline to project overlays using measured camera
+/// intrinsics and true-north sensor orientation.
 struct GardenCameraLayer: View {
     let placed: [GardenPlacedObject]
     let selectedID: Int?

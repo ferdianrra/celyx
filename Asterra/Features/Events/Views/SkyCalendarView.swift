@@ -6,26 +6,15 @@ struct SkyCalendarView: View {
     let onSelect: (SkyEvent) -> Void
     @Binding var showsDiscovery: Bool
     var onDiscoveryShown: () -> Void
-    @AppStorage("hasSeenEventCardHint") private var hasSeenEventCardHint = false
-    @State private var showsEventHelp = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: SkyCalendarViewModel
     private typealias DisplayMode = SkyCalendarViewModel.DisplayMode
     private var calendar: Calendar { viewModel.calendar }
     private var month: Date { viewModel.month }
     private var filters: Set<SkyEvent.Kind> { viewModel.filters }
 
-    private struct DiscoveryContext: Equatable {
-        let calendarTipVisible: Bool
-        let listVisible: Bool
-        let firstEventID: String?
-    }
-    private var discoveryContext: DiscoveryContext {
-        DiscoveryContext(calendarTipVisible: showsDiscovery,
-            listVisible: viewModel.displayMode == .list, firstEventID: monthEvents.first?.id)
-    }
-
     init(
-        store: SkyEventStore, events: [SkyEvent] = SkyEvent.catalogue,
+        store: SkyEventStore, events: [SkyEvent]? = nil,
         showsDiscovery: Binding<Bool> = .constant(false), onDiscoveryShown: @escaping () -> Void = {},
         onSelect: @escaping (SkyEvent) -> Void
     ) {
@@ -51,16 +40,13 @@ struct SkyCalendarView: View {
         .toolbar(.visible,for:.navigationBar)
         .toolbarBackgroundVisibility(.hidden,for:.navigationBar)
         .preferredColorScheme(.dark)
-        .task(id: discoveryContext) {
-            guard !showsDiscovery, viewModel.displayMode == .list,
-                  !hasSeenEventCardHint, !monthEvents.isEmpty else { return }
-            // Let the Calendar popover finish closing before presenting the next anchor.
-            // Re-run when that popover closes or the user returns to the list, within this visit.
-            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-            guard !Task.isCancelled, !hasSeenEventCardHint else { return }
-            showsEventHelp = true
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                viewModel.refreshTime()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
         }
-        .onChange(of: month) { _, _ in showsEventHelp = false }
         .confirmationDialog(viewModel.selectedDay?.formatted(date:.complete,time:.omitted) ?? "Choose an event",
                             isPresented:$viewModel.showsDayEventChoices,titleVisibility:.visible) {
             ForEach(viewModel.dayEventChoices) { event in
@@ -73,10 +59,12 @@ struct SkyCalendarView: View {
     private var calendarHeader: some View {
         // Keep the decorative surface outside the control's accessibility bounds.
         VStack(spacing: 0) {
-            CelyxSegmentedControl(selection:$viewModel.displayMode,segments:[
-                .init(value:.list,title:"List",systemImage:"list.bullet"),
-                .init(value:.calendar,title:"Calendar",systemImage:"calendar")
-            ])
+            Picker("View", selection: $viewModel.displayMode) {
+                Label("List", systemImage: "list.bullet").tag(DisplayMode.list)
+                Label("Calendar", systemImage: "calendar").tag(DisplayMode.calendar)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("sky-events-display-mode")
             .background {
                 // Anchor to the Calendar half of the real segmented control, not the whole header.
                 GeometryReader { geometry in
@@ -85,7 +73,7 @@ struct SkyCalendarView: View {
                         Color.clear.frame(width: geometry.size.width / 2)
                             .popover(isPresented: $showsDiscovery, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
                                 DiscoveryTooltip(title: "Calendar view",
-                                    message: "Tap Calendar to see upcoming sky events by date.",
+                                    message: OnboardingCopy.calendarGuide,
                                     onDismiss: { showsDiscovery = false })
                                     .accessibilityIdentifier("calendar-discovery-tip")
                                     .onAppear(perform: onDiscoveryShown)
@@ -143,20 +131,11 @@ struct SkyCalendarView: View {
         LazyVStack(spacing:16) {
             if monthEvents.isEmpty {
                 ContentUnavailableView("No Sky Events",systemImage:"calendar",
-                                       description:Text("Nothing matches this month. Try another month or category."))
+                                       description:Text("No ongoing or upcoming events match this month. Try another month or category."))
                     .padding(.top,40)
             }
             ForEach(monthEvents) { event in
-                if event.id == monthEvents.first?.id {
-                    eventRow(event)
-                        .popover(isPresented: $showsEventHelp, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-                            DiscoveryTooltip(title: "Sky event cards",
-                                message: "Tap a card for viewing details. Use its bell to turn a reminder on or off.",
-                                onDismiss: { showsEventHelp = false })
-                                .accessibilityIdentifier("event-card-discovery-tip")
-                                .onAppear { hasSeenEventCardHint = true }
-                        }
-                } else { eventRow(event) }
+                eventRow(event)
             }
         }
     }
@@ -183,11 +162,6 @@ struct SkyCalendarView: View {
             Text(month.formatted(.dateTime.month(.wide).year().locale(Locale(identifier:"en_US"))))
                 .font(.system(size:17,weight:.semibold)).tracking(-0.43).foregroundStyle(.white)
                 .contentTransition(.numericText())
-            Button("About sky events", systemImage: "info.circle") { showsEventHelp = true }
-                .labelStyle(.iconOnly).font(.system(size: 15))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 34, height: 34).buttonStyle(.plain)
-                .disabled(monthEvents.isEmpty)
             Spacer()
             HStack(spacing:8) {
                 monthButton("chevron.left",by:-1).accessibilityLabel("Previous month")
@@ -230,13 +204,12 @@ struct SkyCalendarView: View {
     @ViewBuilder private func dayCell(_ day: Date?) -> some View {
         if let day {
             let dayEvents = viewModel.events(on:day)
-            let highlighted = calendar.isDate(day,inSameDayAs:viewModel.selectedDay ?? Date())
+            let highlighted = calendar.isDate(day,inSameDayAs:viewModel.selectedDay ?? viewModel.currentTime)
             Button {
                 viewModel.selectedDay = day
                 if dayEvents.count == 1, let event = dayEvents.first {
                     onSelect(event)
                 } else if !dayEvents.isEmpty {
-                    viewModel.dayEventChoices = dayEvents
                     viewModel.showsDayEventChoices = true
                 }
             } label: {

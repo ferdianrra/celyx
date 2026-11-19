@@ -49,9 +49,7 @@ struct WormholeFreeze {
 extension SkyFinderProjection {
     /// Inverse of `worldDirection`: sensor world direction → horizon [east, north, up].
     static func horizonDirection(_ world: SIMD3<Float>) -> SIMD3<Double> {
-        let c = SkyCalibration.arCos, s = SkyCalibration.arSin
-        let east1 = Double(world.x), up = Double(world.y), north1 = -Double(world.z)
-        return simd_normalize(SIMD3(east1*c+north1*s,-east1*s+north1*c,up))
+        simd_normalize(SIMD3(Double(world.x), -Double(world.z), Double(world.y)))
     }
 }
 

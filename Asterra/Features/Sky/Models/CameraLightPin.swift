@@ -37,9 +37,6 @@ struct CameraLightPin {
         guard let identifiedMatch, self.opticalID == opticalID || isSameSource(direction) else { return nil }
         return identifiedMatch
     }
-    func canUseAsReference(at time: TimeInterval, distance: Double) -> Bool {
-        observationCount >= 2 && time >= lastSeen && time - lastSeen < CameraTrackingPolicy.referenceFreshness && distance <= CameraTrackingPolicy.holdRadius
-    }
     func isSameSource(_ ray: SIMD3<Float>) -> Bool {
         simd_dot(direction, ray) > cos(0.75 * Float.pi / 180)
     }
