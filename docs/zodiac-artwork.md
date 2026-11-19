@@ -28,7 +28,7 @@ Aries, Leo, Sagittarius and Aquarius were fitted against the supplied reference 
 3. Place the original Rafi drawing on a separate layer. Move, rotate and scale it until recognizable features line up with the guides. Zoom out and check the entire silhouette for clipping. For a different pose, prioritize the landmarks that make the drawing easiest to read.
 4. Hide the reference and guides, then export the full transparent canvas into the matching image set under `constellation-figures-rafi-aligned`. Keep the image-set name and export with transparent margins intact. Preserve the reference square's position and size inside the padded canvas. The existing `Capriconous` and `Sagitarius` spellings are part of the asset names.
 
-In a Debug build, tap the compass and turn on **Demo constellations**. The garden fills in missing pattern stars for all 12 zodiac figures using their current positions. Lines and artwork appear through the usual garden completion rules as you look around the virtual or live sky. Some constellations may be below the horizon. Turn the toggle off to clear the temporary stars and return to your saved collection.
+In a Debug build, tap the compass and turn on **Constellations**. The garden fills in missing pattern stars for all 12 zodiac figures using their current positions. Lines and artwork appear through the usual garden completion rules as you look around the virtual or live sky. Some constellations may be below the horizon. Turn the toggle off to clear the temporary stars and return to your saved collection.
 
 As you look away from a figure, the garden compares its projected shape with the centered view and fades the artwork before the change in proportions becomes pronounced. The stars and lines stay in place.
 

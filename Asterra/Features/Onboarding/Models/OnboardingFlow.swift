@@ -148,7 +148,7 @@ final class OnboardingFlow {
 
     var canGoBack: Bool {
         switch step {
-        case .welcome, .camera, .wormhole, .completion, .done: return false
+        case .welcome, .wormhole, .completion, .done: return false
         default: return true
         }
     }
