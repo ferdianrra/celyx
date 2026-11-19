@@ -17,7 +17,7 @@ enum CollectionCategory: String, CaseIterable, Hashable, Identifiable {
 
     /// The Sun is a star; the Moon sits with the planets (the solar-system bodies).
     static func stars(_ items: [GardenCollectionItem]) -> [GardenCollectionItem] {
-        items.filter { !$0.star.isSolarSystemBody || $0.star.isSun }
+        items.filter { $0.record.skyEvent == nil && (!$0.star.isSolarSystemBody || $0.star.isSun) }
     }
     static func planets(_ items: [GardenCollectionItem]) -> [GardenCollectionItem] {
         items.filter { $0.star.isPlanet || $0.star.isMoon }

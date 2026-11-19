@@ -39,7 +39,8 @@ struct CollectionListView: View {
     }
 
     private func objectSheet(_ item: GardenCollectionItem) -> some View {
-        ObjectObservationSheet(item: item, model: model, allowsCompact: false, onGuide: onGuide.map { _ in
+        ObjectObservationSheet(item: item, model: model, allowsCompact: false,
+            onGuide: (item.record.skyEvent == nil ? onGuide : nil).map { _ in
             { pendingGuide = item.star }
         })
     }
@@ -61,12 +62,22 @@ struct CollectionListView: View {
                 CollectionCategory.planets(model.collectionItems),
                 empty: "No planets or Moon yet. They look like steady, bright stars.")
         case .skyEvents:
-            let collected = SkyEvent.catalogue.filter { events.collected.contains($0.id) }
-            if collected.isEmpty {
+            let observations = model.collectionItems.filter { $0.record.skyEvent != nil }
+            let observedIDs = Set(observations.compactMap { $0.record.skyEvent?.id })
+            let legacy = events.collected.isEmpty ? [] : SkyEvent.catalogue.filter {
+                events.collected.contains($0.id) && !observedIDs.contains($0.id)
+            }
+            if observations.isEmpty && legacy.isEmpty {
                 emptyState("No sky events yet. Open the Sky Calendar to see what’s coming up.")
             } else {
                 VStack(spacing: 12) {
-                    ForEach(collected) { event in
+                    ForEach(observations) { item in
+                        if let event = item.record.skyEvent {
+                            Button { selected = item } label: { eventRow(event, date: item.collectedDate) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    ForEach(legacy) { event in
                         Button {
                             onSelectEvent(event)
                         } label: {
@@ -155,13 +166,13 @@ struct CollectionListView: View {
         .accessibilityHint("Shows details")
     }
 
-    private func eventRow(_ event: SkyEvent) -> some View {
+    private func eventRow(_ event: SkyEvent, date: String? = nil) -> some View {
         HStack(spacing: 14) {
             Image(event.artwork.asset).resizable().scaledToFill().frame(width: 48, height: 48)
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 4) {
                 Text(event.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                Text(event.detailDate).font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
+                Text(date ?? event.detailDate).font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
             }
             Spacer(minLength: 8)
             Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(

@@ -8,11 +8,23 @@ import simd
 
 /// What the Night Sea holds while the wormhole opens (same placement the garden uses).
 struct WormholeScene {
+    struct ConjunctionMember {
+        let itemID: Int
+        let name: String
+    }
+
     var objects: [NightSeaObject] = []
     /// The object just collected: it fades in at landing.
     var newID: Int?
     var moon: (direction: SIMD3<Double>, illumination: Double)?
     var equatorial: simd_double3x3?
+    var conjunctionMembers: [Int: ConjunctionMember] = [:]
+
+    func isNewObject(_ id: Int) -> Bool {
+        (conjunctionMembers[id]?.itemID ?? id) == newID
+    }
+
+    var newObjects: [NightSeaObject] { objects.filter { isNewObject($0.id) } }
 }
 
 struct WormholeHandoverView: View {
@@ -233,8 +245,8 @@ final class WormholeRenderer: NSObject, MTKViewDelegate {
             guard !points.isEmpty else { return (nil,0) }
             return (device.makeBuffer(bytes:points,length:points.count*MemoryLayout<WormPoint>.stride,options:.storageModeShared),points.count)
         }
-        others = gpu(scene.objects.filter { $0.id != scene.newID })
-        fresh = gpu(scene.objects.filter { $0.id == scene.newID })
+        others = gpu(scene.objects.filter { !scene.isNewObject($0.id) })
+        fresh = gpu(scene.newObjects)
     }
 
     func mtkView(_ view: MTKView,drawableSizeWillChange size: CGSize) { layers = nil }

@@ -11,8 +11,23 @@ struct LandingStarFlight: View {
     let handover: WormholeHandover
 
     var body: some View {
+        let objects = handover.scene.newObjects
+        if objects.isEmpty {
+            LandingObjectFlight(handover: handover, object: nil)
+        } else {
+            ForEach(objects) { object in
+                LandingObjectFlight(handover: handover, object: object)
+            }
+        }
+    }
+}
+
+private struct LandingObjectFlight: View {
+    let handover: WormholeHandover
+    let object: NightSeaObject?
+
+    var body: some View {
         let TL = handover.landing
-        let object = handover.scene.objects.first { $0.id == handover.scene.newID }
         let tint = object.map { Color(red:$0.color.x,green:$0.color.y,blue:$0.color.z) } ?? Color(hex:0xCFE0FF)
         TimelineView(.animation(paused:handover.phase >= .releasing)) { _ in
             let tt = handover.tt()
@@ -71,7 +86,7 @@ struct LandingStarFlight: View {
 
     /// Where the star sits on screen right now, through the handover's own camera.
     private func targetPoint(_ tt: Double) -> CGPoint? {
-        handover.camera(tt).project(handover.starDirection,in:handover.freeze.size)
+        handover.camera(tt).project(object?.direction ?? handover.starDirection, in: handover.freeze.size)
     }
 
     static func bezier(_ a: CGPoint,_ b: CGPoint,_ c: CGPoint,_ t: Double) -> CGPoint {

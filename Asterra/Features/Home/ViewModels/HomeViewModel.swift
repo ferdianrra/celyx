@@ -26,7 +26,13 @@ final class HomeViewModel {
     private(set) var isGardenTransitioning = false
     private let gardenFlight = SkyCameraFlight()
     private var gardenReturnPose: SkyCameraPose?
-    var collectionItems: [GardenCollectionItem] { GardenCollectionItem.resolve(records:collected,catalogue:stars) }
+    var collectionItems: [GardenCollectionItem] {
+        #if DEBUG
+        GardenCollectionItem.resolve(records: collected, catalogue: stars)
+        #else
+        GardenCollectionItem.resolve(records: collected.filter { $0.value.skyEvent?.isDemo != true }, catalogue: stars)
+        #endif
+    }
     private var pendingCollectionCamera = false
     private var pendingFinderTarget: CatalogStar?
     private var pendingDetailStar: CatalogStar?
@@ -336,6 +342,19 @@ final class HomeViewModel {
         captures.filter { $0.id == id }
     }
 
+    func observationHistory(for item: GardenCollectionItem) -> [CollectedStar] {
+        let body = item.star
+        guard body.isMoon || body.isPlanet else { return observationHistory(for: item.id) }
+        return captures.filter { record in
+            if record.id == body.id { return true }
+            guard let event = record.skyEvent else { return false }
+            #if !DEBUG
+            if event.isDemo { return false }
+            #endif
+            return event.target.conjunctionMembers.contains(body.title)
+        }
+    }
+
     func observation(captureID: UUID) -> CollectedStar? {
         captures.first { $0.captureID == captureID }
     }
@@ -400,12 +419,33 @@ final class HomeViewModel {
 
     @discardableResult
     func saveCameraObservation(_ draft: CameraObservationDraft, note: String) throws -> CollectedStar {
-        let filename = try StarPhotoStore.save(draft.image)
+        try saveObservation(id: draft.star.id, image: draft.image, date: draft.date, location: draft.location,
+            identificationNote: draft.identificationNote, note: note)
+    }
+
+    func hasEventCapture(_ event: SkyEvent) -> Bool {
+        captures.contains { $0.skyEvent?.id == event.id }
+    }
+
+    func saveEventObservation(_ event: SkyEvent, image: UIImage, date: Date, location: ObserverLocation) throws -> CollectedStar {
+        guard event.isOpen(at: date), !hasEventCapture(event) else { throw CocoaError(.fileWriteUnknown) }
+        let id = captures.first { $0.skyEvent?.collectionID == event.collectionID }?.id
+            ?? (min(-9_999, collected.keys.min() ?? -9_999) - 1)
+        return try saveObservation(id: id, image: image, date: date, location: location,
+            identificationNote: event.isDemo ? "Practice event with simulated sky positions." : "Captured using the predicted event direction.",
+            note: "", skyEvent: event)
+    }
+
+    private func saveObservation(
+        id: Int, image: UIImage, date: Date, location: ObserverLocation,
+        identificationNote: String?, note: String, skyEvent: SkyEvent? = nil
+    ) throws -> CollectedStar {
+        let filename = try StarPhotoStore.save(image)
         let captureID = UUID()
-        let record = CollectedStar(id: draft.star.id, date: draft.date,
-            latitude: draft.location.latitude, longitude: draft.location.longitude,
+        let record = CollectedStar(id: id, date: date,
+            latitude: location.latitude, longitude: location.longitude,
             photoFilename: filename, note: note.trimmingCharacters(in: .whitespacesAndNewlines),
-            identificationNote: draft.identificationNote, captureID: captureID)
+            identificationNote: identificationNote, captureID: captureID, skyEvent: skyEvent)
         do {
             try persistCaptures(captures + [record])
         } catch {
@@ -413,7 +453,6 @@ final class HomeViewModel {
             throw error
         }
 
-        let location = draft.location
         Task { [weak self] in
             guard let estimate = await LightPollutionService.lookup(
                 latitude: location.latitude, longitude: location.longitude) else { return }

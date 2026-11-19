@@ -5,6 +5,65 @@ import simd
 
 @MainActor
 struct GardenCaptureSequenceTests {
+    #if DEBUG
+    @Test func conjunctionLandsBothBodiesAndKeepsOneObservation() throws {
+        let suite = "ConjunctionLanding.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let location = AppPreviewData.location
+        let model = HomeViewModel(location: location, defaults: defaults)
+        let date = Date()
+        let event = SkyEvent.demoConjunction(at: date)
+        let record = try model.saveEventObservation(event, image: AppPreviewData.albumPhoto,
+            date: date, location: location)
+        defer { model.deleteCollected(id: record.id) }
+
+        let scene = GardenViewModel.wormholeScene(model: model, newID: record.id)
+        let garden = GardenViewModel(model: model, camera: NightSeaCamera())
+        garden.place(using: scene)
+        let sky = SkyEventCatalog.guidance(of: event.target, at: date, location: location)
+        #expect(model.collectionItems.count == 1)
+        #expect(scene.newObjects.map(\.kind) == [.moon, .planet])
+        #expect(garden.placed.map(\.title) == ["Moon", "Jupiter"])
+        #expect(garden.placed.map(\.titleIsAbove) == [true, false])
+        let profiles = garden.placed.map(\.selectionItem)
+        #expect(profiles.map(\.star.title) == ["Moon", "Jupiter"])
+        #expect(profiles.allSatisfy { $0.isEventMember && $0.displayedEvent == nil })
+        let captureID = try #require(record.captureID)
+        model.updateObservationNote(captureID: captureID, note: "Both in the frame.")
+        model.updateObservationPlace(captureID: captureID, name: "Jakarta Pusat")
+        for profile in profiles {
+            let observation = try #require(model.observationHistory(for: profile).first)
+            #expect(observation.captureID == captureID)
+            #expect(observation.note == "Both in the frame.")
+            #expect(observation.placeName == "Jakarta Pusat")
+            #expect(observation.photoFilename == record.photoFilename)
+        }
+        #expect(Set(garden.placed.map(\.id)).count == 2)
+        #expect(garden.placed.allSatisfy { $0.item.record.captureID == record.captureID })
+        #expect(garden.placed.map(\.object.direction) == sky.members.map(\.position.direction))
+        garden.place()
+        #expect(garden.placed.map(\.id) == scene.newObjects.map(\.id))
+        let freeze = WormholeFreeze.placeholder(size: CGSize(width: 402, height: 874))
+        let handover = WormholeHandover(freeze: freeze, star: CGPoint(x: 201, y: 437), itemID: record.id, scene: scene)
+        #expect(simd_distance(handover.starDirection, sky.position.direction) < 1e-9)
+
+        let jupiter = try #require(profiles.last)
+        garden.select(jupiter)
+        #expect(garden.selected?.isEventMember == true)
+        let ownCapture = try model.saveCameraObservation(.init(star: jupiter.star, image: AppPreviewData.albumPhoto,
+            date: date, location: location, identificationNote: nil), note: "Separate Jupiter capture.")
+        defer { model.deleteCollected(id: ownCapture.id) }
+        garden.select(jupiter)
+        let selected = try #require(garden.selected)
+        #expect(selected.record.captureID == ownCapture.captureID)
+        #expect(!selected.isEventMember)
+        #expect(Set(model.observationHistory(for: selected).compactMap(\.captureID)) == Set([ownCapture.captureID, captureID].compactMap { $0 }))
+        let moon = try #require(profiles.first)
+        #expect(model.observationHistory(for: moon).map(\.captureID) == [captureID])
+    }
+    #endif
+
     @Test func gardenPlacementPreservesTheSunAndMoonCaptureIdentity() {
         let items = [CatalogStar.sun, CatalogStar.moon].map { star in
             GardenCollectionItem(star: star, record: CollectedStar(id: star.id, date: AppPreviewData.date,

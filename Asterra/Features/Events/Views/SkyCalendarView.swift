@@ -25,7 +25,7 @@ struct SkyCalendarView: View {
     }
 
     init(
-        store: SkyEventStore, events: [SkyEvent] = SkyEvent.catalogue,
+        store: SkyEventStore, events: [SkyEvent]? = nil,
         showsDiscovery: Binding<Bool> = .constant(false), onDiscoveryShown: @escaping () -> Void = {},
         onSelect: @escaping (SkyEvent) -> Void
     ) {
@@ -49,6 +49,18 @@ struct SkyCalendarView: View {
         .navigationTitle("Sky Events")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible,for:.navigationBar)
+        #if DEBUG
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu("Demo") {
+                    Button("Single target") { openDemo(.demo()) }
+                    Button("Moon–Jupiter conjunction") { openDemo(.demoConjunction()) }
+                }
+                .accessibilityLabel("Try demo event")
+                .accessibilityIdentifier("try-demo-event")
+            }
+        }
+        #endif
         .toolbarBackgroundVisibility(.hidden,for:.navigationBar)
         .preferredColorScheme(.dark)
         .task(id: discoveryContext) {
@@ -69,6 +81,14 @@ struct SkyCalendarView: View {
             Button("Cancel",role:.cancel) {}
         }
     }
+
+    #if DEBUG
+    private func openDemo(_ event: SkyEvent) {
+        showsEventHelp = false
+        showsDiscovery = false
+        onSelect(event)
+    }
+    #endif
 
     private var calendarHeader: some View {
         // Keep the decorative surface outside the control's accessibility bounds.
@@ -115,7 +135,10 @@ struct SkyCalendarView: View {
         return ScrollView {
             Group {
                 switch viewModel.displayMode {
-                case .list: eventList
+                case .list:
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        eventList(at: context.date)
+                    }
                 case .calendar: calendarBody
                 }
             }
@@ -139,33 +162,47 @@ struct SkyCalendarView: View {
         .padding(.horizontal,16).padding(.top,16).padding(.bottom,12)
     }
 
-    private var eventList: some View {
-        LazyVStack(spacing:16) {
-            if monthEvents.isEmpty {
+    private func eventList(at date: Date) -> some View {
+        let sections = viewModel.listSections(at: date)
+        let firstID = sections.current.first?.id ?? sections.past.first?.id
+        return LazyVStack(alignment: .leading, spacing: 16) {
+            if firstID == nil {
                 ContentUnavailableView("No Sky Events",systemImage:"calendar",
                                        description:Text("Nothing matches this month. Try another month or category."))
                     .padding(.top,40)
             }
-            ForEach(monthEvents) { event in
-                if event.id == monthEvents.first?.id {
-                    eventRow(event)
-                        .popover(isPresented: $showsEventHelp, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-                            DiscoveryTooltip(title: "Sky event cards",
-                                message: "Tap a card for viewing details. Use its bell to turn a reminder on or off.",
-                                onDismiss: { showsEventHelp = false })
-                                .accessibilityIdentifier("event-card-discovery-tip")
-                                .onAppear { hasSeenEventCardHint = true }
-                        }
-                } else { eventRow(event) }
+            ForEach(sections.current) { event in
+                eventRow(event, hasEnded: false, showHelpHere: event.id == firstID)
+            }
+            if !sections.past.isEmpty {
+                Section {
+                    ForEach(sections.past) { event in
+                        eventRow(event, hasEnded: true, showHelpHere: event.id == firstID)
+                    }
+                } header: {
+                    Text("Past events").font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, sections.current.isEmpty ? 0 : 8)
+                }
             }
         }
     }
 
-    private func eventRow(_ event: SkyEvent) -> some View {
-        Button { onSelect(event) } label: {
-            SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
+    @ViewBuilder private func eventRow(_ event: SkyEvent, hasEnded: Bool, showHelpHere: Bool) -> some View {
+        let row = SkyEventCard(event: event, isReminderOn: store.reminders.contains(event.id), hasEnded: hasEnded,
+            toggleReminder: { if !event.hasEnded(at: Date()) { store.toggleReminder(event) } },
+            onSelect: { onSelect(event) })
+        if showHelpHere {
+            row.popover(isPresented: $showsEventHelp, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                DiscoveryTooltip(title: "Sky event cards",
+                    message: "Tap a card for viewing details. Use its bell to turn a reminder on or off.",
+                    onDismiss: { showsEventHelp = false })
+                    .accessibilityIdentifier("event-card-discovery-tip")
+                    .onAppear { hasSeenEventCardHint = true }
+            }
+        } else {
+            row
         }
-        .buttonStyle(.plain)
     }
 
     private var calendarBody: some View {

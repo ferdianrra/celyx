@@ -1,8 +1,8 @@
 import Foundation
 
 /// A sky event shown on the Sky Calendar, computed by Astronomy Engine for the user's location and time zone.
-struct SkyEvent: Identifiable, Hashable {
-    enum Kind: String, CaseIterable, Identifiable {
+struct SkyEvent: Identifiable, Hashable, Codable {
+    enum Kind: String, CaseIterable, Identifiable, Codable {
         case object = "Object"
         case moon = "Moon"
         case event = "Events"
@@ -18,7 +18,7 @@ struct SkyEvent: Identifiable, Hashable {
         }
     }
     /// Artwork placement inside a 362×109 card, in points relative to the card's top-left corner.
-    struct Artwork: Hashable {
+    struct Artwork: Hashable, Codable {
         let asset: String
         let size: CGFloat
         let x: CGFloat
@@ -27,12 +27,23 @@ struct SkyEvent: Identifiable, Hashable {
         var flipped = false
     }
     /// What to point the camera at: Astronomy Engine body names ("Moon", "Mars"…) or a meteor radiant.
-    enum Target: Hashable {
+    enum Target: Hashable, Codable {
         case body(String)
         /// Both bodies must be up; the camera is guided to their midpoint.
         case pair(String, String)
         /// Right ascension in hours, declination in degrees.
         case radiant(ra: Double, dec: Double)
+        // Keep saved practice records decodable across build configurations.
+        case demo
+        case demoConjunction
+
+        var conjunctionMembers: [String] {
+            switch self {
+            case .pair(let first, let second): [first, second]
+            case .demoConjunction: ["Moon", "Jupiter"]
+            default: []
+            }
+        }
     }
 
     let id: String
@@ -49,8 +60,13 @@ struct SkyEvent: Identifiable, Hashable {
     let artwork: Artwork
     let target: Target
     var hero: String { artwork.asset == "celyx-event-mars-jupiter" ? "celyx-event-mars-jupiter-hero" : artwork.asset }
-    var cameraThumbnail: String {
-        artwork.asset == "celyx-event-mars-jupiter" ? "celyx-mars-jupiter-thumb" : artwork.asset
+    var isDemo: Bool { target == .demo || target == .demoConjunction }
+    var collectionID: String {
+        switch target {
+        case .demo: "practice-event"
+        case .demoConjunction: "practice-conjunction"
+        default: id
+        }
     }
 
     /// Events can only be collected inside their viewing window (the time shown on the card).
@@ -68,4 +84,26 @@ struct SkyEvent: Identifiable, Hashable {
 extension SkyEvent {
     /// Events computed live by Astronomy Engine for the user's location (see `SkyEventCatalog`).
     static var catalogue: [SkyEvent] { SkyEventCatalog.shared.catalogue }
+
+    #if DEBUG
+    static func demo(at date: Date = .now) -> SkyEvent {
+        SkyEvent(id: "practice-event-\(UUID())", kind: .event, title: "Demo Sky Event",
+            start: date.addingTimeInterval(-60), end: date.addingTimeInterval(3600),
+            headerDate: "Today", detailDate: date.formatted(date: .long, time: .omitted),
+            viewingTime: "Available now", direction: "Northeast, 35° up",
+            about: "Practice collecting an event using a simulated target and the live camera guide.",
+            tips: "Face northeast, tilt your phone up, and follow the arrow. Tap anywhere to capture when the target is centered.",
+            artwork: .init(asset: "celyx-event-moon-jupiter", size: 140, x: -40, y: 0), target: .demo)
+    }
+
+    static func demoConjunction(at date: Date = .now) -> SkyEvent {
+        SkyEvent(id: "practice-conjunction-\(UUID())", kind: .event, title: "Demo Moon–Jupiter Conjunction",
+            start: date.addingTimeInterval(-60), end: date.addingTimeInterval(3600),
+            headerDate: "Today", detailDate: date.formatted(date: .long, time: .omitted),
+            viewingTime: "Available now", direction: "Northeast, about 35° up",
+            about: "Practice framing a simulated Moon and Jupiter together in one photo.",
+            tips: "Follow the arrow and fit both labeled targets in the frame. Zoom out if needed, then tap anywhere to capture.",
+            artwork: .init(asset: "celyx-event-moon-jupiter", size: 140, x: -40, y: 0), target: .demoConjunction)
+    }
+    #endif
 }

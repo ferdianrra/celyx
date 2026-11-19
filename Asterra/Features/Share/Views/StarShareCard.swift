@@ -51,7 +51,7 @@ struct StarShareCard: View {
 
     private var header: some View {
         HStack(spacing: 8.162) {
-            StarPortraitView(star: content.item.star).frame(width: 54, height: 54)
+            GardenObjectPortraitView(item: content.item).frame(width: 54, height: 54)
                 .shadow(color: .white.opacity(0.5), radius: 5)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {

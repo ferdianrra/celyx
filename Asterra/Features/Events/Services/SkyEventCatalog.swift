@@ -371,38 +371,79 @@ final class SkyEventCatalog {
 
     /// Where a target sits for an observer: azimuth/altitude in degrees (refraction included) and the
     /// matching horizon unit vector (east, north, up) used by the camera finder.
+    typealias HorizonPosition = (azimuth: Double, altitude: Double, direction: SIMD3<Double>)
+    typealias ConjunctionMember = (name: String, position: HorizonPosition)
+
     static func horizon(of target: SkyEvent.Target, at date: Date, location: ObserverLocation)
-        -> (azimuth: Double, altitude: Double, direction: SIMD3<Double>)
+        -> HorizonPosition
     {
         horizon(
             of: target, at: date,
             observer: Astronomy_MakeObserver(location.latitude, location.longitude, max(0, location.elevation)))
     }
 
-    fileprivate static func horizon(of target: SkyEvent.Target, at date: Date, observer: astro_observer_t)
-        -> (azimuth: Double, altitude: Double, direction: SIMD3<Double>)
+    static func guidance(of target: SkyEvent.Target, at date: Date, location: ObserverLocation)
+        -> (position: HorizonPosition, members: [ConjunctionMember])
     {
-        func vector(_ azimuth: Double, _ altitude: Double) -> SIMD3<Double> {
-            let a = azimuth * .pi / 180, h = altitude * .pi / 180
-            return SIMD3(sin(a) * cos(h), cos(a) * cos(h), sin(h))
+        let observer = Astronomy_MakeObserver(location.latitude, location.longitude, max(0, location.elevation))
+        if let pair = conjunction(of: target, at: date, observer: observer) {
+            return (midpoint(pair.0.position, pair.1.position), [pair.0, pair.1])
         }
+        return (horizon(of: target, at: date, observer: observer), [])
+    }
+
+    private static func position(azimuth: Double, altitude: Double) -> HorizonPosition {
+        let a = azimuth * .pi / 180, h = altitude * .pi / 180
+        return (azimuth, altitude, SIMD3(sin(a) * cos(h), cos(a) * cos(h), sin(h)))
+    }
+
+    private static let practicePair: (ConjunctionMember, ConjunctionMember) = (
+        ("Moon", position(azimuth: 39, altitude: 35)),
+        ("Jupiter", position(azimuth: 51, altitude: 35))
+    )
+
+    private static func conjunction(of target: SkyEvent.Target, at date: Date, observer: astro_observer_t)
+        -> (ConjunctionMember, ConjunctionMember)?
+    {
+        switch target {
+        case .pair(let a, let b):
+            return ((a, horizon(of: .body(a), at: date, observer: observer)),
+                    (b, horizon(of: .body(b), at: date, observer: observer)))
+        case .demoConjunction:
+            return practicePair
+        default:
+            return nil
+        }
+    }
+
+    private static func midpoint(_ first: HorizonPosition, _ second: HorizonPosition) -> HorizonPosition {
+        let direction = simd_normalize(first.direction + second.direction)
+        let azimuth = (atan2(direction.x, direction.y) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        // Both must be up, so the pair counts as high as its lower member.
+        return (azimuth, min(first.altitude, second.altitude), direction)
+    }
+
+    fileprivate static func horizon(of target: SkyEvent.Target, at date: Date, observer: astro_observer_t)
+        -> HorizonPosition
+    {
         var time = astro(date)
         switch target {
         case .body(let name):
             let body = Astronomy_BodyCode(name)
             let eq = Astronomy_Equator(body, &time, observer, EQUATOR_OF_DATE, ABERRATION)
             let h = Astronomy_Horizon(&time, observer, eq.ra, eq.dec, REFRACTION_NORMAL)
-            return (h.azimuth, h.altitude, vector(h.azimuth, h.altitude))
+            return position(azimuth: h.azimuth, altitude: h.altitude)
         case .pair(let a, let b):
             let first = horizon(of: .body(a), at: date, observer: observer)
             let second = horizon(of: .body(b), at: date, observer: observer)
-            let mid = simd_normalize(first.direction + second.direction)
-            let azimuth = (atan2(mid.x, mid.y) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
-            // Both must be up, so the pair counts as high as its lower member.
-            return (azimuth, min(first.altitude, second.altitude), mid)
+            return midpoint(first, second)
         case .radiant(let ra, let dec):
             let h = Astronomy_Horizon(&time, observer, ra, dec, REFRACTION_NORMAL)
-            return (h.azimuth, h.altitude, vector(h.azimuth, h.altitude))
+            return position(azimuth: h.azimuth, altitude: h.altitude)
+        case .demo:
+            return position(azimuth: 45, altitude: 35)
+        case .demoConjunction:
+            return midpoint(practicePair.0.position, practicePair.1.position)
         }
     }
 

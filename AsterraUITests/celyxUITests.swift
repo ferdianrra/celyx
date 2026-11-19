@@ -9,6 +9,183 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testConjunctionShowsSharedObservationInBothBodyProfiles() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing-event-garden", "-ui-testing-conjunction-arrival",
+            "-hasCompletedTour", "YES", "-hasSeenCollectionHint", "YES",
+        ]
+        app.launch()
+        let editor = app.descendants(matching: .any)["collection-note-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        editor.tap()
+        editor.typeText("Both in the frame.")
+        app.keyboards.buttons["Done"].tap()
+        let note = app.staticTexts["collected-star-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        app.buttons["close-collected-star"].tap()
+        for (body, fact) in [
+            ("Moon", "The same side of the Moon always faces Earth."),
+            ("Jupiter", "Planets change position against the background stars as they orbit the Sun."),
+        ] {
+            let marker = app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "\(body), collected")).firstMatch
+            XCTAssertTrue(marker.waitForExistence(timeout: 5))
+            marker.tap()
+            XCTAssertTrue(app.staticTexts[fact].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts[body].exists)
+            XCTAssertFalse(app.staticTexts["Demo Moon–Jupiter Conjunction"].exists)
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.76))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.16)))
+            XCTAssertTrue(app.staticTexts["Observation log"].waitForExistence(timeout: 5))
+            let observation = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Jakarta Pusat")).firstMatch
+            XCTAssertTrue(observation.waitForExistence(timeout: 5))
+            observation.tap()
+            XCTAssertTrue(note.waitForExistence(timeout: 5))
+            XCTAssertEqual(note.label, "Both in the frame.")
+            XCTAssertTrue(app.descendants(matching: .any)["collected-star-photo"].exists)
+            let lightPollution = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Light Pollution")).firstMatch
+            if !lightPollution.isHittable { app.swipeUp() }
+            XCTAssertTrue(lightPollution.exists)
+            app.buttons["close-collected-star"].tap()
+            app.buttons["Close"].tap()
+        }
+        app.buttons["Your Collection"].tap()
+        let events = app.buttons["collection-sky-events-tile"]
+        XCTAssertTrue(events.waitForExistence(timeout: 5))
+        events.tap()
+        let conjunction = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Demo Moon–Jupiter Conjunction")).firstMatch
+        XCTAssertTrue(conjunction.waitForExistence(timeout: 5))
+        conjunction.tap()
+        XCTAssertTrue(app.staticTexts["Observation log"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testCapturedEventOpensGardenNoteAndCanBeReopenedFromSkyEvents() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-event-garden", "-hasCompletedTour", "YES", "-hasSeenCollectionHint", "YES"]
+        app.launch()
+        let editor = app.descendants(matching: .any)["collection-note-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Demo Sky Event"].exists)
+        editor.tap()
+        editor.typeText("A clear practice sky.")
+        app.keyboards.buttons["Done"].tap()
+        let note = app.staticTexts["collected-star-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        XCTAssertEqual(note.label, "A clear practice sky.")
+        app.buttons["Close"].firstMatch.tap()
+
+        let collection = app.buttons["Your Collection"]
+        XCTAssertTrue(collection.waitForExistence(timeout: 5))
+        collection.tap()
+        let events = app.buttons["collection-sky-events-tile"]
+        XCTAssertTrue(events.waitForExistence(timeout: 5))
+        events.tap()
+        let demo = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Demo Sky Event")).firstMatch
+        XCTAssertTrue(demo.waitForExistence(timeout: 5))
+        demo.tap()
+        XCTAssertTrue(app.staticTexts["Observation log"].waitForExistence(timeout: 5))
+        let capture = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Bortle")).firstMatch
+        XCTAssertTrue(capture.waitForExistence(timeout: 5))
+        capture.tap()
+        XCTAssertTrue(note.waitForExistence(timeout: 5))
+        XCTAssertEqual(note.label, "A clear practice sky.")
+    }
+
+    @MainActor
+    func testCompletedDemoShowsCollectedOnEventDetails() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-event-guidance", "-ui-testing-completed-demo", "-hasSeenEventCardHint", "YES"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Demo Sky Event"].waitForExistence(timeout: 10))
+        app.swipeUp()
+        let collected = app.buttons["Collected"]
+        XCTAssertTrue(collected.exists)
+        XCTAssertLessThan(collected.frame.maxY, app.frame.maxY)
+        XCTAssertFalse(app.buttons["open-event-camera"].exists)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Demo event after capture"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
+    func testSkyEventsDemoOpensPracticeCamera() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-event-guidance", "-hasSeenEventCardHint", "YES"]
+        app.launch()
+
+        let demo = app.buttons["try-demo-event"]
+        XCTAssertTrue(demo.waitForExistence(timeout: 10))
+        demo.tap()
+        app.buttons["Single target"].tap()
+        XCTAssertTrue(app.staticTexts["Demo Sky Event"].waitForExistence(timeout: 5))
+        let collect = app.buttons["open-event-camera"]
+        if !collect.isHittable { app.swipeUp() }
+        collect.tap()
+        let card = app.descendants(matching: .any)["demo-event-collection-card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("Demo Sky Event"))
+        XCTAssertGreaterThan(card.frame.midY, app.frame.midY)
+        XCTAssertFalse(app.buttons["Point at the event to collect"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["event-camera-window"].exists)
+    }
+
+    @MainActor
+    func testDemoConjunctionOpensPairFramingCamera() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-event-guidance", "-hasSeenEventCardHint", "YES"]
+        app.launch()
+        let demo = app.buttons["try-demo-event"]
+        XCTAssertTrue(demo.waitForExistence(timeout: 10))
+        demo.tap()
+        app.buttons["Moon–Jupiter conjunction"].tap()
+        XCTAssertTrue(app.staticTexts["Demo Moon–Jupiter Conjunction"].waitForExistence(timeout: 5))
+        let collect = app.buttons["open-event-camera"]
+        if !collect.isHittable { app.swipeUp() }
+        collect.tap()
+        let card = app.descendants(matching: .any)["demo-event-collection-card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(card.label.contains("Demo Moon–Jupiter Conjunction"))
+        XCTAssertFalse(app.buttons["Point at the event to collect"].exists)
+    }
+
+    @MainActor
+    func testSkyEventsSeparatePastCardsAndOpenLiveGuidance() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing-event-guidance", "-hasSeenEventCardHint", "YES"]
+        app.launch()
+
+        let open = app.buttons["sky-event-card-preview-open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        let pastHeading = app.staticTexts["Past events"]
+        let past = app.buttons["sky-event-card-preview-past"]
+        if !past.isHittable { app.swipeUp() }
+        XCTAssertTrue(pastHeading.exists)
+        XCTAssertTrue(past.label.contains("Ended"))
+        XCTAssertGreaterThan(past.frame.minY, pastHeading.frame.minY)
+        if !open.isHittable { app.swipeDown() }
+        open.tap()
+
+        let collect = app.buttons["open-event-camera"]
+        if !collect.isHittable { app.swipeUp() }
+        XCTAssertTrue(collect.isEnabled)
+        collect.tap()
+        let banner = app.descendants(matching: .any)["event-camera-window"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        XCTAssertTrue(banner.label.contains("Open Moon"))
+        let aimed = app.buttons["Point at the event to collect"]
+        XCTAssertTrue(aimed.exists)
+        XCTAssertFalse(aimed.isEnabled)
+    }
+
+    @MainActor
     func testCollectionObjectSheetOpensAtFullHeight() {
         continueAfterFailure = false
         let app = XCUIApplication()

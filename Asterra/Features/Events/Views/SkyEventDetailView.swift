@@ -4,10 +4,11 @@ import SwiftUI
 struct SkyEventDetailView: View {
     let event: SkyEvent
     let store: SkyEventStore
+    var hasObservation = false
     let onCollect: () -> Void
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
+        TimelineView(.periodic(from: .now, by: 1)) { context in
             ScrollView {
                 VStack(spacing: 12) {
                     header
@@ -16,26 +17,28 @@ struct SkyEventDetailView: View {
                     infoRow(symbol: "safari", label: "Direction", value: event.direction)
                     aboutBox
                     tipsBox
-                    actionButton(isOpen: event.isOpen(at: context.date))
+                    actionButton(at: context.date)
                 }
                 .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 49)
             }
             .scrollIndicators(.hidden)
+            .toolbar {
+                if !event.isDemo && !event.hasEnded(at: context.date) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(
+                            store.reminders.contains(event.id) ? "Turn off reminder" : "Remind me",
+                            systemImage: store.reminders.contains(event.id) ? "bell.fill" : "bell"
+                        ) {
+                            if !event.hasEnded(at: Date()) { store.toggleReminder(event) }
+                        }
+                    }
+                }
+            }
         }
         .background(CelyxScreenWash())
         .navigationTitle("Events")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(
-                    store.reminders.contains(event.id) ? "Turn off reminder" : "Remind me",
-                    systemImage: store.reminders.contains(event.id) ? "bell.fill" : "bell"
-                ) {
-                    store.toggleReminder(event)
-                }
-            }
-        }
         .preferredColorScheme(.dark)
     }
 
@@ -119,24 +122,28 @@ struct SkyEventDetailView: View {
             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    @ViewBuilder private func actionButton(isOpen: Bool) -> some View {
-        if store.collected.contains(event.id) {
+    @ViewBuilder private func actionButton(at date: Date) -> some View {
+        if hasObservation || store.collected.contains(event.id) {
             CelyxPillButton(title: "Collected", systemImage: "checkmark", style: .collected) {}
                 .allowsHitTesting(false)
-        } else if isOpen {
-            CelyxPillButton(title: "Collect this event", action: onCollect)
+        } else if event.isOpen(at: date) {
+            CelyxPillButton(title: "Collect this event", systemImage: "camera") {
+                if event.isOpen(at: Date()) { onCollect() }
+            }
+            .accessibilityIdentifier("open-event-camera")
+        } else if event.hasEnded(at: date) {
+            CelyxPillButton(title: "This event has ended", style: .disabled) {}
         } else {
             // Not pressable outside the viewing window: say when it can be collected instead.
             VStack(spacing: 8) {
                 CelyxPillButton(
-                    title: event.hasEnded(at: Date()) ? "This event has ended" : event.opensLabel,
+                    title: event.opensLabel,
                     systemImage: "lock.fill", style: .disabled
                 ) {}
                 Label("Can only be collected \(event.collectWindow)", systemImage: "clock")
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
             }
-            .accessibilityElement(children: .combine)
         }
     }
 }

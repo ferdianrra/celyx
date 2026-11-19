@@ -1,14 +1,15 @@
 import Foundation
 import Observation
 
-/// Local state for reminders and events the user has collected.
+/// Local reminders and legacy collected event IDs. Camera observations are stored with their photos.
 @Observable
 final class SkyEventStore {
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private(set) var reminders: Set<String>
     private(set) var collected: Set<String>
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         reminders = Set(
             defaults.stringArray(forKey: "skyEventReminders") ?? [])
         collected = Set(defaults.stringArray(forKey: "collectedSkyEvents") ?? [])
@@ -20,9 +21,5 @@ final class SkyEventStore {
             reminders.insert(event.id)
         }
         defaults.set(Array(reminders), forKey: "skyEventReminders")
-    }
-    func collect(_ event: SkyEvent) {
-        collected.insert(event.id)
-        defaults.set(Array(collected), forKey: "collectedSkyEvents")
     }
 }

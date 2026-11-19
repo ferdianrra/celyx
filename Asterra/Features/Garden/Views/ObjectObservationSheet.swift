@@ -13,7 +13,7 @@ struct ObjectObservationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var history: [CollectedStar] { model.observationHistory(for: item.id) }
+    private var history: [CollectedStar] { model.observationHistory(for: item) }
     private var supportsCompact: Bool { allowsCompact && !typeSize.isAccessibilitySize }
     private var isExpanded: Bool { !supportsCompact || detent == .large }
 
@@ -21,7 +21,7 @@ struct ObjectObservationSheet: View {
         CelyxSheetScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
-                    StarPortraitView(star: item.star)
+                    GardenObjectPortraitView(item: item)
                         .frame(width: 72, height: 72)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
@@ -87,6 +87,7 @@ struct ObjectObservationSheet: View {
     }
 
     private var fact: String {
+        if let event = item.displayedEvent { return event.about }
         if item.star.title == "Rigel" {
             return "Rigel is a blue supergiant star in Orion that shines about 120,000 times brighter than our Sun."
         }
@@ -172,7 +173,7 @@ struct CaptureDetailView: View {
 
     var body: some View {
         let captureID = item.record.captureID
-        let history = model.observationHistory(for: item.id).reversed()
+        let history = model.observationHistory(for: item).reversed()
         let index = history.enumerated().first { $0.element.captureID == captureID }?.offset
         CollectedObjectSheet(item: item, direction: nil, collection: model,
             capturedPhoto: capturedPhoto, startsWithNoteEntry: startsWithNoteEntry,

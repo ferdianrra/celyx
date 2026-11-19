@@ -38,7 +38,7 @@ struct GardenCameraLayer: View {
         var labelPosition: CGPoint {
             let scale: Double = entry.object.kind == .star ? 7.0 / 1.3 : 1.0
             let offset = entry.object.radius * scale * 0.45 + 16
-            return CGPoint(x: point.x, y: point.y + CGFloat(offset))
+            return CGPoint(x: point.x, y: point.y + CGFloat(entry.titleIsAbove ? -offset : offset))
         }
     }
 
@@ -63,8 +63,8 @@ struct GardenCameraLayer: View {
                         .blendMode(.plusLighter)
                         .allowsHitTesting(false)
                         ForEach(sprites) { sprite in
-                            Button { onSelect(sprite.entry.item) } label: {
-                                Text(sprite.entry.item.star.title)
+                            Button { onSelect(sprite.entry.selectionItem) } label: {
+                                Text(sprite.entry.title)
                                     .font(.system(size:13,weight:.semibold)).foregroundStyle(.white)
                                     .shadow(color:.black.opacity(0.8),radius:3)
                                     .padding(.horizontal,8).padding(.vertical,6)
@@ -73,8 +73,8 @@ struct GardenCameraLayer: View {
                             .buttonStyle(.plain)
                             .position(sprite.labelPosition)
                             .disabled(sprite.entry.isPreview)
-                            .accessibilityLabel(sprite.entry.isPreview ? "\(sprite.entry.item.star.title), preview star" :
-                                "\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
+                            .accessibilityLabel(sprite.entry.isPreview ? "\(sprite.entry.title), preview star" :
+                                "\(sprite.entry.title), collected \(sprite.entry.item.collectedDate)")
                         }
                     // The tour already presents camera status and aiming guidance in its coach card.
                     // A second glass pill here would sit underneath that card.
@@ -105,7 +105,7 @@ struct GardenCameraLayer: View {
                 let size = viewport == .zero ? geometry.size : viewport
                 let hits = project(in:size).map { ($0,hypot($0.point.x-value.location.x,$0.point.y-value.location.y)) }
                     .filter { !$0.0.entry.isPreview && $0.1 <= $0.0.hitRadius }
-                if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.item) }
+                if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.selectionItem) }
             })
         }
         .background(Color.black)
@@ -240,7 +240,7 @@ struct GardenCameraLayer: View {
         // Bright core
         let core = disc ? radius*0.24 : max(2.2,radius*0.12)
         context.fill(Path(ellipseIn:CGRect(x:p.x-core,y:p.y-core,width:core*2,height:core*2)),with:.color(.white))
-        if object.kind != .star, sprite.id == selectedID {
+        if object.kind != .star, sprite.entry.item.id == selectedID {
             let ring = radius*0.55
             context.stroke(Path(ellipseIn:CGRect(x:p.x-ring,y:p.y-ring,width:ring*2,height:ring*2)),with:.color(.white.opacity(0.9)),lineWidth:1.5)
         }

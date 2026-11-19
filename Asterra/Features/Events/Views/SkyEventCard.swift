@@ -5,14 +5,33 @@ import SwiftUI
 struct SkyEventCard: View {
     let event: SkyEvent
     let isReminderOn: Bool
+    var hasEnded = false
     let toggleReminder: () -> Void
+    let onSelect: () -> Void
     @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 144
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius:20,style:.continuous)
+        Button(action: onSelect) {
+            cardContent
+                .frame(height: cardHeight)
+                .clipShape(shape)
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sky-event-card-\(event.id)")
+        .accessibilityLabel("\(event.title), \(event.headerDate), \(event.viewingTime)\(hasEnded ? ", Ended" : "")")
+        .overlay(alignment: .trailing) {
+            if !hasEnded {
+                ReminderBell(isOn: isReminderOn, action: toggleReminder).padding(.trailing, 16)
+            }
+        }
+    }
+
+    private var cardContent: some View {
         ZStack(alignment:.leading) {
             // Figma export "CardBG": the card's glass over its inner-shadow gradient.
-            Image("celyx-card-bg").resizable()
+            Image("celyx-card-bg").resizable().opacity(hasEnded ? 0.45 : 1)
             Color.clear
                 .overlay(alignment:.topLeading) {
                     Image(event.artwork.asset).resizable().scaledToFill()
@@ -26,6 +45,8 @@ struct SkyEventCard: View {
                 .mask(LinearGradient(stops:[.init(color:.black,location:0.72),.init(color:.clear,location:1)],
                                      startPoint:.leading,endPoint:.trailing))
                 .blendMode(.plusLighter)
+                .saturation(hasEnded ? 0 : 1)
+                .opacity(hasEnded ? 0.45 : 1)
                 .accessibilityHidden(true)
             HStack(spacing:10) {
                 VStack(alignment:.leading,spacing:8) {
@@ -40,16 +61,14 @@ struct SkyEventCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth:.infinity,alignment:.leading)
-                ReminderBell(isOn:isReminderOn,action:toggleReminder)
+                if hasEnded {
+                    Text("Ended").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                } else {
+                    Color.clear.frame(width: 34).accessibilityHidden(true)
+                }
             }
             .padding(.leading,106).padding(.trailing,16).padding(.vertical,16)
         }
-        .frame(height:cardHeight)
-        .clipShape(shape)
-        .contentShape(shape)
-        .accessibilityIdentifier("sky-event-card-\(event.id)")
-        .accessibilityElement(children:.combine)
-        .accessibilityLabel("\(event.title), \(event.headerDate), \(event.viewingTime)")
     }
 
     /// "15-16 Nov" (or "18 Nov" for a one-night event).
@@ -109,7 +128,8 @@ private struct ReminderBell: View {
 
 
 #Preview("Sky event card") {
-    SkyEventCard(event:SkyEvent.catalogue[0],isReminderOn:false,toggleReminder:{}).padding().background(.black)
+    SkyEventCard(event:SkyEvent.catalogue[0],isReminderOn:false,toggleReminder:{},onSelect:{})
+        .padding().background(.black)
         .preferredColorScheme(.dark)
 }
 

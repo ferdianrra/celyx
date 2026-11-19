@@ -89,14 +89,14 @@ final class GardenViewModel {
 
     /// Use the exact positions already rendered in the wormhole for the landing.
     func place(using scene: WormholeScene) {
-        var collectedObjects: [Int: NightSeaObject] = [:]
-        for object in scene.objects {
-            collectedObjects[object.id] = object
+        let items = model.collectionItems
+        let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        placed = scene.objects.compactMap { object in
+            let link = scene.conjunctionMembers[object.id]
+            guard let item = itemsByID[link?.itemID ?? object.id] else { return nil }
+            return GardenPlacedObject(item: item, object: object, memberName: link?.name)
         }
-        placed = model.collectionItems.compactMap { item in
-            collectedObjects[item.id].map { GardenPlacedObject(item: item, object: $0) }
-        }
-        applyPlacement(moon: scene.moon, equatorial: scene.equatorial, items: model.collectionItems)
+        applyPlacement(moon: scene.moon, equatorial: scene.equatorial, items: items)
     }
 
     private func applyPlacement(moon: (direction: SIMD3<Double>, illumination: Double)?,
@@ -129,7 +129,27 @@ final class GardenViewModel {
             let kind: NightSeaObject.Kind
             let radius: Double
             let color: SIMD3<Double>
-            if star.isSun {
+            if let event = item.record.skyEvent {
+                let sky = SkyEventCatalog.guidance(of: event.target, at: date, location: location)
+                if !sky.members.isEmpty {
+                    for (index, member) in sky.members.enumerated() {
+                        let isMoon = member.name == "Moon"
+                        let planet = CatalogStar.planets.first { $0.title == member.name }
+                        // The first member keeps the event ID. The second uses a separate range of render IDs.
+                        let markerID = index == 0 ? item.id : Int.min - item.id
+                        let object = NightSeaObject(id: markerID, direction: member.position.direction,
+                            radius: isMoon ? 38 : min(5.2, max(2, 3.4 - 0.5 * (planet?.mag ?? 0))) * 6,
+                            color: isMoon ? SIMD3(0.88, 0.91, 1) : planet?.rgb ?? SIMD3(0.69, 0.78, 1),
+                            kind: isMoon ? .moon : .planet)
+                        result.append(GardenPlacedObject(item: item, object: object, memberName: member.name))
+                    }
+                    continue
+                }
+                geometric = sky.position.direction
+                kind = .star
+                radius = 5
+                color = SIMD3(0.69, 0.78, 1)
+            } else if star.isSun {
                 geometric = sky.sunDirection
                 kind = .sun
                 radius = 46
@@ -156,7 +176,7 @@ final class GardenViewModel {
                 GardenPlacedObject(
                     item: item,
                     object: NightSeaObject(
-                        id: star.id, direction: Refraction.apparent(geometric),
+                        id: star.id, direction: item.record.skyEvent == nil ? Refraction.apparent(geometric) : geometric,
                         radius: radius, color: color, kind: kind),
                     isPreview: previewStarIDs.contains(star.id)))
         }
@@ -172,7 +192,12 @@ final class GardenViewModel {
             objects.removeAll { $0.id == demo.object.id }
             objects.append(demo.object)
         }
-        return WormholeScene(objects: objects, newID: newID, moon: scene.moon, equatorial: scene.equatorial)
+        let members = scene.placed.compactMap { entry -> (Int, WormholeScene.ConjunctionMember)? in
+            guard let name = entry.memberName else { return nil }
+            return (entry.id, .init(itemID: entry.item.id, name: name))
+        }
+        return WormholeScene(objects: objects, newID: newID, moon: scene.moon, equatorial: scene.equatorial,
+            conjunctionMembers: Dictionary(uniqueKeysWithValues: members))
     }
 
     // MARK: Gyro
@@ -309,7 +334,16 @@ final class GardenViewModel {
             return distance <= max(36, entry.object.radius * 0.6) ? (entry, distance) : nil
         }
         guard let hit = hits.min(by: { $0.1 < $1.1 }) else { return false }
-        if !hit.0.isPreview { selected = hit.0.item }
+        if !hit.0.isPreview { select(hit.0.selectionItem) }
         return true
+    }
+
+    func select(_ item: GardenCollectionItem) {
+        // A separately captured body keeps its own album. Event-only bodies open their profile.
+        if item.isEventMember, let ownCapture = model.collected[item.star.id] {
+            selected = GardenCollectionItem(star: item.star, record: ownCapture)
+        } else {
+            selected = item
+        }
     }
 }

@@ -10,6 +10,10 @@ Core Motion provides true-north device orientation at 100 Hz. Video presentation
 
 Auto exposure may use 10–30 fps where the active format supports it, with an exposure ceiling bounded by that format and frame duration. On supported devices, the live garden uses continuous autofocus centered on the preview. The collect camera also starts continuous autofocus at the center while scanning. Tapping to focus moves the autofocus point to the selected area. The dedicated calibration flow uses the far-focus setup. Low-light boost is enabled where supported. Motion blur pauses analysis and photo caching from new frames. Both camera views continue projecting overlays through those frames using the timestamp-matched orientation. The collect camera keeps existing optical tracks subject to their usual freshness and visibility checks. Orientation warnings apply when the pose is unavailable.
 
+In guided event mode, the event arrow and target marker use the same calibrated camera projection. The camera refreshes the predicted event direction once per second and follows the pose between updates. The in-camera Collect button becomes available when the open event is above the horizon, inside the preview and within eight degrees of the camera’s aim. The tap checks a fresh projection and the current time, then saves the camera frame and event metadata in the shared observation store. The existing handover returns to the Garden and opens the note editor. Event collection uses sky position and aim geometry. Ordinary star captures still use optical identification.
+
+Conjunction guidance projects both bodies and labels each in the camera. The arrow points toward the midpoint. Capture checks that both projected bodies are above the horizon and in the current preview crop.
+
 ## Detection and identification
 
 The existing local-contrast point detector and foreground-context filter are retained. Roof/window edges, broad illuminated halos, extended discs and single hot pixels are screened by the existing optical checks. The calibration pipeline now applies the same foreground-context filter.

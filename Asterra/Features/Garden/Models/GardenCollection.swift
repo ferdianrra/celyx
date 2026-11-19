@@ -5,6 +5,8 @@ struct GardenCollectionItem: Identifiable {
     let star: CatalogStar
     let record: CollectedStar
     var id: Int { record.id }
+    var isEventMember: Bool { record.skyEvent != nil && star.id != record.id }
+    var displayedEvent: SkyEvent? { isEventMember ? nil : record.skyEvent }
     var coordinates: String { String(format: "%.2f°, %.2f°", record.latitude, record.longitude) }
     var collectedDate: String {
         record.date.formatted(
@@ -16,6 +18,11 @@ struct GardenCollectionItem: Identifiable {
             (catalogue + CatalogStar.planets).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
         )
         return records.values.map { record in
+            if let event = record.skyEvent {
+                return Self(star: CatalogStar(id: record.id, ra_deg: 0, dec_deg: 0, mag: 0, bv: nil,
+                    name: event.title, designation: nil, distance_ly: nil, con: nil, collectible_candidate: false),
+                    record: record)
+            }
             let star =
                 record.id == CatalogStar.sun.id
                 ? .sun

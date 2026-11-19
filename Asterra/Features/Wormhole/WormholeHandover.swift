@@ -220,9 +220,10 @@ final class WormholeHandover: Identifiable {
         0.62*Double(min(freeze.size.width,freeze.size.height))/tan(max(5,min(170,fov)) * .pi/360)
     }
 
-    /// The collected star's direction [east, north, up] (falls back to where the frozen camera looked).
+    /// The new object's direction or the midpoint of a new conjunction in horizon coordinates.
     @ObservationIgnored lazy var starDirection: SIMD3<Double> = {
-        scene.objects.first { $0.id == scene.newID }?.direction ?? freeze.orientation.act(SIMD3(0,0,-1))
+        let sum = scene.newObjects.map(\.direction).reduce(SIMD3<Double>.zero, +)
+        return simd_length(sum) > 0.001 ? simd_normalize(sum) : freeze.orientation.act(SIMD3(0,0,-1))
     }()
 
     /// Upright camera looking straight at the collected star.

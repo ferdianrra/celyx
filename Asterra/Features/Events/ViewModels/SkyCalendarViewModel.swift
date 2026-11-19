@@ -47,6 +47,11 @@ final class SkyCalendarViewModel {
         return events(in: interval).filter { filters.isEmpty || filters.contains($0.kind) }
         .sorted { $0.start < $1.start }
     }
+    func listSections(at date: Date) -> (current: [SkyEvent], past: [SkyEvent]) {
+        let events = monthEvents
+        return (events.filter { !$0.hasEnded(at: date) },
+                events.filter { $0.hasEnded(at: date) }.sorted { $0.end > $1.end })
+    }
     func events(on day: Date) -> [SkyEvent] {
         let start = calendar.startOfDay(for: day)
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start

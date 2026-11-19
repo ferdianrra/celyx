@@ -164,7 +164,13 @@ struct CollectedObjectSheet: View {
         .confirmationDialog(observationNumber == nil ? "Delete \(item.star.title)?" : "Delete this observation?", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { onDelete(); dismiss() }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("This deletes the photo and note for this observation.") }
+        } message: {
+            if item.record.skyEvent?.target.conjunctionMembers.isEmpty == false {
+                Text("This deletes the shared photo and note from both body profiles and Sky Events.")
+            } else {
+                Text("This deletes the photo and note for this observation.")
+            }
+        }
         .fullScreenCover(isPresented: $showsShare) {
             StarShareView(item: displayedItem, collection: collection, capturedPhoto: photo)
         }
@@ -196,14 +202,14 @@ struct CollectedObjectSheet: View {
                     Text(observationNumber ?? "").font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                StarPortraitView(star: item.star).frame(width: 64, height: 64)
+                GardenObjectPortraitView(item: item).frame(width: 64, height: 64)
                     .accessibilityHidden(true)
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
                     HStack(spacing: 12) {
-                        StarPortraitView(star: item.star).frame(width: 56, height: 56)
+                        GardenObjectPortraitView(item: item).frame(width: 56, height: 56)
                             .shadow(color: .white.opacity(0.35), radius: 8).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 6) {
                             Text(item.star.title).font(.title.bold()).fixedSize(horizontal: false, vertical: true)
@@ -294,6 +300,7 @@ struct CollectedObjectSheet: View {
             .accessibilityIdentifier("collected-star-photo")
     }
     private var notePlaceholder: String {
+        if item.displayedEvent != nil { return "What did you notice during this event?" }
         if tourGuide {
             return item.star.isSun
                 ? "What did the sunlight look like, and how did this moment feel?"

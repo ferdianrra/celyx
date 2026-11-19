@@ -20,6 +20,11 @@ struct ContentView: View {
                 CollectionCaptureFlowPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-share-flow") {
                 StarShareFlowPreview()
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-event-guidance") {
+                SkyEventFlowPreview(showsCompletedDemo:
+                    ProcessInfo.processInfo.arguments.contains("-ui-testing-completed-demo"))
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-event-garden") {
+                HomeView(model: SkyEventFlowPreview.gardenModel)
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-constellation-book") {
                 ZodiacBookPreviewFlow(detailCode: UserDefaults.standard.string(forKey: "constellation-detail"))
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-album") {

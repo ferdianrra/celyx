@@ -9,7 +9,7 @@ struct HomeView: View {
     @State private var path: [HomeRoute] = []
     @State private var showsCollection = false
     @State private var pendingCollectionCategory: CollectionCategory?
-    @State private var camera: CollectCameraView.Mode?
+    @State private var camera: CameraCollectionMode?
     @State private var gardenCamera = NightSeaCamera()
     @State private var gardenReset = 0
     @State private var showsCalibration = false
@@ -23,6 +23,7 @@ struct HomeView: View {
     @State private var demoShowing = false
     #if DEBUG
     @State private var demoConstellationsEnabled = false
+    @State private var didPreviewEventArrival = false
     #endif
     @State private var screenSize = CGSize(width: 402, height: 874)
     @State private var screenWidth: CGFloat = 402
@@ -94,7 +95,10 @@ struct HomeView: View {
                 case .reframe:
                     // The Night Sea now matches the wormhole pixel for pixel: drop the camera without a transition.
                     var transaction = Transaction(); transaction.disablesAnimations = true
-                    withTransaction(transaction) { showsStarCamera = false }
+                    withTransaction(transaction) {
+                        showsStarCamera = false
+                        camera = nil
+                    }
                 case .done:
                     self.handover = nil
                 default: break
@@ -122,7 +126,9 @@ struct HomeView: View {
                         onDiscoveryShown:{ hasSeenCalendarHint = true }) { path.append(.event($0)) }
                         .onDisappear { showsCalendarHint = false }
                 case .event(let event):
-                    SkyEventDetailView(event:event,store:events) { camera = .event(event) }
+                    SkyEventDetailView(event: event, store: events, hasObservation: model.hasEventCapture(event)) {
+                        camera = .event(event)
+                    }
                 case .collection(let category):
                     CollectionListView(category: category, model: model, events: events, onGuide: { star in
                         guideTarget = star
@@ -155,11 +161,32 @@ struct HomeView: View {
 
         }
         .fullScreenCover(item:$camera) { mode in
-            CollectCameraView(mode:mode,model:model,events:events) { finished in
-                camera = nil
-                if finished { path.removeAll() }
+            CollectCameraView(mode: mode, model: model, handover: handover, onCollect: collectedEvent) { camera = nil }
+        }
+        .onChange(of: model.location, initial: true) { _, location in
+            SkyEventCatalog.shared.update(location: location)
+        }
+        #if DEBUG
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-testing-event-garden"),
+                !didPreviewEventArrival, let location = model.location else { return }
+            didPreviewEventArrival = true
+            let event = ProcessInfo.processInfo.arguments.contains("-ui-testing-conjunction-arrival")
+                ? SkyEvent.demoConjunction() : SkyEvent.demo()
+            if event.target == .demoConjunction {
+                let sky = SkyEventCatalog.horizon(of: event.target, at: .now, location: location)
+                gardenCamera.azimuth = sky.azimuth * .pi / 180
+                gardenCamera.altitude = sky.altitude * .pi / 180
+            }
+            if let record = try? model.saveEventObservation(event, image: AppPreviewData.albumPhoto,
+                date: .now, location: location) {
+                if let captureID = record.captureID {
+                    model.updateObservationPlace(captureID: captureID, name: "Jakarta Pusat")
+                }
+                collectedEvent(.fade(itemID: record.id, captureID: record.captureID))
             }
         }
+        #endif
     }
 
     private var realCameraGuide: OnboardingCameraGuide? {
@@ -571,7 +598,10 @@ struct HomeView: View {
             handoverTask = Task { await handover.run() }
         case .fade(let itemID, let captureID):
             // Reduce Motion: cross-fade, reveal in place, then present the album.
-            withAnimation(.easeInOut(duration:0.4)) { showsStarCamera = false }
+            withAnimation(.easeInOut(duration:0.4)) {
+                showsStarCamera = false
+                camera = nil
+            }
             guard let itemID else { return }
             let transition = WormholeHandover(freeze: .placeholder(size: screenSize),
                 star: CGPoint(x: screenSize.width / 2, y: screenSize.height / 2), itemID: itemID,
@@ -582,6 +612,12 @@ struct HomeView: View {
             handover = transition
             handoverTask = Task { await transition.run(reduceMotion: true) }
         }
+    }
+
+    private func collectedEvent(_ result: StarCollectCameraView.CollectResult) {
+        gardenUsesCamera = false
+        path.removeAll()
+        collected(result)
     }
 
     private func presentCapturedNote() {
@@ -596,7 +632,7 @@ struct HomeView: View {
         let items = model.collectionItems
         return .init(stars:CollectionCategory.stars(items).count,
                      planets:CollectionCategory.planets(items).count,
-                     events:events.collected.count,
+                     events:events.collected.union(items.compactMap { $0.record.skyEvent?.collectionID }).count,
                      constellations:CollectionCategory.constellations(items).count)
     }
     private func openSelectedCollection() {

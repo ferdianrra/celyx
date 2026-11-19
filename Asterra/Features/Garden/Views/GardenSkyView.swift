@@ -77,7 +77,7 @@ struct GardenSkyView: View {
                     equatorial: viewModel.equatorial, isActive: refreshesSkyPositions,
                     onCameraUpdate: handover == nil ? nil : { pose in handover?.liveCamera = pose },
                     link: cameraLink
-                ) { viewModel.selected = $0 }
+                ) { viewModel.select($0) }
                 .opacity(showsCaptureSequence ? 0 : 1)
                 .allowsHitTesting(!showsCaptureSequence)
             }
@@ -146,7 +146,7 @@ struct GardenSkyView: View {
                 var ids = completed?.requiredStarIDs ?? Set(edges.flatMap { [$0.startID, $0.endID] })
                 if let id { ids.insert(id) }
                 handover.configureFocus(
-                    directions: handover.scene.objects.filter { ids.contains($0.id) }.map(\.direction),
+                    directions: handover.scene.objects.filter { ids.contains($0.id) || handover.scene.isNewObject($0.id) }.map(\.direction),
                     revealsConstellation: completed != nil || !edges.isEmpty
                 )
             }
@@ -225,10 +225,10 @@ struct GardenSkyView: View {
     /// Collected objects to draw; the one just collected waits until its flight lands (LandingStarFlight).
     private var shownPlaced: [NightSeaObject] {
         let objects = viewModel.placed.map(\.object)
-        guard let handover, let id = handover.scene.newID, handover.phase < .releasing,
+        guard let handover, handover.phase < .releasing,
             handover.tt() < handover.landing + WormholeTimeline.flyEnd
         else { return objects }
-        return objects.filter { $0.id != id }
+        return objects.filter { !handover.scene.isNewObject($0.id) }
     }
 
     /// Reveal newly collected threads only after placement and focus settle.
@@ -379,9 +379,9 @@ struct GardenSkyView: View {
                 point.x > -40, point.x < size.width + 40, point.y > -40, point.y < size.height + 40
             {
                 Button {
-                    viewModel.selected = entry.item
+                    viewModel.select(entry.selectionItem)
                 } label: {
-                    Text(entry.item.star.title)
+                    Text(entry.title)
                         .font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.85))
                         .shadow(color: .black.opacity(0.7), radius: 3)
                         .padding(.horizontal, 8).padding(.vertical, 6)
@@ -389,9 +389,10 @@ struct GardenSkyView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(entry.isPreview)
-                .position(x: point.x, y: point.y + entry.object.radius * (entry.object.kind == .star ? 7 / 1.3 : 1) * 0.45 + 14)
-                .accessibilityLabel(entry.isPreview ? "\(entry.item.star.title), preview star" :
-                    "\(entry.item.star.title), collected \(entry.item.collectedDate)")
+                .position(x: point.x, y: point.y + (entry.titleIsAbove ? -1 : 1)
+                    * (entry.object.radius * (entry.object.kind == .star ? 7 / 1.3 : 1) * 0.45 + 14))
+                .accessibilityLabel(entry.isPreview ? "\(entry.title), preview star" :
+                    "\(entry.title), collected \(entry.item.collectedDate)")
                 .accessibilityHint(entry.isPreview ? "" : "Shows details")
             }
         }

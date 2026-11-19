@@ -7,6 +7,7 @@ extension GardenCollectionItem {
             ?? "Location unavailable"
     }
     var albumSubtitle: String {
+        if let event = displayedEvent { return event.isDemo ? "Practice event" : "Sky event" }
         if star.isSolarSystemBody { return star.kind }
         if let code = star.con, let name = ConstellationNames.name(for:code) { return "Star in \(name)" }
         return "Star"
@@ -23,6 +24,18 @@ extension GardenCollectionItem {
     var albumNote: String {
         let note = record.note?.trimmingCharacters(in:.whitespacesAndNewlines) ?? ""
         return note.isEmpty ? "A sky observation captured with Asterra." : note
+    }
+}
+
+struct GardenObjectPortraitView: View {
+    let item: GardenCollectionItem
+
+    var body: some View {
+        if let event = item.displayedEvent {
+            Image(event.hero).resizable().scaledToFit()
+        } else {
+            StarPortraitView(star: item.star)
+        }
     }
 }
 

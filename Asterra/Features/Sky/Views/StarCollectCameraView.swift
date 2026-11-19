@@ -30,8 +30,6 @@ struct StarCollectCameraView: View {
     var onCollect: ((CollectResult) -> Void)? = nil
     /// Event mode ("Collect this event"): guide the camera to the event and collect it during its window.
     var event: SkyEvent? = nil
-    var eventStore: SkyEventStore? = nil
-    var onEventCollected: (() -> Void)? = nil
     @State private var eventGuide: EventCameraGuide?
     @State private var eventNow = Date()
     @State private var isCollectingEvent = false
@@ -73,7 +71,7 @@ struct StarCollectCameraView: View {
 
     init(
         model: HomeViewModel, handover: WormholeHandover? = nil, onCollect: ((CollectResult) -> Void)? = nil,
-        event: SkyEvent? = nil, eventStore: SkyEventStore? = nil, onEventCollected: (() -> Void)? = nil,
+        event: SkyEvent? = nil,
         onboardingGuide: OnboardingCameraGuide? = nil, guideTarget: CatalogStar? = nil,
         onClose: @escaping () -> Void
     ) {
@@ -81,8 +79,6 @@ struct StarCollectCameraView: View {
         self.handover = handover
         self.onCollect = onCollect
         self.event = event
-        self.eventStore = eventStore
-        self.onEventCollected = onEventCollected
         self.onClose = onClose
         self.onboardingGuide = onboardingGuide
         self.guideTarget = guideTarget
@@ -92,6 +88,7 @@ struct StarCollectCameraView: View {
     private var viewSize: CGSize { viewModel.viewSize }
     private var center: CGPoint { CGPoint(x: viewSize.width / 2, y: viewSize.height / 2) }
     private var centerTarget: CenterTarget? {
+        guard event == nil else { return nil }
         #if DEBUG
         if demoOn {
             guard let target = DemoSky.target(in: demoProjections,
@@ -147,7 +144,9 @@ struct StarCollectCameraView: View {
                         .opacity(feedReady ? 1 : 0)
                         .animation(.easeOut(duration: 0.2), value: feedReady)
                         #if DEBUG
-                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in toggleDemoSky() })
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.6).onEnded { _ in
+                            if event == nil { toggleDemoSky() }
+                        })
                         #endif
                         .simultaneousGesture(
                             MagnifyGesture()
@@ -180,12 +179,23 @@ struct StarCollectCameraView: View {
                         .position(x: geometry.size.width / 2, y: geometry.size.height / 2 + 10)
                         .allowsHitTesting(false)
                         .opacity(crosshair)
-                    if let title = event?.title ?? guideTarget?.title, let guide = eventGuide, handover == nil, guide.altitude > 0 {
-                        if let point = guide.point {
-                            EventGuideMarker(title: title, isAimed: guide.isAimed).position(point)
+                    if let title = event?.title ?? guideTarget?.title, let guide = eventGuide,
+                        handover == nil, guide.altitude > 0, service.status == .tracking,
+                        event?.isOpen(at: eventNow) != false, !isCollectingEvent {
+                        if !guide.members.isEmpty {
+                            ForEach(guide.members) { member in
+                                if let point = member.point {
+                                    ConjunctionTargetMarker(name: member.name, isAimed: guide.isAimed,
+                                        labelAbove: member.id == guide.members.first?.id)
+                                        .position(point)
+                                }
+                            }
+                        } else if let point = guide.point, event?.isDemo != true || !guide.isAimed {
+                            EventGuideMarker(title: event?.isDemo == true ? nil : title,
+                                isAimed: guide.isAimed).position(point)
                         }
                         // A big arrow around the circle always points the way until the event is in it.
-                        if !guide.isAimed {
+                        if !guide.aimsAtCenter {
                             EventDirectionArrow(
                                 arrow: guide.pointing(from: CGPoint(
                                     x: geometry.size.width / 2, y: geometry.size.height / 2 + 10)),
@@ -210,10 +220,13 @@ struct StarCollectCameraView: View {
                     }
                     .padding(.horizontal, 20)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if let event, event.isDemo {
+                    demoEventCard(event)
+                        .padding(.horizontal, 20)
                 } else if let event {
                     EventCollectPanel(event: event, guide: service.status == .tracking ? eventGuide : nil,
-                        now: eventNow, isCollected: eventStore?.collected.contains(event.id) == true,
-                        onCollect: collectEvent)
+                        now: eventNow, isCollected: isCollectingEvent || model.hasEventCapture(event),
+                        waitingMessage: service.status == .tracking ? nil : hintText, onCollect: collectEvent)
                         .padding(.horizontal, 20).padding(.bottom, 40)
                         .transition(.opacity)
                 } else if let onboardingGuide {
@@ -241,7 +254,7 @@ struct StarCollectCameraView: View {
         }
         .allowsHitTesting(!isClosing && handover == nil && captureStart == nil)
         .overlay(alignment: .top) {
-            if let event, handover == nil {
+            if let event, !event.isDemo, handover == nil {
                 EventWindowBanner(event: event, now: eventNow)
                     .padding(.horizontal, 16).padding(.top, 8)
             }
@@ -249,41 +262,42 @@ struct StarCollectCameraView: View {
         .task(id: event?.id ?? guideTarget?.id.description) {
             // Event guide: the event's sky position (refreshed each second) projected through the live camera.
             guard event != nil || guideTarget != nil else { return }
-            var direction: SIMD3<Double>?
-            var position: (azimuth: Double, altitude: Double) = (0, -90)
+            var position: SkyEventCatalog.HorizonPosition?
+            var members: [SkyEventCatalog.ConjunctionMember] = []
             var computed = Date.distantPast
             while !Task.isCancelled {
                 let now = Date()
-                if now.timeIntervalSince(computed) >= 1,
-                    let location = service.observerLocation ?? SkyEventCatalog.shared.location ?? model.location
-                {
-                    if let event {
-                        let sky = SkyEventCatalog.horizon(of: event.target, at: now, location: location)
-                        direction = sky.direction
-                        position = (sky.azimuth, sky.altitude)
-                    } else if let star = guideTarget {
+                if now.timeIntervalSince(computed) >= 1 {
+                    computed = now
+                    if event != nil { eventNow = now }
+                    position = nil
+                    members = []
+                    if let event, let location = service.observerLocation, event.isOpen(at: now) {
+                        let sky = SkyEventCatalog.guidance(of: event.target, at: now, location: location)
+                        position = sky.position
+                        members = sky.members
+                    } else if let star = guideTarget,
+                        let location = service.observerLocation ?? SkyEventCatalog.shared.location ?? model.location {
                         let sky = AstronomyService.snapshot(date: now, location: location)
                         let geometric = star.isSun ? sky.sunDirection : star.isMoon ? sky.moonDirection
                             : star.isPlanet ? sky.planets.first { $0.star.id == star.id }?.direction
                             : sky.direction(ra: star.ra_deg, dec: star.dec_deg)
-                        direction = geometric.map(Refraction.apparent)
-                        if let direction {
+                        if let direction = geometric.map(Refraction.apparent) {
                             position = (atan2(direction.x, direction.y) * 180 / .pi,
-                                        asin(min(1, max(-1, direction.z))) * 180 / .pi)
+                                        asin(min(1, max(-1, direction.z))) * 180 / .pi, direction)
                         }
                     }
-                    computed = now
-                    eventNow = now
                 }
-                if let direction, let projection = service.demoProjection(horizon: direction) {
-                    let guide = EventCameraGuide(point: projection.point, arrow: projection.arrow,
-                        separation: projection.separation, azimuth: position.azimuth, altitude: position.altitude)
-                    if guide != eventGuide { eventGuide = guide }
-                } else if eventGuide != nil {
-                    eventGuide = nil
-                }
+                let guide = position.flatMap { projectEvent($0, members: members) }
+                if guide != eventGuide { eventGuide = guide }
                 try? await Task.sleep(for: .milliseconds(33))
             }
+        }
+        .task(id: isCollectingEvent) {
+            guard isCollectingEvent, onCollect == nil else { return }
+            do { try await Task.sleep(for: .seconds(1.4)) } catch { return }
+            guard !isClosing else { return }
+            onClose()
         }
         .overlay(alignment: .trailing) {
             if service.exposureControlVisible {
@@ -423,6 +437,10 @@ struct StarCollectCameraView: View {
             state: crosshairState, label: label, soundEnabled: handover == nil, hapticsEnabled: handover == nil)
     }
     private var crosshairState: CrosshairState {
+        if let event {
+            return event.isOpen(at: eventNow) && service.status == .tracking && eventGuide?.isAimed == true
+                ? .enable : .default
+        }
         if isChecking { return .validating }
         if shownTarget != nil { return targetCrosshairState == .default ? .locking : targetCrosshairState }
         if isAnalyzingLight { return .locking }
@@ -510,6 +528,41 @@ struct StarCollectCameraView: View {
         })
     }
 
+    private func demoEventCard(_ event: SkyEvent) -> some View {
+        let ready = service.status == .tracking && eventGuide?.isAimed == true
+            && event.isOpen(at: eventNow) && !isCollectingEvent
+        let prompt: String
+        if isCollectingEvent {
+            prompt = "Collected"
+        } else if event.hasEnded(at: eventNow) {
+            prompt = "Reopen Demo to try again"
+        } else if ready {
+            prompt = "Tap anywhere to capture"
+        } else if service.status != .tracking {
+            prompt = hintText
+        } else if event.target == .demoConjunction {
+            prompt = eventGuide?.aimsAtCenter == true
+                ? "Fit both objects in the frame. Zoom out if needed."
+                : "Follow the arrow to frame the Moon and Jupiter"
+        } else {
+            prompt = "Follow the arrow toward the practice target"
+        }
+        return VStack(spacing: 38) {
+            CameraCollectionPrompt(text: prompt, ready: ready)
+            CameraCollectionCardContent(title: event.title, subtitle: "Practice event") {
+                Image(event.hero).resizable().scaledToFit()
+            }
+            .onTapGesture {
+                if ready { collectEvent() }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityActions {
+                if ready { Button("Capture", action: collectEvent) }
+            }
+            .accessibilityIdentifier("demo-event-collection-card")
+        }
+    }
+
     private var excludedIsNear: Bool {
         #if DEBUG
         if demoOn {
@@ -521,24 +574,61 @@ struct StarCollectCameraView: View {
 
     // MARK: Actions
 
+    private func projectEvent(_ position: SkyEventCatalog.HorizonPosition, members: [SkyEventCatalog.ConjunctionMember])
+        -> EventCameraGuide?
+    {
+        guard let projection = service.demoProjection(horizon: position.direction) else { return nil }
+        let projectedMembers = members.map {
+            EventCameraGuide.Member(name: $0.name, point: service.demoProjection(horizon: $0.position.direction)?.point)
+        }
+        return EventCameraGuide(point: projection.point, arrow: projection.arrow,
+            separation: projection.separation, azimuth: position.azimuth, altitude: position.altitude,
+            members: projectedMembers)
+    }
+
     /// Collects the event: only inside its viewing window and while the camera faces it.
     private func collectEvent() {
-        guard let event, let eventStore, !isCollectingEvent, event.isOpen(at: Date()),
-            eventGuide?.isAimed == true
-        else { return }
-        isCollectingEvent = true
-        CrosshairFeedback.shared.play(CrosshairSound.collect)
-        CrosshairFeedback.shared.play(CrosshairHaptic.collect)
-        withAnimation(.snappy) { eventStore.collect(event) }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.4))
-            service.stop()
-            if let onEventCollected { onEventCollected() } else { onClose() }
+        let now = Date()
+        guard let event, !isClosing, !isCollectingEvent, phase == .active,
+            event.isOpen(at: now), let location = service.observerLocation else { return }
+        let sky = SkyEventCatalog.guidance(of: event.target, at: now, location: location)
+        guard let guide = projectEvent(sky.position, members: sky.members), guide.isAimed else { return }
+        guard var freeze = service.wormholeFreeze(), let cameraImage = freeze.image else {
+            viewModel.errorMessage = "The camera frame isn’t ready. Hold steady and try again."
+            return
+        }
+        #if DEBUG
+        if event.target == .demoConjunction {
+            let markers = guide.members.compactMap { member -> (point: CGPoint, color: SIMD3<Double>)? in
+                guard let point = member.point else { return nil }
+                let color: SIMD3<Double> = member.name == "Moon" ? SIMD3(0.9, 0.94, 1) : SIMD3(1, 0.77, 0.48)
+                return (point, color)
+            }
+            freeze.image = DemoSky.composite(cameraImage, stars: markers, viewSize: freeze.size) ?? cameraImage
+        }
+        #endif
+        let image = freeze.image ?? cameraImage
+        do {
+            let record = try model.saveEventObservation(event, image: UIImage(cgImage: image), date: now, location: location)
+            isCollectingEvent = true
+            if let onCollect, reduceMotion {
+                CrosshairFeedback.shared.play(CrosshairSound.collect)
+                CrosshairFeedback.shared.play(CrosshairHaptic.collect)
+                onCollect(.fade(itemID: record.id, captureID: record.captureID))
+            } else if onCollect != nil {
+                captureThenHandover(itemID: record.id, captureID: record.captureID,
+                    point: guide.point ?? center, freeze: freeze)
+            } else if !reduceMotion {
+                startCaptureCue(image: image)
+            }
+        } catch {
+            viewModel.errorMessage = "Couldn’t save the event. Try again while its viewing window is open."
         }
     }
 
     private func handleCameraTap(_ point: CGPoint) {
-        if let target = shownTarget { collect(target) }
+        if event?.isDemo == true, eventGuide?.isAimed == true { collectEvent() }
+        else if let target = shownTarget { collect(target) }
         else { _ = service.focus(at: point) }
     }
 
@@ -582,9 +672,7 @@ struct StarCollectCameraView: View {
     /// a 1 → 0.98 → 1 shutter squeeze, rigid haptic + mechanical shutter click; the wormhole opens 350 ms later.
     private func captureThenHandover(itemID: Int?, captureID: UUID? = nil, point: CGPoint,freeze: WormholeFreeze,
                                      then finish: @escaping () -> Void = {}) {
-        WormholeFeedback.shared.playShutter()
-        captureImage = freeze.image
-        captureStart = CACurrentMediaTime()
+        startCaptureCue(image: freeze.image)
         Task { @MainActor in
             try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.handoverDelay)))
             beginHandover(itemID:itemID, captureID: captureID, point:point,freeze:freeze)
@@ -593,6 +681,12 @@ struct StarCollectCameraView: View {
             try? await Task.sleep(for:.milliseconds(Int(CaptureFlash.duration-CaptureFlash.handoverDelay)+20))
             captureStart = nil; captureImage = nil
         }
+    }
+
+    private func startCaptureCue(image: CGImage?) {
+        WormholeFeedback.shared.playShutter()
+        captureImage = image
+        captureStart = CACurrentMediaTime()
     }
 
     /// Freezes the camera frame and opens the wormhole at the collected star's screen point.

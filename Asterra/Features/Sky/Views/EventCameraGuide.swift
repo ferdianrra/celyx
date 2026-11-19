@@ -2,6 +2,12 @@ import SwiftUI
 
 /// Where a sky event sits relative to the live camera, refreshed while the star camera runs in event mode.
 struct EventCameraGuide: Equatable {
+    struct Member: Identifiable, Equatable {
+        let name: String
+        let point: CGPoint?
+        var id: String { name }
+    }
+
     /// On-screen position, when the event is inside the camera view.
     var point: CGPoint?
     /// Shortest turn toward the event, in screen space (x right, y down).
@@ -10,9 +16,12 @@ struct EventCameraGuide: Equatable {
     var separation: Double
     var azimuth: Double
     var altitude: Double
+    var members: [Member] = []
 
     /// Close enough to the centre circle to collect.
-    var isAimed: Bool { separation <= 8 && altitude > 0 }
+    var aimsAtCenter: Bool { point != nil && separation <= 8 && altitude > 0 }
+    var hasAllMembersInFrame: Bool { members.allSatisfy { $0.point != nil } }
+    var isAimed: Bool { aimsAtCenter && hasAllMembersInFrame }
 
     /// Screen direction from `center` toward the event: straight at it when visible, else the shortest turn.
     func pointing(from center: CGPoint) -> CGVector {
@@ -25,6 +34,29 @@ struct EventCameraGuide: Equatable {
     var compass: String {
         let names = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
         return names[Int(((azimuth.truncatingRemainder(dividingBy: 360) + 360 + 22.5) / 45)) % 8]
+    }
+}
+
+struct ConjunctionTargetMarker: View {
+    let name: String
+    let isAimed: Bool
+    let labelAbove: Bool
+
+    var body: some View {
+        Circle()
+            .strokeBorder(isAimed ? Color.green : .white, lineWidth: 1.5)
+            .frame(width: 16, height: 16)
+            .shadow(color: .black.opacity(0.6), radius: 2)
+            .overlay {
+                Text(name).font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .glassEffect(.regular, in: .capsule)
+                    .fixedSize()
+                    .offset(y: labelAbove ? -23 : 23)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -71,12 +103,13 @@ struct EventWindowBanner: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular.tint(.black.opacity(0.25)), in: .rect(cornerRadius: 22))
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("event-camera-window")
     }
 }
 
 /// Ring drawn on the sky where the event is.
 struct EventGuideMarker: View {
-    let title: String
+    let title: String?
     let isAimed: Bool
     var body: some View {
         VStack(spacing: 6) {
@@ -85,11 +118,13 @@ struct EventGuideMarker: View {
                 .foregroundStyle(isAimed ? Color.green : .white)
                 .frame(width: 92, height: 92)
                 .shadow(color: .black.opacity(0.4), radius: 2)
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .glassEffect(.regular, in: .capsule)
+            if let title {
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .glassEffect(.regular, in: .capsule)
+            }
         }
-        .offset(y: 20)
+        .offset(y: title == nil ? 0 : 20)
         .animation(.snappy, value: isAimed)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -131,16 +166,21 @@ struct EventCollectPanel: View {
     let guide: EventCameraGuide?
     let now: Date
     let isCollected: Bool
+    let waitingMessage: String?
     let onCollect: () -> Void
 
     private var message: String {
         if isCollected { return "\(event.title) is in your collection" }
-        guard let guide else { return "Hold your phone up to the sky to find \(event.title)" }
+        if event.hasEnded(at: now) { return "The viewing window has closed" }
+        guard let guide else { return waitingMessage ?? "Hold your phone up to the sky to find \(event.title)" }
         if guide.altitude <= 0 {
-            return "It’s below your horizon right now. Face the \(guide.compass) during the viewing time."
+            return "It’s below your horizon to the \(guide.compass) right now."
         }
         if guide.isAimed { return "You’re facing \(event.title)" }
-        return "Follow the arrow"
+        if guide.aimsAtCenter && !guide.hasAllMembersInFrame {
+            return "Fit both objects in the frame. Zoom out if needed."
+        }
+        return "Face \(guide.compass) and follow the arrow"
     }
 
     var body: some View {

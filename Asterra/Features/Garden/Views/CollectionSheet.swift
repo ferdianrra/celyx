@@ -66,6 +66,7 @@ struct CollectionSheet: View {
                                 )
                                 .blendMode(.screen)
                         }
+                        .accessibilityIdentifier("collection-sky-events-tile")
                         CollectionTile(
                             title: "Constellation", count: counts.constellations,
                             action: { onSelect(.constellations) }
