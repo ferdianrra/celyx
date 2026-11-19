@@ -100,7 +100,11 @@ enum PlanetTextures {
     static func image(_ name: String?) -> Image {
         guard let name else { return placeholder }
         if let cached = cache[name] { return cached }
-        guard let source = GardenBodyAssets.image("garden-" + name) else { return placeholder }
+        guard let source = GardenBodyAssets.image("garden-" + name)
+            ?? GardenBodyAssets.image("garden-" + name, extension: "png")
+        else {
+            return placeholder
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let small = UIGraphicsImageRenderer(size: CGSize(width: 512, height: 256), format: format).image { _ in
