@@ -6,7 +6,7 @@ import QuartzCore
 struct GardenZodiacFigures: View {
     let unlocked: [GardenZodiacFigure]
     let projected: [ProjectedConstellationFigure]
-    let skyClip: [CGPoint]
+    let skyMask: CGImage?
     var isActive = true
 
     @State private var knownIDs: Set<String>?
@@ -16,7 +16,7 @@ struct GardenZodiacFigures: View {
 
     var body: some View {
         GardenZodiacFigureLayers(unlockedIDs: Set(unlocked.map(\.id)), projected: projected,
-            skyClip: skyClip, artwork: artwork, animatedIDs: animatedIDs,
+            skyMask: skyMask, artwork: artwork, animatedIDs: animatedIDs,
             isActive: isActive, reduceMotion: reduceMotion)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -38,7 +38,7 @@ struct GardenZodiacFigures: View {
 private struct GardenZodiacFigureLayers: UIViewRepresentable {
     let unlockedIDs: Set<String>
     let projected: [ProjectedConstellationFigure]
-    let skyClip: [CGPoint]
+    let skyMask: CGImage?
     let artwork: [String: GardenZodiacArtwork]
     let animatedIDs: Set<String>
     let isActive: Bool
@@ -46,14 +46,15 @@ private struct GardenZodiacFigureLayers: UIViewRepresentable {
 
     func makeUIView(context: Context) -> GardenZodiacFigureLayerView { GardenZodiacFigureLayerView() }
     func updateUIView(_ view: GardenZodiacFigureLayerView, context: Context) {
-        view.update(unlockedIDs: unlockedIDs, projected: projected, skyClip: skyClip,
+        view.update(unlockedIDs: unlockedIDs, projected: projected, skyMask: skyMask,
                     artwork: artwork, animatedIDs: animatedIDs, isActive: isActive, reduceMotion: reduceMotion)
     }
 }
 
 /// Image contents stay on the compositor; sensor frames update transforms, visibility and the horizon mask.
 final class GardenZodiacFigureLayerView: UIView {
-    private let horizonMask = CAShapeLayer()
+    /// Soft horizon: an alpha image stretched over the view (see GardenZodiacFigure.skyMask).
+    private let horizonMask = CALayer()
     private var figures: [String: CALayer] = [:]
     private var revealed: Set<String> = []
 
@@ -62,6 +63,8 @@ final class GardenZodiacFigureLayerView: UIView {
         backgroundColor = .clear
         isOpaque = false
         isUserInteractionEnabled = false
+        horizonMask.contentsGravity = .resize
+        horizonMask.magnificationFilter = .linear
         layer.mask = horizonMask
     }
 
@@ -74,7 +77,7 @@ final class GardenZodiacFigureLayerView: UIView {
         CATransaction.commit()
     }
 
-    func update(unlockedIDs: Set<String>, projected: [ProjectedConstellationFigure], skyClip: [CGPoint],
+    func update(unlockedIDs: Set<String>, projected: [ProjectedConstellationFigure], skyMask: CGImage?,
                 artwork: [String: GardenZodiacArtwork], animatedIDs: Set<String>,
                 isActive: Bool, reduceMotion: Bool) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -83,13 +86,7 @@ final class GardenZodiacFigureLayerView: UIView {
             figures.removeValue(forKey: id)?.removeFromSuperlayer()
             revealed.remove(id)
         }
-        let clip = CGMutablePath()
-        if let first = skyClip.first {
-            clip.move(to: first)
-            for point in skyClip.dropFirst() { clip.addLine(to: point) }
-            clip.closeSubpath()
-        }
-        horizonMask.path = clip
+        horizonMask.contents = skyMask
         for container in figures.values { container.isHidden = true }
 
         for drawing in projected {
@@ -124,15 +121,25 @@ final class GardenZodiacFigureLayerView: UIView {
             guard isActive, !revealed.contains(drawing.id) else { continue }
             revealed.insert(drawing.id)
             guard animatedIDs.contains(drawing.id), !reduceMotion else { continue }
+            // The whole figure materialises at once: a soft fade with a slight settle (1.04 → 1)
+            // around its own centre and a brief glow, instead of edges popping in.
             let start = CACurrentMediaTime()
+            let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0; fade.toValue = 1
-            fade.duration = 1.8; fade.beginTime = start
-            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            fade.duration = 2.2; fade.beginTime = start
+            fade.timingFunction = ease
             image.add(fade, forKey: "zodiac-reveal")
+            let settle = CABasicAnimation(keyPath: "transform.scale")
+            settle.fromValue = 1.04; settle.toValue = 1
+            settle.duration = 2.2; settle.beginTime = start
+            settle.timingFunction = ease
+            image.add(settle, forKey: "zodiac-settle")
+            glow.add(settle, forKey: "zodiac-settle")
             let bloom = CAKeyframeAnimation(keyPath: "opacity")
             bloom.values = [0, 0.375, 0]; bloom.keyTimes = [0, 0.45, 1]
-            bloom.duration = 1.8; bloom.beginTime = start
+            bloom.duration = 2.2; bloom.beginTime = start
+            bloom.timingFunction = ease
             glow.add(bloom, forKey: "zodiac-glow")
         }
     }

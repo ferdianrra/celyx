@@ -18,6 +18,10 @@ struct NightSeaCamera: Equatable {
     var focalOverride: Double?
     /// Optical centre height as a fraction of the screen (wormhole handover).
     var centerYFraction: Double?
+    /// Projection blend: 0 = pinhole (gyro window, live camera, wormhole), 1 = stereographic, the
+    /// planetarium "dome" of the wide touch view. Both agree at the centre, so zooming in converges.
+    /// Mirrored by `projectDir`/`rayDir` in NightSeaShader.txt (passed as forward.w).
+    var stereographic: Double = 0
 
     var forward: SIMD3<Double> {
         if let orientation { return -orientation.act(SIMD3(0,0,1)) }
@@ -51,8 +55,46 @@ struct NightSeaCamera: Equatable {
     func project(_ direction: SIMD3<Double>,in size: CGSize) -> CGPoint? {
         let f = forward, r = right, u = up
         let z = simd_dot(direction,f)
-        guard z >= 0.06 else { return nil }
         let focal = focalLength(in:size), c = center(in:size)
-        return CGPoint(x:c.x+simd_dot(direction,r)/z*focal,y:c.y-simd_dot(direction,u)/z*focal)
+        guard stereographic > 0 else {
+            guard z >= 0.06 else { return nil }
+            return CGPoint(x:c.x+simd_dot(direction,r)/z*focal,y:c.y-simd_dot(direction,u)/z*focal)
+        }
+        let lx = simd_dot(direction,r), ly = simd_dot(direction,u)
+        let lateral = hypot(lx,ly)
+        let theta = atan2(lateral,z)
+        guard theta < Self.maxAngle(stereographic) else { return nil }
+        guard lateral > 1e-12 else { return c }
+        let q = Self.radius(angle:theta,blend:stereographic)*focal
+        return CGPoint(x:c.x+lx/lateral*q,y:c.y-ly/lateral*q)
     }
+
+    /// The view direction through a screen point (the inverse of `project`).
+    func direction(at point: CGPoint,in size: CGSize) -> SIMD3<Double> {
+        let focal = focalLength(in:size), c = center(in:size)
+        let ox = (point.x-c.x)/focal, oy = (c.y-point.y)/focal
+        guard stereographic > 0 else { return simd_normalize(forward+ox*right+oy*up) }
+        let q = hypot(ox,oy)
+        guard q > 1e-12 else { return forward }
+        let theta = Self.angle(radius:q,blend:stereographic)
+        return simd_normalize(cos(theta)*forward+sin(theta)*((ox/q)*right+(oy/q)*up))
+    }
+
+    /// Off-axis angle → normalized screen radius: tan θ (pinhole) blended with 2·tan(θ/2)
+    /// (stereographic). Solved from `angle(radius:)`, which has the closed form.
+    static func radius(angle theta: Double,blend s: Double) -> Double {
+        var q = (1-s)*tan(min(theta,1.5))+s*2*tan(theta/2)
+        for _ in 0..<6 {
+            let error = angle(radius:q,blend:s)-theta
+            let slope = (1-s)/(1+q*q)+s/(1+q*q/4)
+            q = max(0,q-error/slope)
+        }
+        return q
+    }
+
+    /// Normalized screen radius → off-axis angle (radians).
+    static func angle(radius q: Double,blend s: Double) -> Double { (1-s)*atan(q)+s*2*atan(q/2) }
+
+    /// Widest off-axis angle still drawn: the pinhole's 86.6° (z ≥ 0.06) up to 149° stereographic.
+    static func maxAngle(_ s: Double) -> Double { 1.5108+1.0892*s }
 }

@@ -865,4 +865,64 @@ final class celyxUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for:[disabled],timeout:3),.completed)
     }
 
+    /// Seeds Moon, planets and two stars, hides their names from the compass menu, and pinches the
+    /// garden through a telescope-like zoom (screenshots for review; rendering is checked by unit tests).
+    @MainActor
+    func testStarNamesToggleAndGardenZoom() throws {
+        continueAfterFailure = false
+        let records = [-2, -4, -5, -6, -7, 0, 8].map {
+            "{\"id\":\($0),\"date\":815000000,\"latitude\":-6.1754,\"longitude\":106.8272}"
+        }
+        let json = Data("[\(records.joined(separator: ","))]".utf8)
+        let seeded = "<" + json.map { String(format: "%02x", $0) }.joined() + ">"
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-hasCompletedTour", "YES", "-gardenUsesCamera", "NO",
+                               "-collectedStars", seeded]
+        app.launch()
+        let compass = app.buttons["Direction options"]
+        XCTAssertTrue(compass.waitForExistence(timeout: 15))
+        compass.tap()
+        // A Toggle inside a Menu is exposed as a selectable button. (Not set through launch
+        // arguments: the argument domain would override what the toggle stores.)
+        let names = app.buttons["Star Names"].firstMatch
+        XCTAssertTrue(names.waitForExistence(timeout: 5))
+        if !names.isSelected {
+            names.tap()
+            compass.tap()
+            XCTAssertTrue(names.waitForExistence(timeout: 5))
+        }
+        XCTAssertTrue(names.isSelected)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        let named = XCTAttachment(screenshot: app.screenshot())
+        named.name = "Garden — star names on"; named.lifetime = .keepAlways; add(named)
+
+        compass.tap()
+        XCTAssertTrue(names.waitForExistence(timeout: 5))
+        names.tap()
+        compass.tap()
+        XCTAssertTrue(names.waitForExistence(timeout: 5))
+        XCTAssertFalse(names.isSelected)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()   // close the menu
+        let hidden = XCTAttachment(screenshot: app.screenshot())
+        hidden.name = "Garden — star names off"; hidden.lifetime = .keepAlways; add(hidden)
+
+        // Through the zoom range; the app must keep running and accept taps.
+        for step in 1...3 {
+            app.pinch(withScale: 4, velocity: 3)
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "Garden — pinch zoom step \(step)"; shot.lifetime = .keepAlways; add(shot)
+        }
+        XCTAssertTrue(compass.isHittable)
+        app.pinch(withScale: 0.05, velocity: -6)
+
+        // The choice persists across launches.
+        app.terminate()
+        app.launchArguments = ["-ui-testing", "-hasCompletedTour", "YES", "-gardenUsesCamera", "NO", "-collectedStars", seeded]
+        app.launch()
+        XCTAssertTrue(compass.waitForExistence(timeout: 15))
+        compass.tap()
+        XCTAssertTrue(names.waitForExistence(timeout: 5))
+        XCTAssertFalse(names.isSelected)
+        names.tap()   // leave names on for the next run
+    }
 }

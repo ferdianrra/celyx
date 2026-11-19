@@ -26,15 +26,25 @@ private struct SeaUniforms {
     var e2: SIMD4<Float>
 }
 
-private struct GPUPoint {
+/// Matches `GardenBody` in GardenBodyShader.txt.
+private struct GPUBody {
     var dirSize: SIMD4<Float>
     var color: SIMD4<Float>
+    var extra: SIMD4<Float>
+    var sun: SIMD4<Float>
 }
 
 @MainActor
 final class NightSeaRenderer: NSObject, MTKViewDelegate {
     var camera = NightSeaCamera()
     var moon: (direction: SIMD3<Double>, illumination: Double)?
+    /// The Sun's direction when it is in the collection: the sky takes a thin wash of the real
+    /// time of day (see `daylight` in NightSeaShader.txt). Nil keeps the night sky.
+    var sun: SIMD3<Double>?
+    /// Maximum strength of that wash, so stars stay visible even at noon.
+    static let daylightStrength: Float = 0.35
+    private var daylight: Float = 0
+    private var daylightClock: CFTimeInterval?
     var equatorial: simd_double3x3?
     /// Subtle on purpose: the collected objects must stay the brightest things in the sky.
     /// The NASA map, just a little under full strength (the user's pick).
@@ -46,6 +56,8 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
     private let queue: MTLCommandQueue
     private let seaPipeline: MTLRenderPipelineState
     private let pointPipeline: MTLRenderPipelineState
+    /// Moon, Mercury, Venus, Mars, Jupiter maps for zoomed disks (slices match `textureSlice`).
+    private let bodyTextures: MTLTexture
     private var layerTexture: MTLTexture?
     private var pointBuffer: MTLBuffer?
     private var pointCount = 0
@@ -76,16 +88,17 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
             throw NSError(domain:"NightSea",code:1,userInfo:[NSLocalizedDescriptionKey:"This device doesn’t support Metal."])
         }
         self.queue = queue
-        let source = try String(contentsOf:SkyAssets.url("NightSeaShader",extension:"txt"),encoding:.utf8)
-        let library = try device.makeLibrary(source:source,options:nil)
-        let sea = MTLRenderPipelineDescriptor()
-        sea.vertexFunction = library.makeFunction(name:"seaVertex")
-        sea.fragmentFunction = library.makeFunction(name:"seaFragment")
-        sea.colorAttachments[0].pixelFormat = view.colorPixelFormat
-        seaPipeline = try device.makeRenderPipelineState(descriptor:sea)
+        let sea = try String(contentsOf:SkyAssets.url("NightSeaShader",extension:"txt"),encoding:.utf8)
+        let bodies = try String(contentsOf:SkyAssets.url("GardenBodyShader",extension:"txt"),encoding:.utf8)
+        let library = try device.makeLibrary(source:sea+"\n"+bodies,options:nil)
+        let seaDescriptor = MTLRenderPipelineDescriptor()
+        seaDescriptor.vertexFunction = library.makeFunction(name:"seaVertex")
+        seaDescriptor.fragmentFunction = library.makeFunction(name:"seaFragment")
+        seaDescriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat
+        seaPipeline = try device.makeRenderPipelineState(descriptor:seaDescriptor)
         let points = MTLRenderPipelineDescriptor()
-        points.vertexFunction = library.makeFunction(name:"gardenPointVertex")
-        points.fragmentFunction = library.makeFunction(name:"gardenPointFragment")
+        points.vertexFunction = library.makeFunction(name:"gardenBodyVertex")
+        points.fragmentFunction = library.makeFunction(name:"gardenBodyFragment")
         let attachment = points.colorAttachments[0]!
         attachment.pixelFormat = .rgba8Unorm
         attachment.isBlendingEnabled = true
@@ -95,6 +108,7 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         pointPipeline = try device.makeRenderPipelineState(descriptor:points)
         milkyWay = try Self.loadMilkyWay(device:device)
+        bodyTextures = try Self.loadBodyTextures(device:device)
         guard let step = library.makeFunction(name:"rippleStep"), let drop = library.makeFunction(name:"rippleDrop") else {
             throw CocoaError(.featureUnsupported)
         }
@@ -144,15 +158,60 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         return texture
     }
 
+    /// The garden maps at 512×256 with mipmaps: sharp on a zoomed disk, no shimmer on a small one.
+    static func loadBodyTextures(device: MTLDevice) throws -> MTLTexture {
+        let names = ["moon","mercury","venus","mars","jupiter"]
+        let width = 512, height = 256, rowBytes = width*4
+        let descriptor = MTLTextureDescriptor()
+        descriptor.textureType = .type2DArray
+        descriptor.pixelFormat = .rgba8Unorm
+        descriptor.width = width; descriptor.height = height
+        descriptor.arrayLength = names.count
+        descriptor.mipmapLevelCount = Int(log2(Double(width)))+1
+        descriptor.usage = [.shaderRead]
+        guard let texture = device.makeTexture(descriptor:descriptor) else { throw CocoaError(.featureUnsupported) }
+        for (slice,name) in names.enumerated() {
+            var bytes = [UInt8](repeating:0,count:rowBytes*height)
+            if let url = try? SkyAssets.url("garden-"+name,extension:"jpg"),
+               let source = CGImageSourceCreateWithURL(url as CFURL,nil),
+               let image = CGImageSourceCreateImageAtIndex(source,0,nil) {
+                bytes.withUnsafeMutableBytes { buffer in
+                    let context = CGContext(data:buffer.baseAddress,width:width,height:height,bitsPerComponent:8,bytesPerRow:rowBytes,
+                                            space:CGColorSpace(name:CGColorSpace.sRGB)!,
+                                            bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue)
+                    context?.interpolationQuality = .high
+                    context?.draw(image,in:CGRect(x:0,y:0,width:width,height:height))
+                }
+            }
+            // noneSkipLast leaves the padding byte undefined: force opaque alpha.
+            for i in stride(from:3,to:bytes.count,by:4) { bytes[i] = 255 }
+            texture.replace(region:MTLRegionMake2D(0,0,width,height),mipmapLevel:0,slice:slice,
+                            withBytes:bytes,bytesPerRow:rowBytes,bytesPerImage:rowBytes*height)
+        }
+        guard let queue = device.makeCommandQueue(), let command = queue.makeCommandBuffer() else { throw CocoaError(.featureUnsupported) }
+        if let blit = command.makeBlitCommandEncoder() { blit.generateMipmaps(for:texture); blit.endEncoding() }
+        command.commit(); command.waitUntilCompleted()
+        return texture
+    }
+
+    /// Sun direction scaled by the wash strength, packed into the palette's w components.
+    nonisolated static func daylightVector(sun: SIMD3<Double>?,strength: Float) -> SIMD3<Float> {
+        guard let sun, simd_length(sun) > 0, strength > 0 else { return .zero }
+        let d = simd_normalize(sun)
+        return SIMD3(Float(d.x),Float(d.y),Float(d.z))*strength
+    }
+
     func setObjects(_ objects: [NightSeaObject],selectedID: Int?) {
         guard objects != lastObjects || selectedID != lastSelected else { return }
         lastObjects = objects; lastSelected = selectedID
         let gpu = objects.map { object in
-            GPUPoint(dirSize:SIMD4(Float(object.direction.x),Float(object.direction.y),Float(object.direction.z),Float(object.radius)),
-                     color:SIMD4(Float(object.color.x),Float(object.color.y),Float(object.color.z),object.gpuKind+(object.id == selectedID ? 10 : 0)))
+            GPUBody(dirSize:SIMD4(Float(object.direction.x),Float(object.direction.y),Float(object.direction.z),Float(object.radius)),
+                    color:SIMD4(Float(object.color.x),Float(object.color.y),Float(object.color.z),object.gpuKind+(object.id == selectedID ? 10 : 0)),
+                    extra:SIMD4(Float(object.phaseAngle),object.textureSlice,object.spin,object.axialTilt),
+                    sun:SIMD4(Float(object.sunDirection.x),Float(object.sunDirection.y),Float(object.sunDirection.z),0))
         }
         pointCount = gpu.count
-        pointBuffer = gpu.isEmpty ? nil : queue.device.makeBuffer(bytes:gpu,length:gpu.count*MemoryLayout<GPUPoint>.stride,options:.storageModeShared)
+        pointBuffer = gpu.isEmpty ? nil : queue.device.makeBuffer(bytes:gpu,length:gpu.count*MemoryLayout<GPUBody>.stride,options:.storageModeShared)
     }
 
     func mtkView(_ view: MTKView,drawableSizeWillChange size: CGSize) { layerTexture = nil }
@@ -194,11 +253,19 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
         // +1.2 blurs the map's tiny background dots so they never read as collected stars.
         let lod = Float(max(0,log2(texelsPerRadian/max(1,focal*Double(scale))))+NightSeaRenderer.milkyWayLodBias)
         var e2 = v(basis.columns.2); e2.w = lod
-        var uniforms = SeaUniforms(res:res,cam:cam,forward:v(camera.forward),right:v(camera.right),up:v(camera.up),
-                                   zenith:zenith,mid:mid,horizon:horizon,moon:moonVector,flags:flags,
+        // Fade the time-of-day wash in or out over ~2 s (e.g. right after the Sun is collected).
+        let now = CACurrentMediaTime()
+        let target: Float = sun == nil ? 0 : Self.daylightStrength
+        let step = Float(min(1,(now-(daylightClock ?? now))*1.5))
+        daylight = reduceMotion ? target : daylight+(target-daylight)*step
+        daylightClock = now
+        let wash = Self.daylightVector(sun:sun,strength:daylight)
+        var uniforms = SeaUniforms(res:res,cam:cam,forward:SIMD4(Float(camera.forward.x),Float(camera.forward.y),Float(camera.forward.z),Float(camera.stereographic)),right:v(camera.right),up:v(camera.up),
+                                   zenith:SIMD4(zenith.x,zenith.y,zenith.z,wash.x),mid:SIMD4(mid.x,mid.y,mid.z,wash.y),
+                                   horizon:SIMD4(horizon.x,horizon.y,horizon.z,wash.z),moon:moonVector,flags:flags,
                                    e0:v(basis.columns.0),e1:v(basis.columns.1),e2:e2)
 
-        // Pass 1: collected objects into the offscreen layer.
+        // Pass 1: collected objects into the offscreen layer (zoom-aware quads, see GardenBodyShader.txt).
         let layerPass = MTLRenderPassDescriptor()
         layerPass.colorAttachments[0].texture = layer
         layerPass.colorAttachments[0].loadAction = .clear
@@ -210,7 +277,8 @@ final class NightSeaRenderer: NSObject, MTKViewDelegate {
                 encoder.setVertexBytes(&uniforms,length:MemoryLayout<SeaUniforms>.stride,index:0)
                 encoder.setFragmentBytes(&uniforms,length:MemoryLayout<SeaUniforms>.stride,index:0)
                 encoder.setVertexBuffer(pointBuffer,offset:0,index:1)
-                encoder.drawPrimitives(type:.point,vertexStart:0,vertexCount:pointCount)
+                encoder.setFragmentTexture(bodyTextures,index:0)
+                encoder.drawPrimitives(type:.triangleStrip,vertexStart:0,vertexCount:4,instanceCount:pointCount)
             }
             encoder.endEncoding()
         }

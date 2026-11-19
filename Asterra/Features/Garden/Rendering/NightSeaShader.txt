@@ -147,6 +147,32 @@ constant float3 GLOW_VIOLET = float3(.294, .227, .478);   // #4b3a7a
 float3 toLin(float3 c) { return pow(max(c, 0.0), 2.2); }
 float3 toSRGB(float3 c) { return pow(max(c, 0.0), 1.0 / 2.2); }
 
+// Garden only, once the Sun is collected: a thin wash of the real time of day over the night sky.
+// The Sun direction scaled by the wash strength rides in the palette's spare w components
+// (zero in the wormhole, so nothing changes there). Night stays night; dawn and dusk warm the
+// horizon on the Sun's side; daytime turns the sky faintly blue with a glow around the Sun.
+// The strength is kept low so stars and the Milky Way stay visible in every phase.
+float3 daylight(float3 c, float3 d, float h, constant SeaUniforms &u) {
+    float3 sv = float3(u.zen.w, u.mid.w, u.hor.w);
+    float k = length(sv);
+    if (k < 1e-4) return c;
+    float3 s = sv / k;
+    float day = smoothstep(-0.05, 0.25, s.z);                                   // ~-3° … 14°
+    float twilight = smoothstep(-0.31, -0.05, s.z) * (1.0 - smoothstep(0.02, 0.25, s.z));   // -18° … 14°
+    float3 daySky = mix(float3(0.23, 0.45, 0.80), float3(0.62, 0.78, 0.93), pow(1.0 - h, 3.0));
+    float facing = max(dot(normalize(d.xy + 1e-5), normalize(s.xy + 1e-5)), 0.0);
+    float3 warm = float3(1.0, 0.55, 0.30) * pow(facing, 3.0) * exp(-h / 0.12)
+                + float3(0.55, 0.35, 0.55) * exp(-h / 0.30) * 0.4;
+    float cs = max(dot(d, s), 0.0);
+    float aureole = pow(cs, 60.0) * 0.5 + pow(cs, 6.0) * 0.15;
+    // Twilight: a deep blue lift overhead and a warm band on the Sun's side of the horizon. It gets
+    // its own gain because at the night-safe strength it would otherwise not read at all.
+    float3 twilightSky = mix(float3(0.16, 0.20, 0.42), float3(0.52, 0.40, 0.55), pow(1.0 - h, 4.0));
+    c = mix(c, twilightSky, twilight * k * 0.9);
+    c = mix(c, daySky, day * k);
+    return c + warm * twilight * k * 2.4 + float3(1.0, 0.95, 0.85) * aureole * day * k;
+}
+
 float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     float h = max(d.z, 0.0);
     float3 hor = u.hor.rgb;
@@ -167,7 +193,7 @@ float3 skyCol(float3 d, constant SeaUniforms &u, texture2d<float> tMW) {
     // On the glow side the cold night blue gives way a little, so the warmth reads as peach, not lilac.
     c = toSRGB(toLin(c) * (1.0 - .5 * wv * exp(-h / .10)) + glow * w);
     c += float3(.10, .06, .18) * exp(-h * 10.0) * (1.0 - wv) * .5;                  // cool violet on the other side
-    return c;
+    return daylight(c, d, h, u);
 }
 
 float hsh(float n) { return fract(sin(n * 127.1 + .73) * 43758.5453); }
@@ -244,12 +270,57 @@ float sparkle(float3 d, float p, constant SeaUniforms &u) {
     float rp = length((fract(q) - o) * sz * u.cam.x);
     return smoothstep(1.7, .2, rp) * (.6 + .4 * h2(ce + tt));
 }
+// ---------- projection ----------
+// u.F.w blends pinhole (0: gyro window, wormhole) with stereographic (1: the garden's wide touch
+// "dome"). Same rule as NightSeaCamera.project / direction(at:) in Swift. 0 runs the original code.
+
+// normalized screen radius -> off-axis angle (closed form)
+float projAngle(float q, float s) { return (1.0 - s) * atan(q) + s * 2.0 * atan(q * 0.5); }
+
+// off-axis angle -> normalized screen radius (Newton on projAngle)
+float projRadius(float theta, float s) {
+    float q = (1.0 - s) * tan(min(theta, 1.5)) + s * 2.0 * tan(theta * 0.5);
+    for (int i = 0; i < 6; i++) {
+        float e = projAngle(q, s) - theta;
+        float slope = (1.0 - s) / (1.0 + q * q) + s / (1.0 + q * q * 0.25);
+        q = max(0.0, q - e / slope);
+    }
+    return q;
+}
+
+// direction -> screen point in points; z = 1 when drawable, 0 when outside the projection
+float3 projectDir(float3 d, constant SeaUniforms &u, float pinholeCut) {
+    float z = dot(d, u.F.xyz);
+    float lx = dot(d, u.R.xyz), ly = dot(d, u.U.xyz);
+    float s = u.F.w;
+    if (s <= 0.0) {
+        if (z < pinholeCut) return float3(0);
+        return float3(u.cam.y + lx / z * u.cam.x, u.cam.z - ly / z * u.cam.x, 1.0);
+    }
+    float lateral = length(float2(lx, ly));
+    float theta = atan2(lateral, z);
+    if (theta >= 1.5108 + 1.0892 * s) return float3(0);
+    if (lateral < 1e-7) return float3(u.cam.y, u.cam.z, 1.0);
+    float q = projRadius(theta, s) * u.cam.x / lateral;
+    return float3(u.cam.y + lx * q, u.cam.z - ly * q, 1.0);
+}
+
+// screen point in points -> view direction
+float3 rayDir(float2 px, constant SeaUniforms &u) {
+    float foc = u.cam.x;
+    float2 o = float2(px.x - u.cam.y, u.cam.z - px.y) / foc;
+    if (u.F.w <= 0.0) return normalize(u.F.xyz + o.x * u.R.xyz + o.y * u.U.xyz);
+    float q = length(o);
+    if (q < 1e-7) return u.F.xyz;
+    float theta = projAngle(q, u.F.w);
+    return normalize(cos(theta) * u.F.xyz + sin(theta) * ((o.x / q) * u.R.xyz + (o.y / q) * u.U.xyz));
+}
+
 // direction -> texture uv of the object layer (top-left origin), or -1 when off screen
 float2 toScreen(float3 d, constant SeaUniforms &u) {
-    float z = dot(d, u.F.xyz);
-    if (z < .05) return float2(-1);
-    float2 q = float2(u.cam.y + dot(d, u.R.xyz) / z * u.cam.x, u.cam.z - dot(d, u.U.xyz) / z * u.cam.x);
-    return q * u.res.z / u.res.xy;
+    float3 p = projectDir(d, u, .05);
+    if (p.z < 0.5) return float2(-1);
+    return p.xy * u.res.z / u.res.xy;
 }
 
 // Smooth value noise, and value noise with its analytic derivative (x, d/dx, d/dy).
@@ -410,8 +481,7 @@ fragment float4 seaFragment(VOut in [[stage_in]], constant SeaUniforms &u [[buff
                             texture2d<float> tMW [[texture(1)]], texture2d<float> tRip [[texture(2)]]) {
     float2 fc = in.position.xy;
     float2 px = fc / u.res.z;
-    float foc = u.cam.x;
-    float3 d = normalize(u.F.xyz + ((px.x - u.cam.y) / foc) * u.R.xyz + ((u.cam.z - px.y) / foc) * u.U.xyz);
+    float3 d = rayDir(px, u);
     float3 col = envColor(d, fc / u.res.xy, u, tStar, tStar, 0.0, tMW, tRip);
     return float4(clamp(dither(col, fc), 0.0, 1.0), 1.0);
 }
