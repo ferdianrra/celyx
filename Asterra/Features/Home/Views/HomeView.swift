@@ -50,9 +50,9 @@ struct HomeView: View {
         NavigationStack(path:$path) {
             ZStack(alignment:.bottom) {
                 GardenSkyView(model:model,camera:$gardenCamera,
-                              isActive:phase != .background && path.isEmpty && camera == nil && !showsCollection && !showsCalibration
+                              isActive:phase != .background && path.isEmpty && camera == nil && !showsCollection
                                 && (!showsStarCamera || (handover?.phase ?? .wormhole) >= .landed),
-                              resetRequest:gardenReset,usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
+                              usesCamera:gardenUsesCamera,usesGyro:gardenUsesGyro,
                               onModeChange:{ gardenUsesGyro = $0 },
                               handover:handover,sheetRequest:sheetRequest,
                               showsDemoConstellations:showsDemoConstellations && onboarding?.step != .find,
