@@ -139,8 +139,9 @@ struct HomeView: View {
                 showsCollection = false
             },onClose:{ showsCollection = false }, showsDiscovery:$showsCollectionHint,
                 onDiscoveryShown:{ hasSeenCollectionHint = true })
-            .presentationDetents([.height(300),.large])
-            .presentationDragIndicator(.visible)
+            .presentationDetents([.height(300)])
+            .presentationDragIndicator(.hidden)
+            .interactiveDismissDisabled()
         }
         .fullScreenCover(isPresented:$showsStarCamera, onDismiss: { guideTarget = nil }) {
             StarCollectCameraView(model:model,handover:handover,onCollect:collected, onboardingGuide:realCameraGuide, guideTarget:guideTarget) {
