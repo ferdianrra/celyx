@@ -1,1 +1,12 @@
-{"images":[{"filename":"Icon.svg","idiom":"universal"}],"info":{"author":"xcode","version":1},"properties":{"preserves-vector-representation":true}}
+{
+  "images": [
+    {
+      "filename": "asterra-app-logo.png",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

@@ -17,6 +17,8 @@ Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting c
 
 ## Verification
 
+The app icon now uses only the updated PNG catalog, with the legacy Icon Composer source archived outside the app target. The welcome tour uses the same updated artwork. The Debug build for generic iOS Simulator passed; compiled assets contain the PNG welcome logo and no legacy layered icon records. No unit or UI tests were run for this asset change, and the installed Home Screen icon has not been checked on a physical device.
+
 Sky Events expiry coverage passed with all 14 feature view-model tests and the focused List/Calendar UI test on the iPhone 18 Pro simulator (iOS 27.2).
 
 The simplified Direction options menu passed its UI test on the iPhone 18 Pro simulator (iOS 27.2). All 71 selected tests across camera alignment, pattern matching, capture lifecycle, feature view models and optical recognition passed. Physical sky alignment remains to be checked.
@@ -25,7 +27,7 @@ The Sky Events List/Calendar picker and first-visit tip passed the focused UI te
 
 Merge validation against `dev` on November 18 passed all 20 focused garden capture and zodiac tests on the iPhone 18 Pro simulator. Three onboarding tests crashed during the merged run; the same tests also crashed on an untouched `dev` checkout. The shared project keeps `dev`'s app signing team.
 
-The onboarding welcome uses the app's vector logo. Back navigation is available on intermediate tour steps, including the note sheet. The camera-switch step hides the main toolbar and shows Back and Skip Tour. The initial welcome and completion card have no Back button; capture transitions finish before navigation resumes. Returning through the tour preserves collected observations.
+The onboarding welcome uses the updated app icon artwork. Back navigation is available on intermediate tour steps, including the note sheet. The camera-switch step hides the main toolbar and shows Back and Skip Tour. The initial welcome and completion card have no Back button; capture transitions finish before navigation resumes. Returning through the tour preserves collected observations.
 
 The object-aware onboarding CTA order, guided-Sun copy, compact note entry and near-reticle target arrow build in Debug for the iOS simulator. No unit or UI tests were run for this presentation pass.
 
