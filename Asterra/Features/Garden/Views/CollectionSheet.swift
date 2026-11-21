@@ -79,6 +79,9 @@ struct CollectionSheet: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 24)
         }
+        .presentationDetents([.height(300)])
+                .presentationDragIndicator(.hidden)
+                .interactiveDismissDisabled()
     }
 }
 
@@ -117,8 +120,8 @@ private struct CollectionTile<Art: View>: View {
                 counts: .init(stars: 12, planets: 2, events: 1, constellations: 3), onSelect: { _ in },
                 onClose: {}
             )
-            .presentationDetents([.height(300), .large])
-            .presentationDragIndicator(.visible)
+//            .presentationDetents([.height(300), .large])
+//            .presentationDragIndicator(.visible)
         }
         .preferredColorScheme(.dark)
 }
