@@ -51,8 +51,15 @@ enum DemoSky {
             guard let point = entry.point else { return .infinity }
             return hypot(point.x - center.x, point.y - center.y)
         }
-        if let held = candidates.first(where: { $0.id == lockedID && distance($0) <= lockRadius }) { return held }
-        return candidates.filter { distance($0) <= radius }.min { distance($0) < distance($1) }
+        let nearest = candidates.filter { distance($0) <= radius }.min { distance($0) < distance($1) }
+        guard let held = candidates.first(where: { $0.id == lockedID && distance($0) <= lockRadius }) else {
+            return nearest
+        }
+        if let nearest, nearest.id != held.id, let point = nearest.point,
+            CameraTargetSelection.shouldSwitchLock(to: point, from: held.point, center: center) {
+            return nearest
+        }
+        return held
     }
 
     /// Paint the simulated sky into the saved frame, including when no camera is available.

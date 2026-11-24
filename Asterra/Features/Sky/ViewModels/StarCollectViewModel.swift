@@ -24,10 +24,10 @@ final class StarCollectViewModel {
     var verification: Verification = .idle
     var capturedItem: GardenCollectionItem?
     let captureRadius: CGFloat = CameraTrackingPolicy.acquisitionRadius
-    /// Aim lock (UI): once a star is collectible it stays the target while within `lockRadius` of the centre,
-    /// even if a neighbour drifts closer, so small hand moves don't swap stars.
+    /// The displayed target stays locked through small aim changes.
     var lockedID: Int?
-    let lockRadius: CGFloat = CameraTrackingPolicy.holdRadius
+    let lockRadius = CameraTargetSelection.lockReleaseRadius
+    private let allowsTargetSwitch: Bool
     /// A star the user closed with X: skipped until it leaves the lock radius, so a neighbour can be picked.
     var excludedID: Int?
     /// Called after a successful save. Return true when the caller takes over the celebration
@@ -35,8 +35,9 @@ final class StarCollectViewModel {
     @ObservationIgnored var onSaved: ((CenterTarget, CollectedStar, WormholeFreeze?) -> Bool)?
     var isChecking: Bool { if case .checking = verification { true } else { false } }
 
-    init(model: HomeViewModel) {
+    init(model: HomeViewModel, allowsTargetSwitch: Bool = true) {
         self.model = model
+        self.allowsTargetSwitch = allowsTargetSwitch
         service = SkyFinderService(
             location: model.location, catalogue: model.stars, alignment: model.cameraAlignment,
             usesContinuousAutoFocus: true)
@@ -48,7 +49,15 @@ final class StarCollectViewModel {
     /// Predictions use visibility estimates. A repeatedly observed, identified night-sky
     /// light can still be collected when a cloud or light-pollution estimate disagrees.
     var centerTarget: CenterTarget? {
-        if let lockedID, let held = lockedTarget(lockedID) { return held }
+        if let lockedID, let held = lockedTarget(lockedID) {
+            if allowsTargetSwitch, viewSize != .zero, !service.isAdjustingCamera,
+                let aimed = aimedObservation(), aimed.id != held.id,
+                CameraTargetSelection.shouldSwitchLock(to: aimed.point, from: held.detection?.point, center: center)
+            {
+                return CenterTarget(star: aimed.star, detection: aimed)
+            }
+            return held
+        }
         guard let target = selectedTarget, target.id != excludedID else { return nil }
         return target
     }
@@ -58,7 +67,7 @@ final class StarCollectViewModel {
         guard service.status == .tracking, viewSize != .zero else { return nil }
         let observations = service.annotations + (service.reacquiredPinnedAnnotation.map { [$0] } ?? [])
             + (service.automaticallyIdentifiedAnnotation.map { [$0] } ?? [])
-        if let seen = observations.first(where: { $0.id == id && distance($0.point) <= lockRadius }) {
+        if let seen = observations.first(where: { $0.id == id && isInsideLockRadius($0) }) {
             return CenterTarget(star: seen.star, detection: seen)
         }
         if let ready = service.retainedCaptureAnnotation, ready.id == id {
@@ -76,31 +85,22 @@ final class StarCollectViewModel {
     var excludedIsNear: Bool {
         guard let excludedID else { return false }
         return (service.annotations + (service.reacquiredPinnedAnnotation.map { [$0] } ?? []))
-            .contains { $0.id == excludedID && distance($0.point) <= lockRadius }
+            .contains { $0.id == excludedID && isInsideLockRadius($0) }
             || service.brightBodiesNearAim().contains { $0.star.id == excludedID && $0.separation <= 25 }
     }
 
-    private var selectedTarget: CenterTarget? {
-        if let automatic = service.automaticallyIdentifiedAnnotation,
-            automatic.id != excludedID, distance(automatic.point) <= lockRadius {
-            return CenterTarget(star: automatic.star, detection: automatic)
+    private func aimedObservation() -> CameraStarAnnotation? {
+        let automatic = service.automaticallyIdentifiedAnnotation
+        if service.alignment.requiresCalibration {
+            return automatic.flatMap { $0.id != excludedID && distance($0.point) <= captureRadius ? $0 : nil }
         }
-        guard !service.alignment.requiresCalibration,
-            service.status == .tracking
-        else {
-            if let ready = service.retainedCaptureAnnotation {
-                return CenterTarget(star: ready.star, detection: ready)
-            }
-            return nil
-        }
-        guard service.status == .tracking, !service.isAdjustingCamera, viewSize != .zero else {
-            return nil
-        }
-        let visible = Set(service.viewableObjects.map(\.id))
+        return aimedObservation(visible: Set(service.viewableObjects.map(\.id)), automatic: automatic)
+    }
+
+    private func aimedObservation(visible: Set<Int>, automatic: CameraStarAnnotation?) -> CameraStarAnnotation? {
         let observations = service.annotations + (service.reacquiredPinnedAnnotation.map { [$0] } ?? [])
-            + (service.automaticallyIdentifiedAnnotation.map { [$0] } ?? [])
-        if let seen =
-            observations
+            + (automatic.map { [$0] } ?? [])
+        return observations
             .filter({ annotation in
                 let observedAtNight =
                     (service.sunAltitude ?? 90) < -6 && !annotation.star.isSolarDisc
@@ -109,12 +109,27 @@ final class StarCollectViewModel {
                     && distance(annotation.point) <= captureRadius
             })
             .min(by: { distance($0.point) < distance($1.point) })
-        {
+    }
+
+    private var selectedTarget: CenterTarget? {
+        let automatic = service.automaticallyIdentifiedAnnotation
+        if let automatic, automatic.id != excludedID, isInsideLockRadius(automatic) {
+            return CenterTarget(star: automatic.star, detection: automatic)
+        }
+        guard !service.alignment.requiresCalibration, service.status == .tracking else {
+            if let ready = service.retainedCaptureAnnotation {
+                return CenterTarget(star: ready.star, detection: ready)
+            }
+            return nil
+        }
+        guard !service.isAdjustingCamera, viewSize != .zero else { return nil }
+        let visible = Set(service.viewableObjects.map(\.id))
+        if let seen = aimedObservation(visible: visible, automatic: automatic), isInsideLockRadius(seen) {
             return CenterTarget(star: seen.star, detection: seen)
         }
         if service.isPinnedLightCentered,
             let pin = service.pinnedLight, pin.isIdentified, let star = pin.match?.star,
-            let point = service.pinnedLightGuide?.point, distance(point) <= lockRadius
+            let point = service.pinnedLightGuide?.point, distance(point) <= CameraTargetSelection.lockRadius(for: star)
         {
             let live =
                 service.reacquiredPinnedAnnotation
@@ -144,6 +159,10 @@ final class StarCollectViewModel {
         // An ordinary star's predicted position is never presented as a detection.
         // The filtered catalog remains available in the separate AR map.
         return nil
+    }
+
+    private func isInsideLockRadius(_ annotation: CameraStarAnnotation) -> Bool {
+        distance(annotation.point) <= CameraTargetSelection.lockRadius(for: annotation.star)
     }
     private var shownTarget: CenterTarget? { centerTarget }
 

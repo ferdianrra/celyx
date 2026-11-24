@@ -4,7 +4,7 @@ Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting c
 
 ## Current behavior
 
-- **Collect.** The native AVFoundation camera uses device orientation and location to align the sky. It scans for celestial objects and uses continuous autofocus on supported hardware. Tapping to focus moves the autofocus point. Overlays continue to follow a usable pose during motion blur, while new optical analysis waits for a clear frame.
+- **Collect.** The native AVFoundation camera uses device orientation and location to align the sky. It scans for celestial objects and uses continuous autofocus on supported hardware. Aiming the reticle at an identified nearby star switches the collection target directly. A locked star detaches once it moves more than 80 points from the reticle center. Tapping to focus moves the autofocus point. Overlays continue to follow a usable pose during motion blur, while new optical analysis waits for a clear frame.
 - **Return to the garden.** A successful capture returns to the virtual garden, even when collection started from the live camera garden. The app places and focuses on the new object, reveals any new constellation lines or artwork, then returns to the current garden orientation before opening the note editor. A capture without a reveal has a shorter pause.
 - **Explore the garden.** The virtual garden supports Gyro and Touch from Direction options. The collect camera maps the sky automatically. Its sky shows collected objects and constellation artwork over the Milky Way backdrop. The live camera garden uses continuous autofocus and keeps projecting overlays through frames flagged for motion blur when the pose is usable. Rafi’s zodiac artwork, prepared on Stellarium’s reference canvases, appears after all required stars are collected and fades when the viewing angle would visibly stretch it.
 - **Revisit and share.** Each object can be captured again. The garden opens a compact sheet that expands to show observation count, best Bortle class and a log of individual captures. The collection opens the sheet at full height. A capture detail shows its photo, note and conditions. The pencil enables inline note editing. Share offers two card layouts, Instagram Stories, Copy, Save and More. More exports a PNG with transparent corners and can reach WhatsApp through the iOS share sheet.
@@ -16,6 +16,10 @@ Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting c
 - **Practice collecting stars.** In Debug builds on the demo branch, **Start Collecting** opens directly in demo mode. Vega is available all day. The 25 Sagittarius pattern stars are available before noon, and the 15 Aquarius pattern stars are available from noon until midnight, using the iPhone’s local time. Stars stay at their real sky positions. Each capture adds only the selected star to the collection and uses the normal save, shutter and Garden handover flow.
 
 ## Verification
+
+The 80-point star lock release passed 36 focused tests on the iPhone 18 Pro simulator (iOS 27.0), including the live lock threshold, demo release and nearby-star switching. Physical-device aiming remains unverified.
+
+Nearby-star switching passed 34 focused tests on the iPhone 18 Pro simulator (iOS 27.0), covering live target selection, lock stability, demo switching and capture lifecycle. Live aiming still needs a physical iPhone check.
 
 The restored Garden star rendering passed all eight `GardenZoomTests` on the iPhone 18 Pro simulator (iOS 27.0), including runtime Metal compilation and label fade thresholds. The older Garden zoom UI test stopped at its check for the Star Names menu item, which the current compass menu omits.
 

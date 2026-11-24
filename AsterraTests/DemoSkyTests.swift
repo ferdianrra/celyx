@@ -76,19 +76,26 @@ struct DemoSkyTests {
         #expect(service.demoProjection(horizon: SIMD3(0, 0, -1)) == nil)
     }
 
-    @Test func reticleChoosesTheClosestUncollectedStarAndRetainsItsLock() throws {
+    @Test func reticleSwitchesDirectlyBetweenNearbyEligibleStars() throws {
         let stars = DemoSky.stars(in: try SkyAssets.stars(), date: AppPreviewData.date)
         let a = stars[0], b = stars[1]
         let projections: [DemoSky.Projection] = [
             .init(star: a, point: CGPoint(x: 110, y: 100), arrow: nil),
             .init(star: b, point: CGPoint(x: 102, y: 100), arrow: nil),
         ]
-        func target(collected: Set<Int> = [], excluded: Int? = nil, locked: Int? = nil) -> Int? {
+        func target(collected: Set<Int> = [], excluded: Int? = nil, locked: Int? = nil,
+                    aim: CGPoint = CGPoint(x: 100, y: 100)) -> Int? {
             DemoSky.target(in: projections, collected: collected, excludedID: excluded,
-                lockedID: locked, center: CGPoint(x: 100, y: 100), radius: 20, lockRadius: 30)?.id
+                lockedID: locked, center: aim, radius: 20, lockRadius: CameraTargetSelection.lockReleaseRadius)?.id
         }
         #expect(target() == b.id)
-        #expect(target(locked: a.id) == a.id)
+        #expect(target(locked: a.id) == b.id)
+        #expect(target(locked: b.id, aim: CGPoint(x: 110, y: 100)) == a.id)
+        #expect(target(locked: a.id, aim: CGPoint(x: 106, y: 100)) == a.id)
+        #expect(target(locked: a.id, aim: CGPoint(x: 105.5, y: 100)) == a.id)
+        #expect(target(locked: a.id, aim: CGPoint(x: 137, y: 100)) == a.id)
+        #expect(target(locked: a.id, aim: CGPoint(x: 190, y: 100)) == a.id)
+        #expect(target(locked: a.id, aim: CGPoint(x: 191, y: 100)) == nil)
         #expect(target(collected: [b.id]) == a.id)
         #expect(target(excluded: b.id) == a.id)
         #expect(target(collected: [a.id, b.id]) == nil)

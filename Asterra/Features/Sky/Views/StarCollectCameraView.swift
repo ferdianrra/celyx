@@ -85,7 +85,8 @@ struct StarCollectCameraView: View {
         self.onClose = onClose
         self.onboardingGuide = onboardingGuide
         self.guideTarget = guideTarget
-        _viewModel = State(initialValue: StarCollectViewModel(model: model))
+        _viewModel = State(initialValue: StarCollectViewModel(
+            model: model, allowsTargetSwitch: guideTarget == nil && onboardingGuide == nil && event == nil))
     }
 
     private var viewSize: CGSize { viewModel.viewSize }
@@ -352,7 +353,7 @@ struct StarCollectCameraView: View {
                 targetCrosshairState = .validating
             } catch { return } // A changed/lost target cancels the old sequence.
         }
-        // Lock the star the moment it becomes collectible; release it once it leaves the hold radius.
+        // Follow the displayed target when it acquires, switches or releases its lock.
         .onChange(of: shownTarget?.id) { _, id in viewModel.lockedID = id }
         .onChange(of: excludedIsNear) { _, near in if !near { viewModel.excludedID = nil } }
         #if DEBUG

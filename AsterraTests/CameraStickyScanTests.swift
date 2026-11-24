@@ -53,6 +53,18 @@ import simd
         #expect(!CameraTrackingPolicy.keepsScan(lastSeen: pin.lastSeen, now: 16))
     }
 
+    @Test func aCenteredNeighborCanTakeOverBeforeTheHeldLightLeavesTheReticle() throws {
+        let pin = CameraLightPin(direction: heldRay, time: 10, observations: 4, opticalID: 1)
+        let neighbor = track(2, ray: otherRay)
+        let held = track(1, ray: heldRay)
+        let fresh = [held, neighbor]
+        let selected = try #require(CameraTrackingPolicy.select(
+            fresh: fresh, pinned: pin, now: 11, center: center,
+            project: { $0 == self.heldRay ? CGPoint(x: 219, y: 400) : CGPoint(x: 211, y: 400) }))
+        #expect(selected.id == neighbor.id)
+        #expect(!CameraTrackingPolicy.continuesPinnedSource(selected, pinned: pin, fresh: fresh))
+    }
+
     private func image(width: Int, height: Int, background: UInt8 = 118) throws -> CVPixelBuffer {
         var buffer: CVPixelBuffer?
         CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, nil, &buffer)

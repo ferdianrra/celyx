@@ -7,15 +7,17 @@ import simd
 @MainActor struct CameraTargetSelectionTests {
     private let center = CGPoint(x: 200, y: 400)
 
-    @Test func acquisitionNeedsTheFixedCenterButExistingExitToleranceStaysWide() {
+    @Test func starLockAcquiresAt28PointsAndReleasesPast80() {
         #expect(CameraTargetSelection.canAcquireInReticle(at: center, center: center))
         #expect(CameraTargetSelection.canAcquireInReticle(at: CGPoint(x: center.x + 28, y: center.y), center: center))
-        for offset in [29.0, 80.0, 160.0] {
+        for offset in [29.0, 80.0] {
             let point = CGPoint(x: center.x + offset, y: center.y)
             #expect(!CameraTargetSelection.canAcquireInReticle(at: point, center: center))
             #expect(CameraTargetSelection.keepsRetainedTarget(at: point, center: center))
         }
-        #expect(!CameraTargetSelection.keepsRetainedTarget(at: CGPoint(x: center.x + 161, y: center.y), center: center))
+        let outsideLock = CGPoint(x: center.x + 81, y: center.y)
+        #expect(!CameraTargetSelection.keepsRetainedTarget(at: outsideLock, center: center))
+        #expect(CameraTrackingPolicy.isNearAim(outsideLock, center: center, holding: true))
     }
 
     @Test func oneContinuouslyVisiblePointSurvivesASmallWorldProjectionShift() {
