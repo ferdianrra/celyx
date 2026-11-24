@@ -19,7 +19,6 @@ struct GardenSkyView: View {
     var handover: WormholeHandover?
     /// Shows a collected object's album after a handover (or the Reduce Motion fade).
     var sheetRequest: GardenSheetRequest?
-    let showsDemoConstellations: Bool
     /// Called when the demo object's album closes (debug replay).
     var onDemoEnded: () -> Void = {}
     /// Onboarding tour hook into the live camera mode.
@@ -42,7 +41,7 @@ struct GardenSkyView: View {
         model: HomeViewModel, camera: Binding<NightSeaCamera>, isActive: Bool = true,
         usesCamera: Bool = false, usesGyro: Bool = true,
         onModeChange: ((Bool) -> Void)? = nil, handover: WormholeHandover? = nil,
-        sheetRequest: GardenSheetRequest? = nil, showsDemoConstellations: Bool = false,
+        sheetRequest: GardenSheetRequest? = nil,
         onDemoEnded: @escaping () -> Void = {},
         cameraLink: LiveCameraLink? = nil, showsCameraCollection: Bool = true, tourFocusDirection: SIMD3<Double>? = nil,
         tourFocusCamera: NightSeaCamera? = nil,
@@ -57,7 +56,6 @@ struct GardenSkyView: View {
         self.onTourBack = onTourBack
         self.handover = handover
         self.sheetRequest = sheetRequest
-        self.showsDemoConstellations = showsDemoConstellations
         self.onDemoEnded = onDemoEnded
         self.model = model
         _camera = camera
@@ -89,11 +87,6 @@ struct GardenSkyView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: usesCamera)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: showsCaptureSequence)
-        #if DEBUG
-        .onChange(of: showsDemoConstellations, initial: true) { _, enabled in
-            viewModel.setDemoConstellations(enabled)
-        }
-        #endif
         // Real positions: recomputed every second from GPS + clock (the sky turns ~0.25° a minute).
         .task(id: refreshesSkyPositions) {
             guard refreshesSkyPositions else { return }
@@ -387,16 +380,14 @@ struct GardenSkyView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(entry.isPreview)
                 // Visually hidden but still a VoiceOver element; taps go to the object itself.
                 .opacity(labelOpacity)
                 .allowsHitTesting(labelOpacity > 0.5)
                 .animation(.easeInOut(duration: 0.25), value: showsStarNames)
                 // Below the drawn object, which grows with zoom.
                 .position(x: point.x, y: point.y + entry.object.apparent(camera: camera, in: size).labelOffset)
-                .accessibilityLabel(entry.isPreview ? "\(entry.item.star.title), preview star" :
-                    "\(entry.item.star.title), collected \(entry.item.collectedDate)")
-                .accessibilityHint(entry.isPreview ? "" : "Shows details")
+                .accessibilityLabel("\(entry.item.star.title), collected \(entry.item.collectedDate)")
+                .accessibilityHint("Shows details")
             }
         }
     }

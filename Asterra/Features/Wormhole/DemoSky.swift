@@ -1,10 +1,12 @@
-// DEBUG-only collection override for the Sagittarius pattern stars.
+// DEBUG-only collection override for Vega and the scheduled constellation.
 // Uses real observing coordinates and time; only optical verification is bypassed.
 #if DEBUG
 import SwiftUI
 import simd
 
 enum DemoSky {
+    private static let vegaID = 4
+
     struct Entry: Identifiable {
         let star: CatalogStar
         let direction: SIMD3<Double>
@@ -17,24 +19,27 @@ enum DemoSky {
         var id: Int { star.id }
     }
     // Bundle data is immutable. Decode once instead of doing file I/O during live demo updates.
-    private static let patternStarIDs: Set<Int> = {
+    private static let patternStarIDs: [String: Set<Int>] = {
         guard let url = try? SkyAssets.url("constellations", extension: "json"),
             let data = try? Data(contentsOf: url),
             let figures = try? JSONDecoder().decode([String: Constellation].self, from: data)
-        else { return [] }
-        return Set(figures["Sgr"]?.segments.flatMap { $0 } ?? [])
+        else { return [:] }
+        return figures.filter { $0.key == "Sgr" || $0.key == "Aqr" }
+            .mapValues { Set($0.segments.flatMap { $0 }) }
     }()
 
-    /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
-    static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
-        catalogue.filter { patternStarIDs.contains($0.id) }.sorted { $0.id < $1.id }
+    /// Switch patterns at local noon. Vega is part of either set.
+    static func stars(in catalogue: [CatalogStar], date: Date, calendar: Calendar = .current) -> [CatalogStar] {
+        let code = calendar.component(.hour, from: date) < 12 ? "Sgr" : "Aqr"
+        let scheduledIDs = patternStarIDs[code] ?? []
+        return catalogue.filter { $0.id == vegaID || scheduledIDs.contains($0.id) }.sorted { $0.id < $1.id }
     }
 
     /// The same apparent horizon coordinates used by the live sky and garden, never recentered on the phone.
     static func entries(in catalogue: [CatalogStar], date: Date, location: ObserverLocation?) -> [Entry] {
         guard let location else { return [] }
         let sky = AstronomyService.snapshot(date: date, location: location)
-        return stars(in: catalogue).map { star in
+        return stars(in: catalogue, date: date).map { star in
             Entry(star: star, direction: Refraction.apparent(sky.direction(ra: star.ra_deg, dec: star.dec_deg)))
         }
     }
@@ -81,19 +86,6 @@ enum DemoSky {
     }
 }
 
-/// Brief neutral-glass confirmation when entering demo mode.
-struct DemoModeNotice: View {
-    var body: some View {
-        Text("Demo mode")
-            .font(.body.weight(.medium))
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.25), radius: 1, x: 0, y: 0.5)
-            .padding(.horizontal, 18).padding(.vertical, 10)
-            .glassEffect(.regular, in: Capsule())
-            .environment(\.colorScheme, .dark)
-            .allowsHitTesting(false)
-    }
-}
 #endif
 
 import SwiftUI

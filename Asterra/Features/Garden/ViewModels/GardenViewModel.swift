@@ -17,11 +17,6 @@ final class GardenViewModel {
     private(set) var constellationConnections: [GardenConstellationConnection] = []
     private let zodiacFigures = GardenZodiacFigure.load()
     private(set) var completedZodiacFigures: [GardenZodiacFigure] = []
-    #if DEBUG
-    private var showsDemoConstellations = false
-    @ObservationIgnored private lazy var demoConstellationStarIDs = zodiacFigures
-        .reduce(into: Set<Int>()) { $0.formUnion($1.requiredStarIDs) }
-    #endif
     /// Temporary demo placement stays in the sky until its sheet closes.
     var demo: WormholeDemo?
     var moon: (direction: SIMD3<Double>, illumination: Double)?
@@ -89,31 +84,9 @@ final class GardenViewModel {
 
     // MARK: Placement
 
-    #if DEBUG
-    func setDemoConstellations(_ enabled: Bool) {
-        guard showsDemoConstellations != enabled else { return }
-        showsDemoConstellations = enabled
-        place()
-    }
-    #endif
-
     func place() {
-        let location = location
-        let date = Date()
-        var items = model.collectionItems
-        var previewIDs: Set<Int> = []
-        #if DEBUG
-        if showsDemoConstellations {
-            previewIDs = demoConstellationStarIDs.subtracting(model.collected.keys)
-            if let demo { previewIDs.remove(demo.item.id) }
-            items += model.stars.compactMap { star in
-                guard previewIDs.contains(star.id) else { return nil }
-                return GardenCollectionItem(star: star, record: CollectedStar(
-                    id: star.id, date: date, latitude: location.latitude, longitude: location.longitude))
-            }
-        }
-        #endif
-        let scene = Self.placement(items: items, location: location, date: date, previewStarIDs: previewIDs)
+        let items = model.collectionItems
+        let scene = Self.placement(items: items, location: location)
         placed = scene.placed
         applyPlacement(moon: scene.moon, equatorial: scene.equatorial, items: items)
     }
@@ -145,8 +118,7 @@ final class GardenViewModel {
 
     /// Every collected object at its real (refracted) position for this place and time.
     static func placement(
-        items: [GardenCollectionItem], location: ObserverLocation, date: Date = Date(),
-        previewStarIDs: Set<Int> = []
+        items: [GardenCollectionItem], location: ObserverLocation, date: Date = Date()
     ) -> (
         placed: [GardenPlacedObject], moon: (direction: SIMD3<Double>, illumination: Double)?,
         equatorial: simd_double3x3
@@ -193,8 +165,7 @@ final class GardenViewModel {
                     object: NightSeaObject(
                         id: star.id, direction: Refraction.apparent(geometric),
                         radius: radius, color: color, kind: kind,
-                        phaseAngle: phaseAngle, sunDirection: sky.sunDirection),
-                    isPreview: previewStarIDs.contains(star.id)))
+                        phaseAngle: phaseAngle, sunDirection: sky.sunDirection)))
         }
         return (result, moonState, sky.basis)
     }
@@ -506,7 +477,7 @@ final class GardenViewModel {
             return distance <= entry.object.apparent(camera: camera, in: size).hitRadius ? (entry, distance) : nil
         }
         guard let hit = hits.min(by: { $0.1 < $1.1 }) else { return false }
-        if !hit.0.isPreview { selected = hit.0.item }
+        selected = hit.0.item
         return true
     }
 }

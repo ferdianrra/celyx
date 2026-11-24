@@ -69,6 +69,7 @@ final class HomeViewModel {
     private let motion = MotionService()
     private let gps = LocationService()
     private let defaults: UserDefaults
+    @ObservationIgnored private var legacyDemoSeeds: [CollectedStar] = []
     private let fixedDate: Date?
     private var clockTask: Task<Void,Never>?
     private var weatherTask: Task<Void,Never>?
@@ -88,9 +89,13 @@ final class HomeViewModel {
                 if record.captureID == nil { record.captureID = UUID() }
                 return record
             }
-            applyCaptures(restored)
+            // Older demos saved pre-filled stars as captures. Preserve those records on disk
+            // for older builds while excluding them from this build's collection.
+            legacyDemoSeeds = restored.filter(Self.isLegacyDemoSeed)
+            let observations = restored.filter { !Self.isLegacyDemoSeed($0) }
+            applyCaptures(observations)
             if values.contains(where: { $0.captureID == nil }) {
-                try? persistCaptures(restored)
+                try? persistCaptures(observations)
             }
         }
         scene.collectedIDs = Set(collected.keys)
@@ -348,8 +353,14 @@ final class HomeViewModel {
         collected = Dictionary(captures.map { ($0.id, $0) }, uniquingKeysWith: { newest, _ in newest })
     }
 
+    private static func isLegacyDemoSeed(_ record: CollectedStar) -> Bool {
+        guard record.photoFilename == nil else { return false }
+        return record.identificationNote == "Pre-collected Capricornus demo star (debug build). Added for testing constellation completion; no camera capture was performed."
+            || record.identificationNote == "Pre-collected nearby demo star (debug build). Added around Capricornus; no camera capture was performed."
+    }
+
     private func persistCaptures(_ records: [CollectedStar]) throws {
-        defaults.set(try JSONEncoder().encode(records), forKey: "collectedStars")
+        defaults.set(try JSONEncoder().encode(records + legacyDemoSeeds), forKey: "collectedStars")
         applyCaptures(records)
     }
 

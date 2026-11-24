@@ -109,7 +109,9 @@ Validation: 122 selected tests in 16 suites pass. The small reported core is che
 
 ## Merge integration
 
-The camera initializer accepts both the continuous-autofocus option and the recovery clock used by the capture lifecycle. The event collection panel and window guide remain available in the shared collection camera alongside onboarding guidance. The Debug collection demo caches the Sagittarius pattern IDs. Native preview and pose tracking continue while optical analysis pauses. On capture, the demo composites the overlay into the frozen photo off the main actor and hands the result to the same save and presentation path as a live capture.
+The camera initializer accepts both the continuous-autofocus option and the recovery clock used by the capture lifecycle. The event collection panel and window guide remain available in the shared collection camera alongside onboarding guidance. The Debug demo branch starts ordinary collection in demo mode and caches the Sagittarius and Aquarius pattern IDs. Native preview and pose tracking continue while optical analysis pauses. On capture, the demo composites the overlay into the frozen photo off the main actor and hands the result to the same save and presentation path as a live capture.
+
+The post-save shutter delay uses main-queue callbacks. Device crash reports on iOS 27.2 showed a Swift concurrency abort while the previous shutter delay task was being deallocated. The callbacks retain the existing shutter timing and ignore stale captures after camera dismissal or backgrounding.
 
 ## Leaving the collection camera
 

@@ -76,9 +76,7 @@ struct GardenCameraLayer: View {
                             .opacity(showsLabels ? 1 : 0)
                             .allowsHitTesting(showsLabels)
                             .position(sprite.labelPosition)
-                            .disabled(sprite.entry.isPreview)
-                            .accessibilityLabel(sprite.entry.isPreview ? "\(sprite.entry.item.star.title), preview star" :
-                                "\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
+                            .accessibilityLabel("\(sprite.entry.item.star.title), collected \(sprite.entry.item.collectedDate)")
                         }
                     // The tour already presents camera status and aiming guidance in its coach card.
                     // A second glass pill here would sit underneath that card.
@@ -108,7 +106,7 @@ struct GardenCameraLayer: View {
             .simultaneousGesture(SpatialTapGesture().onEnded { value in
                 let size = viewport == .zero ? geometry.size : viewport
                 let hits = project(in:size).map { ($0,hypot($0.point.x-value.location.x,$0.point.y-value.location.y)) }
-                    .filter { !$0.0.entry.isPreview && $0.1 <= $0.0.hitRadius }
+                    .filter { $0.1 <= $0.0.hitRadius }
                 if let hit = hits.min(by:{ $0.1 < $1.1 }) { onSelect(hit.0.entry.item) }
             })
         }

@@ -55,41 +55,43 @@ struct GardenZodiacTests {
         #expect(GardenZodiacFigure.unlocked(figures, collected: all).count == 12)
     }
 
-    #if DEBUG
-    @Test func demoFillsAllTwelvePatternsWithoutSavingObservations() throws {
-        let figures = GardenZodiacFigure.load()
-        let ids = figures
-            .reduce(into: Set<Int>()) { $0.formUnion($1.requiredStarIDs) }
-        let existingIDs = try #require(figures.first { $0.id == "Lib" }).requiredStarIDs
-        let suite = "asterra.zodiac.preview.\(UUID().uuidString)"
+    @Test func olderDemoSeedsStayOutOfTheGardenAfterACapture() throws {
+        let suite = "asterra.zodiac.legacy-demo.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let existing = existingIDs.map {
-            CollectedStar(id: $0, date: AppPreviewData.date, latitude: -6.2, longitude: 106.85,
-                          captureID: UUID())
-        }
-        let original = try JSONEncoder().encode(existing)
-        defaults.set(original, forKey: "collectedStars")
-        let home = HomeViewModel(location: AppPreviewData.location, defaults: defaults)
-        let garden = GardenViewModel(model: home)
-        let camera = garden.camera
+        let capricornus = try #require(GardenZodiacFigure.load().first { $0.id == "Cap" })
+        let location = AppPreviewData.location
+        let date = AppPreviewData.date
+        let seeds = capricornus.requiredStarIDs.map {
+            CollectedStar(id: $0, date: date, latitude: location.latitude, longitude: location.longitude,
+                identificationNote: "Pre-collected Capricornus demo star (debug build). Added for testing constellation completion; no camera capture was performed.",
+                captureID: UUID())
+        } + [CollectedStar(id: 160, date: date, latitude: location.latitude, longitude: location.longitude,
+            identificationNote: "Pre-collected nearby demo star (debug build). Added around Capricornus; no camera capture was performed.",
+            captureID: UUID())]
+        defaults.set(try JSONEncoder().encode(seeds), forKey: "collectedStars")
+        let model = HomeViewModel(location: location, defaults: defaults)
+        let garden = GardenViewModel(model: model)
+        garden.place()
+        #expect(garden.placed.isEmpty)
 
-        garden.setDemoConstellations(true)
-        #expect(Set(garden.placed.map(\.id)) == ids)
-        #expect(garden.placed.count == ids.count)
-        #expect(Set(garden.placed.filter(\.isPreview).map(\.id)) == ids.subtracting(existingIDs))
-        #expect(Set(garden.completedZodiacFigures.map(\.id)) == GardenZodiacFigure.codes)
-        #expect(Set(garden.constellationConnections.flatMap { [$0.startID, $0.endID] }) == ids)
-        #expect(garden.camera == camera)
-        #expect(Set(home.collectionItems.map(\.id)) == existingIDs)
-        #expect(defaults.data(forKey: "collectedStars") == original)
+        let star = try #require(model.stars.first { capricornus.requiredStarIDs.contains($0.id) })
+        let capture = try model.saveCameraObservation(.init(star: star, image: AppPreviewData.albumPhoto,
+            date: date, location: location, identificationNote: "Demo constellation capture (debug build)."), note: "")
+        defer { if let name = capture.photoFilename { StarPhotoStore.remove(name) } }
+        garden.place(using: GardenViewModel.wormholeScene(model: model, newID: star.id))
+        #expect(garden.placed.map(\.id) == [star.id])
+        #expect(garden.completedZodiacFigures.isEmpty)
+        garden.place()
+        #expect(garden.placed.map(\.id) == [star.id])
 
-        garden.setDemoConstellations(false)
-        #expect(Set(garden.placed.map(\.id)) == existingIDs)
-        #expect(garden.completedZodiacFigures.map(\.id) == ["Lib"])
-        #expect(defaults.data(forKey: "collectedStars") == original)
+        let restored = HomeViewModel(location: location, defaults: defaults)
+        #expect(restored.collectionItems.map(\.id) == [star.id])
+        #expect(restored.observationHistory(for: star.id).map(\.captureID) == [capture.captureID])
+        let data = try #require(defaults.data(forKey: "collectedStars"))
+        let records = try JSONDecoder().decode([CollectedStar].self, from: data)
+        #expect(Set(records.compactMap(\.captureID)) == Set((seeds + [capture]).compactMap(\.captureID)))
     }
-    #endif
 
     @Test func completingAndDeletingAStarUpdatesTheGardenFigure() throws {
         let libra = try #require(GardenZodiacFigure.load().first { $0.id == "Lib" })
