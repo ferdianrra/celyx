@@ -456,7 +456,7 @@ final class OnboardingFlow {
             if cameraUnavailable {
                 if cameraFailure == .permissionDenied {
                     return Card(symbol: "video.slash", title: OnboardingCopy.cameraUnavailableTitle,
-                        body: offersGuidedSun ? "You can allow it later in Settings. Let’s find the Sun in your Night Sea."
+                        body: offersGuidedSun ? "You can allow it later in Settings. Let’s find the Sun in your Sky Garden."
                             : OnboardingCopy.cameraUnavailableBody, primary: OnboardingCopy.continueTour)
                 }
                 let body: String

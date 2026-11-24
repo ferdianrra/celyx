@@ -8,6 +8,8 @@ struct SkyCalendarView: View {
     var onDiscoveryShown: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: SkyCalendarViewModel
+    @State private var reminderEvent: SkyEvent?
+    @State private var showsReminderConfirmation = false
     private typealias DisplayMode = SkyCalendarViewModel.DisplayMode
     private var calendar: Calendar { viewModel.calendar }
     private var month: Date { viewModel.month }
@@ -40,6 +42,7 @@ struct SkyCalendarView: View {
         .toolbar(.visible,for:.navigationBar)
         .toolbarBackgroundVisibility(.hidden,for:.navigationBar)
         .preferredColorScheme(.dark)
+        .skyEventReminderConfirmation(event: reminderEvent, store: store, isPresented: $showsReminderConfirmation)
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
@@ -141,10 +144,11 @@ struct SkyCalendarView: View {
     }
 
     private func eventRow(_ event: SkyEvent) -> some View {
-        Button { onSelect(event) } label: {
-            SkyEventCard(event:event,isReminderOn:store.reminders.contains(event.id)) { store.toggleReminder(event) }
+        SkyEventCard(event: event, isReminderOn: store.reminders.contains(event.id),
+                     isReminderUpdating: store.isUpdatingReminder, onSelect: { onSelect(event) }) {
+            reminderEvent = event
+            showsReminderConfirmation = true
         }
-        .buttonStyle(.plain)
     }
 
     private var calendarBody: some View {

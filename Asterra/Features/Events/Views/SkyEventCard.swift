@@ -5,6 +5,8 @@ import SwiftUI
 struct SkyEventCard: View {
     let event: SkyEvent
     let isReminderOn: Bool
+    var isReminderUpdating = false
+    var onSelect: () -> Void = {}
     let toggleReminder: () -> Void
     @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 144
 
@@ -13,6 +15,7 @@ struct SkyEventCard: View {
         ZStack(alignment:.leading) {
             // Figma export "CardBG": the card's glass over its inner-shadow gradient.
             Image("celyx-card-bg").resizable()
+                .allowsHitTesting(false)
             Color.clear
                 .overlay(alignment:.topLeading) {
                     Image(event.artwork.asset).resizable().scaledToFill()
@@ -27,29 +30,38 @@ struct SkyEventCard: View {
                                      startPoint:.leading,endPoint:.trailing))
                 .blendMode(.plusLighter)
                 .accessibilityHidden(true)
+                .allowsHitTesting(false)
             HStack(spacing:10) {
-                VStack(alignment:.leading,spacing:8) {
-                    SkyEventKindLabel(kind:event.kind,size:12,opacity:0.64)
-                    Text(event.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                        .lineLimit(2).fixedSize(horizontal:false,vertical:true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(dayText).foregroundStyle(.white.opacity(0.85))
-                        Text(timeText).foregroundStyle(.white.opacity(0.65))
+                Button(action: onSelect) {
+                    VStack(alignment:.leading,spacing:8) {
+                        SkyEventKindLabel(kind:event.kind,size:12,opacity:0.64)
+                        Text(event.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                            .lineLimit(2).fixedSize(horizontal:false,vertical:true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(dayText).foregroundStyle(.white.opacity(0.85))
+                            Text(timeText).foregroundStyle(.white.opacity(0.65))
+                        }
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    .font(.caption)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth:.infinity,alignment:.leading)
+                    .padding(.leading, 106)
+                    .padding(.vertical, 16)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth:.infinity,alignment:.leading)
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(event.title), \(event.headerDate), \(event.viewingTime)")
+                .accessibilityIdentifier("sky-event-card-\(event.id)")
                 ReminderBell(isOn:isReminderOn,action:toggleReminder)
+                    .disabled(isReminderUpdating)
+                    .accessibilityIdentifier("sky-event-reminder-\(event.id)")
             }
-            .padding(.leading,106).padding(.trailing,16).padding(.vertical,16)
+            .padding(.trailing,16)
         }
         .frame(height:cardHeight)
         .clipShape(shape)
         .contentShape(shape)
-        .accessibilityIdentifier("sky-event-card-\(event.id)")
-        .accessibilityElement(children:.combine)
-        .accessibilityLabel("\(event.title), \(event.headerDate), \(event.viewingTime)")
+        .accessibilityElement(children:.contain)
     }
 
     /// "15-16 Nov" (or "18 Nov" for a one-night event).

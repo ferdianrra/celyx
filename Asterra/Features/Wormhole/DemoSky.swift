@@ -1,4 +1,4 @@
-// DEBUG-only collection override for the Libra, Aries and Capricornus pattern stars.
+// DEBUG-only collection override for the Sagittarius pattern stars.
 // Uses real observing coordinates and time; only optical verification is bypassed.
 #if DEBUG
 import SwiftUI
@@ -16,53 +16,18 @@ enum DemoSky {
         let arrow: CGVector?
         var id: Int { star.id }
     }
-    static let constellationCodes = ["Lib", "Ari", "Cap"]
-    /// Existing catalog IDs around Capricornus: Sadalsuud, 62 Sagittarii, Albali,
-    /// Bunda, Terebellum, Ancha and Aldhanab. Coordinates always come from the catalog.
-    static let nearbyStarIDs: Set<Int> = [160, 843, 404, 1115, 1134, 619, 174]
-
     // Bundle data is immutable. Decode once instead of doing file I/O during live demo updates.
     private static let patternStarIDs: Set<Int> = {
         guard let url = try? SkyAssets.url("constellations", extension: "json"),
             let data = try? Data(contentsOf: url),
             let figures = try? JSONDecoder().decode([String: Constellation].self, from: data)
         else { return [] }
-        return Set(constellationCodes.flatMap { figures[$0]?.segments.flatMap { $0 } ?? [] })
-            .union(nearbyStarIDs)
+        return Set(figures["Sgr"]?.segments.flatMap { $0 } ?? [])
     }()
 
     /// Use the catalog's figure endpoints, including unnamed members needed to complete each pattern.
     static func stars(in catalogue: [CatalogStar]) -> [CatalogStar] {
         catalogue.filter { patternStarIDs.contains($0.id) }.sorted { $0.id < $1.id }
-    }
-
-    /// Keep one uncollected Capricornus member for the final capture; never erase real observations.
-    /// A fresh collection leaves Deneb Algedi (the brightest pattern member) uncollected.
-    @discardableResult
-    static func prepareCapricornus(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
-        guard let figure = GardenZodiacFigure.load().first(where: { $0.id == "Cap" }) else { return nil }
-        let stars = model.stars.filter { figure.requiredStarIDs.contains($0.id) }.sorted {
-            $0.mag == $1.mag ? $0.id < $1.id : $0.mag < $1.mag
-        }
-        guard let last = stars.first(where: { model.collected[$0.id] == nil }) else { return nil }
-        let records = stars.filter { $0.id != last.id && model.collected[$0.id] == nil }.map {
-            CollectedStar(id: $0.id, date: date, latitude: location.latitude, longitude: location.longitude,
-                identificationNote: "Pre-collected Capricornus demo star (debug build). Added for testing constellation completion; no camera capture was performed.")
-        }
-        try model.seedDemoObservations(records)
-        return last
-    }
-
-    /// Adds the surrounding demo sky without replacing any saved observations.
-    @discardableResult
-    static func prepareCollection(model: HomeViewModel, date: Date, location: ObserverLocation) throws -> CatalogStar? {
-        let finalStar = try prepareCapricornus(model: model, date: date, location: location)
-        let records = model.stars.filter { nearbyStarIDs.contains($0.id) && model.collected[$0.id] == nil }.map {
-            CollectedStar(id: $0.id, date: date, latitude: location.latitude, longitude: location.longitude,
-                identificationNote: "Pre-collected nearby demo star (debug build). Added around Capricornus; no camera capture was performed.")
-        }
-        try model.seedDemoObservations(records)
-        return finalStar
     }
 
     /// The same apparent horizon coordinates used by the live sky and garden, never recentered on the phone.
@@ -86,7 +51,9 @@ enum DemoSky {
     }
 
     /// Paint the simulated sky into the saved frame, including when no camera is available.
-    static func composite(_ image: CGImage?, stars: [(point: CGPoint, color: SIMD3<Double>)], viewSize: CGSize) -> CGImage? {
+    @concurrent nonisolated static func composite(
+        _ image: CGImage?, stars: [(point: CGPoint, color: SIMD3<Double>)], viewSize: CGSize
+    ) async -> CGImage? {
         guard viewSize.width > 0, viewSize.height > 0 else { return nil }
         let size = image.map { CGSize(width: $0.width, height: $0.height) } ?? viewSize
         let scale = size.width / viewSize.width
@@ -107,11 +74,10 @@ enum DemoSky {
         }.cgImage
     }
 
-    static func save(star: CatalogStar, image: CGImage, date: Date, location: ObserverLocation, model: HomeViewModel) throws {
-        let draft = CameraObservationDraft(star: star, image: UIImage(cgImage: image), date: date,
+    static func observation(star: CatalogStar, image: CGImage, date: Date, location: ObserverLocation) -> CameraObservationDraft {
+        CameraObservationDraft(star: star, image: UIImage(cgImage: image), date: date,
             location: location,
             identificationNote: "Demo constellation capture (debug build). Position calculated from the catalog, observation location and time. Star overlay generated; optical verification bypassed.")
-        try model.saveCameraObservation(draft, note: "")
     }
 }
 

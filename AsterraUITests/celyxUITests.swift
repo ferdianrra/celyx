@@ -9,6 +9,68 @@ import XCTest
 
 final class celyxUITests: XCTestCase {
     @MainActor
+    func testEventReminderConfirmationOnListAndDetail() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        let arguments = ["-ui-testing", "-hasCompletedTour", "YES", "-gardenUsesCamera", "NO"]
+        func openEvents() {
+            app.launch()
+            let calendar = app.buttons["Sky Calendar"]
+            XCTAssertTrue(calendar.waitForExistence(timeout: 15))
+            calendar.tap()
+            let dismissTip = app.buttons["Dismiss tip"]
+            if dismissTip.waitForExistence(timeout: 2) { dismissTip.tap() }
+        }
+        app.launchArguments = arguments + ["-skyEventReminderIdentifiers", "{}"]
+        openEvents()
+        let bell = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "sky-event-reminder-")).firstMatch
+        XCTAssertTrue(bell.waitForExistence(timeout: 10), app.debugDescription)
+        let identifier = bell.identifier
+        let eventID = String(identifier.dropFirst("sky-event-reminder-".count))
+        bell.tap()
+        XCTAssertTrue(app.buttons["Add to iPhone Reminders"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts["Turn on reminder?"].exists)
+        let confirmationShot = XCTAttachment(screenshot: app.screenshot())
+        confirmationShot.name = "Centered sky event reminder confirmation"
+        confirmationShot.lifetime = .keepAlways
+        add(confirmationShot)
+        XCTAssertTrue(app.navigationBars["Sky Events"].exists)
+        app.buttons["Cancel"].tap()
+        XCTAssertEqual(bell.label, "Remind me")
+
+        let card = app.descendants(matching: .any)["sky-event-card-" + eventID].firstMatch
+        card.tap()
+        let detailBell = app.buttons["sky-event-detail-reminder"]
+        XCTAssertTrue(detailBell.waitForExistence(timeout: 5))
+        detailBell.tap()
+        XCTAssertTrue(app.buttons["Add to iPhone Reminders"].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
+        XCTAssertEqual(detailBell.label, "Remind me")
+        app.terminate()
+
+        // Seed only the stored identifier to exercise removal confirmation without
+        // touching the simulator user's real reminders or requesting permissions.
+        app.launchArguments = arguments + ["-skyEventReminderIdentifiers",
+            "{ \"" + eventID + "\" = \"ui-test-owned-reminder\"; }"]
+        openEvents()
+        let enabledBell = app.buttons[identifier]
+        XCTAssertTrue(enabledBell.waitForExistence(timeout: 10))
+        XCTAssertEqual(enabledBell.label, "Turn off reminder")
+        enabledBell.tap()
+        XCTAssertTrue(app.buttons["Turn Off Reminder"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts["Turn off reminder?"].exists)
+        app.buttons["Cancel"].tap()
+        XCTAssertEqual(enabledBell.label, "Turn off reminder")
+        let enabledCard = app.descendants(matching: .any)["sky-event-card-" + eventID].firstMatch
+        enabledCard.tap()
+        XCTAssertTrue(detailBell.waitForExistence(timeout: 5))
+        detailBell.tap()
+        XCTAssertTrue(app.buttons["Turn Off Reminder"].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
+        XCTAssertEqual(detailBell.label, "Turn off reminder")
+    }
+
+    @MainActor
     func testDirectionMenuOmitsManualCalibrationAndReset() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -197,7 +259,7 @@ final class celyxUITests: XCTestCase {
         let collection = app.buttons["Your Collection"]
         XCTAssertTrue(collection.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Practice Star, collected")).firstMatch.exists)
-        XCTAssertFalse(app.staticTexts["Back in your Night Sea"].exists)
+        XCTAssertFalse(app.staticTexts["Back in your Sky Garden"].exists)
         XCTAssertFalse(app.buttons["Skip Tour"].exists)
         XCTAssertFalse(app.staticTexts["Your practice star"].exists)
     }
@@ -217,7 +279,7 @@ final class celyxUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         XCTAssertTrue(app.staticTexts["This is your virtual garden"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["Your Sun"].exists)
-        XCTAssertFalse(app.staticTexts["Collected! Watch it fly into your Night Sea."].exists)
+        XCTAssertFalse(app.staticTexts["Collected! Watch it fly into your Sky Garden."].exists)
         let garden = XCTAttachment(screenshot: app.screenshot())
         garden.name = "Guided Sun in the garden"
         garden.lifetime = .keepAlways
@@ -345,7 +407,7 @@ final class celyxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Your Collection"].exists)
         XCTAssertFalse(app.buttons["Sky Calendar"].exists)
         back.tap()
-        XCTAssertTrue(app.staticTexts["This is your Night Sea"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["This is your Sky Garden"].waitForExistence(timeout: 5))
         skip.tap()
         XCTAssertTrue(app.buttons["Your Collection"].waitForExistence(timeout: 5))
     }

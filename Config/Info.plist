@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Asterra adds sky events to Reminders with an alert when viewing begins, and removes its reminders when you turn them off.</string>
 	<key>LightPollutionAPIURL</key>
 	<string>$(ASTERRA_LIGHT_POLLUTION_URL)</string>
 	<key>FacebookAppID</key>

@@ -5,6 +5,7 @@ struct SkyEventDetailView: View {
     let event: SkyEvent
     let store: SkyEventStore
     let onCollect: () -> Void
+    @State private var showsReminderConfirmation = false
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -32,11 +33,14 @@ struct SkyEventDetailView: View {
                     store.reminders.contains(event.id) ? "Turn off reminder" : "Remind me",
                     systemImage: store.reminders.contains(event.id) ? "bell.fill" : "bell"
                 ) {
-                    store.toggleReminder(event)
+                    showsReminderConfirmation = true
                 }
+                .disabled(store.isUpdatingReminder)
+                .accessibilityIdentifier("sky-event-detail-reminder")
             }
         }
         .preferredColorScheme(.dark)
+        .skyEventReminderConfirmation(event: event, store: store, isPresented: $showsReminderConfirmation)
     }
 
     private var header: some View {

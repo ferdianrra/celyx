@@ -1,6 +1,6 @@
 # Asterra
 
-Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting celestial objects. Users find objects through a live camera, save observations with photos and notes, and revisit them in a personal sky garden.
+Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting celestial objects. Users find objects through a live camera, save observations with photos and notes, and revisit them in their Sky Garden.
 
 ## Current behavior
 
@@ -11,11 +11,17 @@ Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting c
 - **Learn the flow.** The daytime tour goes directly to a guided Sun placed from the current time and location. At night, the real-camera action appears before the virtual-star fallback. A prominent target arrow stays close to the capture reticle until the object approaches the lock area, and the first note editor opens with a descriptive, object-aware prompt instead of an extra instructional banner.
 - **Star portraits.** Every sheet, card and page that shows a star (camera collect card, collection list, object sheets, album, zodiac book, calibration pickers, share card) draws it live with StarKit (`Asterra/Shared/StarKit`, Metal shader) from the catalog's B−V and a luminosity derived from magnitude and distance. Portraits use `StarTuning.asterra`: a wider, brighter corona, stronger breathing of corona and disk, soft diffraction spikes on a slightly smaller disk, and low granulation contrast so the surface reads as smooth photosphere rather than glassy cells. The garden sky itself keeps its SceneKit rendering. The Sun is drawn by StarKit as a G2V star with a brighter, warmer surface (reddened near the horizon). The Moon and planets use `PlanetView` (`Asterra/Shared/Planets`): the garden's equirectangular textures on a lit, slowly rotating sphere with an atmosphere rim for Venus, Mars and Jupiter; Saturn, which has no texture, gets procedural bands and rings. The Moon does not rotate. `stars.json` has no spectral type or variability, so every star uses StarKit's dwarf class and default pulse.
 - **Zoom into the garden.** Pinching the virtual garden smoothly reaches a telescope-like 0.5° view (20× in gyro mode), and drags glide to a stop. Zoomed out in touch mode, the sky is drawn as a planetarium dome (stereographic projection). Stars stay points of light; the Sun, Moon and planets resolve into a live Sun, a textured Moon and planets with their real phase, and Saturn with rings. A temporary **Star Names** toggle in the compass menu hides object names.
-- **Review sky events.** The Sky Calendar lists upcoming events and opens event details.
+- **Review sky events.** The Sky Calendar lists upcoming events and opens event details. Reminder bells ask for confirmation before enabling or disabling. Confirmed reminders are saved to iPhone Reminders with an alarm when viewing starts; disabling removes the saved reminder.
 - **Constellations.** The Debug compass menu toggles missing pattern stars for all 12 zodiac constellations at their current sky positions. Completed patterns show their lines and figures in the garden without saving observations.
-- **Exercise constellation completion.** The Debug-only collection demo uses real sky positions for Libra, Aries and Capricornus. It can seed missing Capricornus members up to nine of ten and add seven nearby stars.
+- **Practice collecting Sagittarius.** The Debug-only camera demo shows 25 Sagittarius pattern stars at their real sky positions. Demo captures use the normal save, shutter and garden handover flow, and the figure unlocks as its stars are collected.
 
 ## Verification
+
+The Sky Garden copy passed all 17 onboarding unit tests and the UI test that checks the new title when returning to the first tour step on the iPhone 18 Pro simulator (iOS 27.2).
+
+All 44 focused tests in `DemoSkyTests`, `CameraTargetSelectionTests`, `SkyCaptureLifecycleTests`, `GardenCaptureSequenceTests` and `GardenZodiacTests` passed on the iPhone 18 Pro simulator (iOS 27.2). Live aiming responsiveness, overlay alignment and shutter timing still need physical-device verification.
+
+Sky event reminder integration builds for the iPhone 18 Pro simulator (iOS 27.2). All six reminder unit tests and the UI test covering enable/disable confirmation and cancellation from both list and detail passed. The broader 14-test feature view-model run passed 13 and failed `touchCanExploreBelowTheHorizon` in garden motion code outside this change. Real Reminders permission, saved-item visibility, removal and timed alarm delivery still need physical iPhone validation.
 
 The app icon now uses only the updated PNG catalog, with the legacy Icon Composer source archived outside the app target. The welcome tour uses the same updated artwork. The Debug build for generic iOS Simulator passed; compiled assets contain the PNG welcome logo and no legacy layered icon records. No unit or UI tests were run for this asset change, and the installed Home Screen icon has not been checked on a physical device.
 
@@ -45,3 +51,4 @@ The compass menu toggle passed its UI test on the iPhone 18 Pro simulator. All 1
 - [Native camera pipeline](docs/native-sky-camera.md)
 - [Zodiac artwork and anchors](docs/zodiac-artwork.md)
 - [Social sharing](docs/social-sharing.md)
+- [Sky event reminders](docs/sky-event-reminders.md)

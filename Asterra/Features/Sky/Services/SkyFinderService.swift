@@ -504,6 +504,18 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         return WormholeFreeze.make(image:image,size:viewport,view:frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle),
                                    projection:screenProjection(frame),alignment:alignment.rotation)
     }
+    #if DEBUG
+    private var demoSkyEnabled = false
+
+    func setDemoSkyEnabled(_ enabled: Bool) {
+        guard demoSkyEnabled != enabled else { return }
+        demoSkyEnabled = enabled
+        clearPinnedLight()
+        invalidateCameraMatches()
+        sky = nil
+    }
+    #endif
+
     /// Project a real horizon position, including below the horizon (demo collection, sky event guide).
     func demoProjection(horizon direction: SIMD3<Double>) -> SkyFinderProjection? {
         guard running, hasLocationFix, status == .tracking,
@@ -1062,6 +1074,10 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             projection = nil
             return
         }
+        #if DEBUG
+        // The demo uses the synchronized pose above and provides its own catalog targets.
+        guard !demoSkyEnabled else { return }
+        #endif
         let now = Date()
         if sky == nil || now.timeIntervalSince(lastSnapshot) >= 1 {
             sky = AstronomyService.snapshot(date: now, location: location)
