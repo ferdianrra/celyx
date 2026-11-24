@@ -100,18 +100,21 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             direction: direction,
             view: frame.camera.viewMatrix(viewRotationAngle: viewRotationAngle),
             projection: screenProjection(frame), size: viewport)
+        let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        let star = retainedCapture.annotation.star
+        let radius = CameraTargetSelection.lockRadius(for: star)
+        let isInsideLockRadius = CameraTargetSelection.keepsRetainedTarget(at: guide.point, center: center, radius: radius)
         if retainedCapture.isAutomaticEstimate {
-            guard automaticIdentification.canOfferCapturedPhoto(starID: retainedCapture.annotation.id,
+            guard star.isSolarSystemBody || isInsideLockRadius,
+                automaticIdentification.canOfferCapturedPhoto(starID: retainedCapture.annotation.id,
                 sourceID: retainedCapture.sourceID, at: frame.timestamp) else { return nil }
-            // A real captured frame keeps Collect available briefly while the observer
-            // lowers or shifts the phone to reach the stationary bottom button.
+            // Solar-system captures can stay available briefly when the observer lowers the phone.
             let saved = retainedCapture.annotation
             return CameraStarAnnotation(star: saved.star, point: guide.point ?? saved.point, size: saved.size,
                 estimatedSeparation: saved.estimatedSeparation, sourceDirection: saved.sourceDirection,
                 observedAt: saved.observedAt)
         }
-        let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
-        guard CameraTargetSelection.keepsRetainedTarget(at: guide.point, center: center) else { return nil }
+        guard isInsideLockRadius else { return nil }
         if let pin = pinnedLight, !pin.isSameSource(direction),
             CameraTargetSelection.beginsNewSource(
                 previousPoint: guide.point,
@@ -1463,13 +1466,12 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
                     ? (previous?.starID == match.star.id ? (previous?.hits ?? 0) + 1 : 1)
                     : (previous?.starID == match.star.id ? previous?.hits ?? 0 : 0)
                 nextHistory[track.id] = (match.star.id, hits)
+                // Keep distinct, confirmed neighbors available to target selection.
+                // The optical tracker already merges duplicate detections.
                 if CameraIdentityPolicy.hasPersistentEvidence(
                     hits: track.hits, firstSeen: track.firstSeen, lastSeen: track.time),
                     hits >= 3, visible.count < 8,
-                    !visible.contains(where: {
-                        $0.star.id == match.star.id || hypot($0.point.x - point.x, $0.point.y - point.y) < 90
-                    }),
-                    !unknown.contains(where: { hypot($0.point.x - point.x, $0.point.y - point.y) < 90 })
+                    !visible.contains(where: { $0.star.id == match.star.id })
                 {
                     visible.append(
                         CameraStarAnnotation(
