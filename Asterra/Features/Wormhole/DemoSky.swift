@@ -1,6 +1,6 @@
-// DEBUG-only collection override for Vega and the scheduled constellation.
+// Scheduled demo collection override for Vega and the scheduled constellation.
 // Uses real observing coordinates and time; only optical verification is bypassed.
-#if DEBUG
+#if DEBUG || ASTERRA_SCHEDULED_DEMO
 import SwiftUI
 import simd
 
@@ -89,7 +89,7 @@ enum DemoSky {
     static func observation(star: CatalogStar, image: CGImage, date: Date, location: ObserverLocation) -> CameraObservationDraft {
         CameraObservationDraft(star: star, image: UIImage(cgImage: image), date: date,
             location: location,
-            identificationNote: "Demo constellation capture (debug build). Position calculated from the catalog, observation location and time. Star overlay generated; optical verification bypassed.")
+            identificationNote: "Simulated constellation capture. Position calculated from the catalog, observation location and time. Star overlay generated; optical verification bypassed.")
     }
 }
 

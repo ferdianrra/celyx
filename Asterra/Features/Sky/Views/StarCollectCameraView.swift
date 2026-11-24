@@ -47,7 +47,7 @@ struct StarCollectCameraView: View {
     /// The camera feed shows only once the camera delivers real frames (no skewed first frames).
     @State private var feedReady = false
     @State private var isClosing = false
-    #if DEBUG
+    #if DEBUG || ASTERRA_SCHEDULED_DEMO
     @State private var demoCaptureTask: Task<Void, Never>?
     /// Catalog stars at their real current horizon positions.
     @State private var demoStars: [DemoSky.Entry] = []
@@ -92,7 +92,7 @@ struct StarCollectCameraView: View {
     private var viewSize: CGSize { viewModel.viewSize }
     private var center: CGPoint { CGPoint(x: viewSize.width / 2, y: viewSize.height / 2) }
     private var centerTarget: CenterTarget? {
-        #if DEBUG
+        #if DEBUG || ASTERRA_SCHEDULED_DEMO
         if demoOn {
             guard let target = DemoSky.target(in: demoProjections,
                 collected: [], excludedID: viewModel.excludedID,
@@ -156,7 +156,7 @@ struct StarCollectCameraView: View {
                     } else {
                         CelyxColor.night
                     }
-                    #if DEBUG
+                    #if DEBUG || ASTERRA_SCHEDULED_DEMO
                     if demoOn, handover == nil {
                         ForEach(demoProjections) { entry in
                             if let point = entry.point {
@@ -293,7 +293,7 @@ struct StarCollectCameraView: View {
                 Button("Back", systemImage: "chevron.left") {
                     guard !isClosing else { return }
                     isClosing = true
-                    #if DEBUG
+                    #if DEBUG || ASTERRA_SCHEDULED_DEMO
                     demoCaptureTask?.cancel()
                     #endif
                     viewModel.onSaved = nil
@@ -307,7 +307,7 @@ struct StarCollectCameraView: View {
         .preferredColorScheme(.dark)
         .animation(reduceMotion ? nil : .spring(duration: 0.35), value: shownTarget?.id)
         .task {
-            #if DEBUG
+            #if DEBUG || ASTERRA_SCHEDULED_DEMO
             service.setDemoSkyEnabled(demoOn)
             #endif
             service.updateVisibility(quality: model.quality, atmosphere: model.atmosphere)
@@ -356,7 +356,7 @@ struct StarCollectCameraView: View {
         // Follow the displayed target when it acquires, switches or releases its lock.
         .onChange(of: shownTarget?.id) { _, id in viewModel.lockedID = id }
         .onChange(of: excludedIsNear) { _, near in if !near { viewModel.excludedID = nil } }
-        #if DEBUG
+        #if DEBUG || ASTERRA_SCHEDULED_DEMO
         .task(id: demoOn) {
             // Refresh real sky positions with time and GPS, then project through the live camera.
             while demoOn && !Task.isCancelled {
@@ -374,7 +374,7 @@ struct StarCollectCameraView: View {
         }
         .onDisappear {
             clearCaptureFlash()
-            #if DEBUG
+            #if DEBUG || ASTERRA_SCHEDULED_DEMO
             demoCaptureTask?.cancel()
             #endif
             service.stop()
@@ -385,7 +385,7 @@ struct StarCollectCameraView: View {
                 Task { await service.start() }
             } else if value == .background {
                 clearCaptureFlash()
-                #if DEBUG
+                #if DEBUG || ASTERRA_SCHEDULED_DEMO
                 demoCaptureTask?.cancel()
                 #endif
                 if viewModel.capturedItem == nil { service.suspendForBackground() }
@@ -429,7 +429,7 @@ struct StarCollectCameraView: View {
     }
 
     private var hintText: String {
-        #if DEBUG
+        #if DEBUG || ASTERRA_SCHEDULED_DEMO
         if demoOn {
             guard service.observerLocation != nil else { return "Waiting for your location to map the sky" }
             guard let guide = demoGuide else {
@@ -511,7 +511,7 @@ struct StarCollectCameraView: View {
     }
 
     private var excludedIsNear: Bool {
-        #if DEBUG
+        #if DEBUG || ASTERRA_SCHEDULED_DEMO
         if demoOn {
             return demoProjections.contains { $0.id == viewModel.excludedID && $0.point.map { distance($0) <= viewModel.lockRadius } == true }
         }
@@ -545,7 +545,7 @@ struct StarCollectCameraView: View {
     private func collect(_ target: CenterTarget) {
         guard !isClosing, !isChecking, viewModel.capturedItem == nil,
             captureStart == nil, handover == nil else { return }
-        #if DEBUG
+        #if DEBUG || ASTERRA_SCHEDULED_DEMO
         if demoOn {
             captureDemo(target)
             return
@@ -619,7 +619,7 @@ struct StarCollectCameraView: View {
         onCollect(.wormhole(handover))
     }
 
-    #if DEBUG
+    #if DEBUG || ASTERRA_SCHEDULED_DEMO
     // MARK: Demo sky
 
     private func updateDemoProjections() {

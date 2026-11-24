@@ -214,6 +214,7 @@
     "ONLY_ACTIVE_ARCH[config=Debug]": "YES",
     "SDKROOT": "iphoneos",
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Debug]": "DEBUG $(inherited)",
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Release]": "ASTERRA_SCHEDULED_DEMO $(inherited)",
     "SWIFT_COMPILATION_MODE[config=Release]": "wholemodule",
     "SWIFT_OPTIMIZATION_LEVEL[config=Debug]": "-Onone",
     "VALIDATE_PRODUCT[config=Release]": "YES",

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || ASTERRA_SCHEDULED_DEMO
 import CoreGraphics
 import Foundation
 import Testing

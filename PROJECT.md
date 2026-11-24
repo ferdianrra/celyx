@@ -13,9 +13,11 @@ Asterra is a Swift and SwiftUI iPhone app for casual stargazing and collecting c
 - **Zoom into the garden.** Pinching the virtual garden smoothly reaches a telescope-like 0.5° view (20× in gyro mode), and drags glide to a stop. Zoomed out in touch mode, the sky is drawn as a planetarium dome (stereographic projection). Stars keep their original colored glow and four-point spikes. The Sun, Moon and planets resolve into a live Sun, a textured Moon and planets with their real phase, and Saturn with rings. Object names fade out when zooming out.
 - **Review sky events.** The Sky Calendar lists upcoming events and opens event details. Reminder bells ask for confirmation before enabling or disabling. Confirmed reminders are saved to iPhone Reminders with an alarm when viewing starts; disabling removes the saved reminder.
 - **Constellations.** The Garden shows collected stars. Completing a constellation’s pattern reveals its lines and zodiac figure.
-- **Practice collecting stars.** In Debug builds on the demo branch, **Start Collecting** opens directly in demo mode. Vega is available all day. The 25 Sagittarius pattern stars are available before noon, and the 15 Aquarius pattern stars are available from noon until midnight, using the iPhone’s local time. Stars stay at their real sky positions. Each capture adds only the selected star to the collection and uses the normal save, shutter and Garden handover flow.
+- **Practice collecting stars.** In Debug builds and TestFlight Release archives from the demo branch, **Start Collecting** opens directly in demo mode. Vega is available all day. The 25 Sagittarius pattern stars are available before noon, and the 15 Aquarius pattern stars are available from noon until midnight, using the iPhone’s local time. Stars stay at their real sky positions. Each capture adds only the selected star to the collection and uses the normal save, shutter and Garden handover flow.
 
 ## Verification
+
+A standard unsigned Asterra Release archive from the demo branch includes the scheduled demo with the `DEBUG` compiler flag off. All 13 focused `DemoSkyTests` and `CameraTargetSelectionTests` passed in Release on the iPhone 18 Pro simulator (iOS 27.0). The focused run excluded three unrelated test files that depend on Debug-only helpers.
 
 The 80-point star lock release passed 36 focused tests on the iPhone 18 Pro simulator (iOS 27.0), including the live lock threshold, demo release and nearby-star switching. Physical-device aiming remains unverified.
 

@@ -507,7 +507,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
         return WormholeFreeze.make(image:image,size:viewport,view:frame.camera.viewMatrix(viewRotationAngle:viewRotationAngle),
                                    projection:screenProjection(frame),alignment:alignment.rotation)
     }
-    #if DEBUG
+    #if DEBUG || ASTERRA_SCHEDULED_DEMO
     private var demoSkyEnabled = false
 
     func setDemoSkyEnabled(_ enabled: Bool) {
@@ -1077,7 +1077,7 @@ final class SkyFinderService: NSObject, SkyCaptureSessionDelegate, CLLocationMan
             projection = nil
             return
         }
-        #if DEBUG
+        #if DEBUG || ASTERRA_SCHEDULED_DEMO
         // The demo uses the synchronized pose above and provides its own catalog targets.
         guard !demoSkyEnabled else { return }
         #endif
